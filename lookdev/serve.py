@@ -129,7 +129,7 @@ class H(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?")[0]
-        if p not in ("/api/generate", "/api/design", "/api/save-voice"):
+        if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice"):
             self.send_response(404); self.end_headers(); return
         try:
             ln = int(self.headers.get("Content-Length", "0"))
@@ -178,6 +178,19 @@ class H(http.server.SimpleHTTPRequestHandler):
                        payload.get("voice_description"), vid, None, None,
                        datetime.datetime.now().isoformat(timespec="seconds"))
                 return self._json({"ok": True, "voice_id": vid, "name": data.get("name")})
+
+            if p == "/api/delete-voice":
+                vid = body.get("voice_id")
+                if not vid: return self._json({"ok": False, "error": "no voice_id"}, 200)
+                req = urllib.request.Request(EL + "/v1/voices/" + vid, method="DELETE", headers={"xi-api-key": k})
+                with urllib.request.urlopen(req, context=CTX, timeout=60) as r:
+                    r.read()
+                try:
+                    with _dblock:
+                        c = _db(); c.execute("DELETE FROM assets WHERE id=?", ("voice:" + vid,)); c.commit(); c.close()
+                except Exception:
+                    pass
+                return self._json({"ok": True, "voice_id": vid})
 
         except urllib.error.HTTPError as e:
             return self._json({"ok": False, "status": e.code, "error": e.read().decode()[:600]}, 200)

@@ -51,6 +51,7 @@
     <input class="key" id="key" type="password" placeholder="paste ElevenLabs API key (used server-side only)">
     <button id="connect">Connect</button>
     <select id="voice" title="voice for the scripted lines"><option value="">— voices —</option></select>
+    <button id="delvoice" title="delete the selected voice from your ElevenLabs library">Delete voice</button>
     <select id="model" title="TTS model — v3 supports audio/emotion tags">
       <option value="eleven_v3">tts: v3 (audio tags)</option>
       <option value="eleven_multilingual_v2">tts: multilingual_v2</option>
@@ -208,23 +209,44 @@ async function design(v, el){
 async function saveVoice(v, gvid, el, row){
   const sv=row.querySelector('.sv'), btn=row.querySelector('.save'); sv.textContent='saving…'; btn.disabled=true;
   try{
-    const payload={voice_name:'SL · '+v.name, voice_description:el.querySelector('.desc').value, generated_voice_id:gvid};
+    const vname='SL · '+v.name;
+    const payload={voice_name:vname, voice_description:el.querySelector('.desc').value, generated_voice_id:gvid};
     const j=await (await fetch('/api/save-voice',{method:'POST',headers:hdrs(),body:JSON.stringify({payload})})).json();
     if(!j.ok){ sv.textContent='✗ '+(j.error||'failed'); sv.className='stat sv err'; }
-    else { sv.textContent='✓ saved · '+j.voice_id; sv.className='stat sv ok';
-      const o=document.createElement('option'); o.value=j.voice_id; o.textContent=(j.name||v.name); voiceEl.appendChild(o); voiceEl.value=j.voice_id; localStorage.setItem('elVoice',j.voice_id); }
+    else { localStorage.setItem('elVoice',j.voice_id); sv.textContent='✓ saved · '+j.voice_id; sv.className='stat sv ok';
+      // keep ONLY this voice for the character — delete any other saved test voices with the same name
+      try{ const vl=await (await fetch('/api/voices',{headers:hdrs()})).json();
+        if(vl.ok){ const dupes=vl.voices.filter(x=> x.name===vname && x.voice_id!==j.voice_id); let removed=0;
+          for(const dv of dupes){ const dr=await (await fetch('/api/delete-voice',{method:'POST',headers:hdrs(),body:JSON.stringify({voice_id:dv.voice_id})})).json(); if(dr.ok) removed++; }
+          if(removed){ sv.textContent+=' · removed '+removed+' old test voice'+(removed>1?'s':''); } }
+      }catch(e){}
+      await refreshVoices();
+    }
   }catch(e){ sv.textContent='✗ '+e.message; sv.className='stat sv err'; }
   btn.disabled=false;
 }
 
 $('#genall').onclick=async()=>{ for(const grp of CATALOG) for(const it of grp.items){ if(manifest[it.id]) continue; const el=document.querySelector(`#list .item[data-id="${it.id}"]`); if(el) await gen(it, el); } };
+async function refreshVoices(){
+  const j=await (await fetch('/api/voices',{headers:hdrs()})).json();
+  if(!j.ok) return j;
+  voiceEl.innerHTML='<option value="">— pick a voice —</option>'+j.voices.map(v=>`<option value="${v.voice_id}">${v.name}</option>`).join('');
+  const saved=localStorage.getItem('elVoice'); if(saved) voiceEl.value=saved;
+  return j;
+}
 $('#connect').onclick=async()=>{ const key=keyEl.value.trim(); localStorage.setItem('elKey',key); if(!key){ connstat.textContent='Paste a key first.'; return; }
   connstat.textContent='connecting…';
-  try{ const j=await (await fetch('/api/voices',{headers:hdrs()})).json();
+  try{ const j=await refreshVoices();
+    connstat.textContent = j && j.ok ? ('✓ connected · '+j.voices.length+' voices') : ('✗ '+((j&&j.error)||'failed'));
+  }catch(e){ connstat.textContent='✗ '+e.message; } };
+$('#delvoice').onclick=async()=>{ const vid=voiceEl.value; if(!vid){ connstat.textContent='pick a voice to delete first'; return; }
+  const label=voiceEl.options[voiceEl.selectedIndex].text;
+  if(!confirm('Delete this voice from your ElevenLabs library?\n\n'+label)) return;
+  connstat.textContent='deleting…';
+  try{ const j=await (await fetch('/api/delete-voice',{method:'POST',headers:hdrs(),body:JSON.stringify({voice_id:vid})})).json();
     if(!j.ok){ connstat.textContent='✗ '+(j.error||'failed'); return; }
-    voiceEl.innerHTML='<option value="">— pick a voice —</option>'+j.voices.map(v=>`<option value="${v.voice_id}">${v.name}</option>`).join('');
-    const saved=localStorage.getItem('elVoice'); if(saved) voiceEl.value=saved;
-    connstat.textContent='✓ connected · '+j.voices.length+' voices';
+    if(localStorage.getItem('elVoice')===vid) localStorage.removeItem('elVoice');
+    await refreshVoices(); connstat.textContent='✓ deleted · '+label;
   }catch(e){ connstat.textContent='✗ '+e.message; } };
 keyEl.onchange=()=>localStorage.setItem('elKey',keyEl.value.trim());
 voiceEl.onchange=()=>localStorage.setItem('elVoice',voiceEl.value);
