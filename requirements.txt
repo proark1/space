@@ -1,0 +1,2 @@
+# SIGNAL LOST look-dev + Audio Forge server uses only the Python standard library.
+# This file exists so Railway/Nixpacks detects a Python app. No dependencies needed.

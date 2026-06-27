@@ -1,0 +1,14 @@
+# generated audio (Audio Forge output) — regenerate from prompts, don't commit
+lookdev/audio/
+
+# secrets
+.env
+.env.*
+*.key
+**/.elevenlabs_key
+
+# os / tooling
+.DS_Store
+node_modules/
+dist/
+.claude/
