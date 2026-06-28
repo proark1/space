@@ -24,6 +24,17 @@ export function dequantizeYaw(q: number): number {
   return (q / YAW_STEPS) * TAU;
 }
 
+/** Quantize aim pitch (radians, clamped to ±π) to a signed int16. */
+export function quantizePitch(rad: number): number {
+  const clamped = rad < -Math.PI ? -Math.PI : rad > Math.PI ? Math.PI : rad;
+  return Math.round((clamped / Math.PI) * 32767);
+}
+
+/** Inverse of {@link quantizePitch}. */
+export function dequantizePitch(q: number): number {
+  return (q / 32767) * Math.PI;
+}
+
 export function writePos(w: ByteWriter, x: number, y: number, z: number): void {
   w.i16(quantizePosAxis(x));
   w.i16(quantizePosAxis(y));
