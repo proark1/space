@@ -31,7 +31,7 @@
 <div id="cross"></div>
 <div id="stats"><div>DIST <b id="sd">—</b></div><div>ALIGN <b id="sa">—</b></div><div>SPEED <b id="ss">—</b></div></div>
 <div id="prompt"><b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow</div>
-<div id="result"><div id="rtxt"></div><a id="enter" href="/">▸ ENTER THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
+<div id="result"><div id="rtxt"></div><a id="enter" href="/">▸ STEP INTO THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
 
 <script type="importmap">
 { "imports": {
@@ -59,7 +59,7 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping; const BASE_EXP=1.3; renderer.t
 
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x03040b);
 scene.fog=new THREE.FogExp2(0x04060e,0.0016);
-const camera=new THREE.PerspectiveCamera(60,1,0.05,6000);   // capsule axis, looking -Z
+const camera=new THREE.PerspectiveCamera(60,1,0.05,6000); camera.rotation.order='YXZ';   // capsule axis, looking -Z
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -131,6 +131,25 @@ for(let a=0;a<16;a++){ const an=a/16*Math.PI*2; const lm=part(new THREE.SphereGe
 for(let a=0;a<4;a++){ const an=a/4*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(Math.cos(an)*2.7,Math.sin(an)*2.7,-0.4); piv.rotation.z=an; world.add(piv); part(BOX(1.4,0.3,0.5),M.metal,piv,0.7,0,0); clampPivots.push(piv); }
 const dockLight=new THREE.PointLight(0xff7050,9,28,2); dockLight.position.set(0,0,2.5); world.add(dockLight);
 
+// ---- ship interior: airlock + corridor you walk into after docking (revealed in-page, no reload) ----
+const ship=new THREE.Group(); scene.add(ship); ship.visible=false;
+const CW=3.6, CH=3.2, ZEND=-28; const corLights=[];
+const cmFloor=new THREE.MeshStandardMaterial({color:0x2b3338,map:grime,roughness:0.9,metalness:0.08});
+const cmWall=new THREE.MeshStandardMaterial({color:0x39434c,map:grime,roughness:0.92,metalness:0.12});
+const cmWall2=new THREE.MeshStandardMaterial({color:0x2a323a,map:grime,roughness:0.95,metalness:0.08});
+const cyanM=new THREE.MeshStandardMaterial({color:0x05131a,emissive:0x9FD0FF,emissiveIntensity:1.2,roughness:1});
+part(new THREE.TorusGeometry(1.9,0.16,10,28),M.amber,ship,0,1.5,-1.8); part(new THREE.TorusGeometry(1.7,0.1,10,28),M.metal,ship,0,1.5,-1.5);   // airlock mouth you pass through
+part(BOX(CW,0.2,2-ZEND),cmFloor,ship,0,0,(-2+ZEND)/2); part(BOX(CW,0.2,2-ZEND),cmWall2,ship,0,CH,(-2+ZEND)/2);
+part(BOX(0.2,CH,2-ZEND),cmWall,ship,-CW/2,CH/2,(-2+ZEND)/2); part(BOX(0.2,CH,2-ZEND),cmWall,ship,CW/2,CH/2,(-2+ZEND)/2);
+for(let z=-4;z>ZEND;z-=4){ part(BOX(0.3,CH,0.5),cmWall2,ship,-CW/2+0.15,CH/2,z); part(BOX(0.3,CH,0.5),cmWall2,ship,CW/2-0.15,CH/2,z); part(BOX(CW,0.4,0.5),cmWall2,ship,0,CH-0.2,z);
+  part(new THREE.CylinderGeometry(0.06,0.06,CW-0.3,8),M.metal,ship,0,CH-0.42,z+1,0,0,Math.PI/2);
+  const lit=(((z/4)|0)%2===0); part(BOX(0.9,0.06,0.5),lit?M.amber:cyanM,ship,0,CH-0.42,z+2);
+  const pl=new THREE.PointLight(lit?0xE8A33D:0x9FD0FF,lit?4:1.4,8,1.6); pl.position.set(0,CH-0.6,z+2); ship.add(pl); corLights.push({pl,base:pl.intensity,seed:Math.random()*9}); }
+part(BOX(CW,CH,0.3),cmWall2,ship,0,CH/2,ZEND); part(BOX(1.5,2.2,0.18),M.dark,ship,0,1.3,ZEND+0.2); part(BOX(1.1,0.18,0.06),M.amber,ship,0,2.5,ZEND+0.25);   // bulkhead door (deeper in)
+const deepLight=new THREE.PointLight(0xff3a2a,0,7,2); deepLight.position.set(0,1.6,ZEND-1.5); ship.add(deepLight);
+const shipAmb=new THREE.AmbientLight(0x223040,0); scene.add(shipAmb);
+const flash=new THREE.SpotLight(0xffe6c0,0,28,0.55,0.5,1.3); const flashT=new THREE.Object3D(); scene.add(flashT); flash.target=flashT; scene.add(flash);
+
 // ---- capsule window frame (you are looking out of the capsule) ----
 const frame=new THREE.Group(); camera.add(frame); scene.add(camera);
 const fr=(w,h,x,y)=>part(BOX(w,h,0.2),M.frame,frame,x,y,-1.15);
@@ -147,7 +166,7 @@ const debris=new THREE.Points(debGeo,new THREE.PointsMaterial({color:0xffa040,si
 // ---- HUD ----
 const sd=document.getElementById('sd'), sa=document.getElementById('sa'), ss=document.getElementById('ss');
 const result=document.getElementById('result'), rtxt=document.getElementById('rtxt'), enter=document.getElementById('enter'), retry=document.getElementById('retry');
-enter.onclick=e=>{ e.preventDefault(); goNext('/'); };   // board the ship (the game)
+enter.onclick=e=>{ e.preventDefault(); board(); };   // step into the ship — in-page, no reload
 
 // ---- audio ----
 let A=null;
@@ -163,10 +182,20 @@ addEventListener('keydown',e=>{ keys[e.code]=true; startAudio(); if([ 'Space','A
 addEventListener('keyup',e=>{ keys[e.code]=false; });
 addEventListener('pointerdown',startAudio);
 
+// --- step into the ship: the docking minigame hands off to a first-person walk (same page) ---
+function board(){ if(state==='board'||state==='inside')return; state='board'; boardT=0; result.style.display='none';
+  document.getElementById('cross').style.display='none'; document.getElementById('stats').style.display='none';
+  frame.visible=false; ship.visible=true; shipAmb.intensity=0.22; }
+addEventListener('mousemove',e=>{ if(state==='inside' && document.pointerLockElement===canvas){ yaw-=e.movementX*0.0023; pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*0.0023)); } });
+addEventListener('keydown',e=>{ if(state==='inside' && e.code==='KeyE' && pos.z<ZEND+3) goNext('/'); });
+canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLockElement!==canvas) canvas.requestPointerLock(); });
+
 // ---- state / physics ----
 const TOL=0.6, SPEED_MAX=1.7, THR=3.4, CLOSE=2.4, DAMP=0.8;
-let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0;
-function reset(){ offX=2.4*(Math.random()<.5?-1:1); offY=-1.5+Math.random(); voffX=voffY=0; dist=34; vdist=0; driftP=Math.random()*9; state='align'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0; }
+let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,yaw=0,pitch=0; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
+function reset(){ offX=2.4*(Math.random()<.5?-1:1); offY=-1.5+Math.random(); voffX=voffY=0; dist=34; vdist=0; driftP=Math.random()*9; state='align'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
+  frame.visible=true; ship.visible=false; world.visible=true; shipAmb.intensity=0; flash.intensity=0; camera.position.set(0,0,0); camera.rotation.set(0,0,0);
+  document.getElementById('cross').style.display=''; document.getElementById('stats').style.display=''; document.getElementById('prompt').style.display=''; }
 reset();
 retry.onclick=reset;
 
@@ -193,7 +222,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     if(dist<=0.6){
       if(off<TOL && vdist<SPEED_MAX){ state='docked'; if(A)A.clunk(); clampPivots.forEach(p=>p.rotation.z+=0.5);
         rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; result.style.display='flex';
-        if(FLOW) setTimeout(()=>goNext('/'),2400); }   // flow: auto-board after the clunk
+        if(FLOW) setTimeout(board,2600); }   // flow: auto-board after the clunk
       else { state='boom'; boomT=0; if(A)A.boom(); shake=1; debris.material.opacity=1;
         for(let i=0;i<DEB;i++){ debPos[i*3]=-offX; debPos[i*3+1]=-offY; debPos[i*3+2]=-0.5; debVel[i].set((Math.random()-0.5)*16,(Math.random()-0.5)*16,(Math.random()-0.5)*16+4); }
         rtxt.textContent='✗ COLLISION'; rtxt.className='bad'; result.style.display='flex'; }
@@ -203,10 +232,24 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     debGeo.attributes.position.needsUpdate=true; debris.material.opacity=Math.max(0,1-boomT*0.5);
     renderer.toneMappingExposure=BASE_EXP*(1+Math.max(0,1.4-boomT*3));
   } else if(state==='docked'){ collarPulse(t); }
+  else if(state==='board'){ collarPulse(t); boardT+=dt; const k=Math.min(1,boardT/2.4), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    camera.position.set(0,1.6*e,-1-e*4.4); flash.intensity=120*e; flash.position.copy(camera.position); flashT.position.set(0,1.4,camera.position.z-3);
+    if(k>=1){ state='inside'; world.visible=false; pos.set(0,0,camera.position.z); document.getElementById('prompt').innerHTML='<b>WASD</b> walk · <b>mouse</b> look · reach the bulkhead · <b>E</b> deeper in'; if(canvas.requestPointerLock) canvas.requestPointerLock(); } }
+  else if(state==='inside'){
+    const s=Math.sin(yaw),cc=Math.cos(yaw),fx=-s,fz=-cc,rxx=cc,rzz=-s; let mx=0,mz=0;
+    if(keys.KeyW||keys.ArrowUp){mx+=fx;mz+=fz;} if(keys.KeyS||keys.ArrowDown){mx-=fx;mz-=fz;}
+    if(keys.KeyD||keys.ArrowRight){mx+=rxx;mz+=rzz;} if(keys.KeyA||keys.ArrowLeft){mx-=rxx;mz-=rzz;}
+    if(mx||mz){ const l=Math.hypot(mx,mz); pos.x+=mx/l*2.6*dt; pos.z+=mz/l*2.6*dt; }
+    pos.x=Math.max(-CW/2+0.4,Math.min(CW/2-0.4,pos.x)); pos.z=Math.max(ZEND+0.9,Math.min(-1.2,pos.z));
+    camera.position.set(pos.x,1.6+((mx||mz)?Math.sin(t*9)*0.04:0),pos.z); camera.rotation.set(pitch,yaw,0);
+    flash.position.copy(camera.position); camera.getWorldDirection(_fw); flashT.position.copy(camera.position).add(_fw); flash.intensity=120;
+    for(const L of corLights){ const n=Math.sin(t*16+L.seed)*0.5+0.5; L.pl.intensity=L.base*(0.4+0.6*n); }
+    deepLight.intensity=0.5+0.5*Math.sin(t*3);
+  }
   // place the dock per offset/approach; gentle approach sway
   world.position.set(-offX,-offY,-dist); world.rotation.z=Math.sin(t*0.2)*0.01;
-  dockLight.color.setHex(state==='docked'?0x40ff80:0xff7050);
-  camera.position.set((Math.random()-0.5)*shake*0.4,(Math.random()-0.5)*shake*0.4,0);
+  dockLight.color.setHex((state==='align'||state==='boom')?0xff7050:0x40ff80);
+  if(state==='align'||state==='boom') camera.position.set((Math.random()-0.5)*shake*0.4,(Math.random()-0.5)*shake*0.4,0);
   Grade.uniforms.uTime.value=t; composer.render();
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
