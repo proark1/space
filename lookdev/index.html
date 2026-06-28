@@ -141,6 +141,7 @@ const C={
   crate:snap(new THREE.MeshStandardMaterial({color:0x55492c, map:gWall, roughness:0.9, metalness:0.1, flatShading:true})),
   amber:new THREE.MeshStandardMaterial({color:0x180f04, emissive:0xE8A33D, emissiveIntensity:2.6, roughness:1}),
   cyan: new THREE.MeshStandardMaterial({color:0x05131a, emissive:0x9FD0FF, emissiveIntensity:1.6, roughness:1}),
+  red:  new THREE.MeshStandardMaterial({color:0x1c0503, emissive:0xff2b18, emissiveIntensity:2.3, roughness:1}),
 };
 const world=new THREE.Group(); scene.add(world);
 const box=(w,h,d,m,x,y,z,rx=0,ry=0,rz=0)=>{const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);o.rotation.set(rx,ry,rz);o.castShadow=o.receiveShadow=true;world.add(o);return o;};
@@ -166,28 +167,35 @@ decal(blood,1.6,1.6, -W/2+0.11,1.3,-13, 0, Math.PI/2);
 decal(blood,2.0,2.0, 0,0.13,-25, -Math.PI/2);
 decal(sign('SECTOR 7','#E8A33D'),0.55,0.55, W/2-0.12,2.1,-6,0,-Math.PI/2);
 decal(sign('COMMAND','#9FD0FF'),0.9,0.45, 0,2.55,-LEN-6.78);
-box(0.5,0.75,0.4,C.pipe,-W/2+0.32,1.15,-9); box(0.4,0.4,0.4,C.amber,-W/2+0.27,1.65,-9);
-box(0.95,0.95,0.95,C.crate,W/2-0.62,0.57,-14,0,0.3,0); box(0.85,0.85,0.85,C.crate,W/2-0.7,1.4,-14,0.1,0.2,0);
-box(0.95,0.95,0.95,C.crate,W/2-0.66,0.57,-22.5,0,-0.2,0);
-box(0.7,0.5,1.3,C.rust,-W/2+0.46,0.46,-30); box(0.82,0.85,0.12,C.pipe,-W/2+0.12,1.7,-19); for(let k=0;k<4;k++) box(0.62,0.04,0.12,C.wall2,-W/2+0.12,1.5+k*0.14,-19);
+box(0.5,0.75,0.4,C.pipe,-W/2+0.37,1.15,-9); box(0.4,0.4,0.4,C.amber,-W/2+0.4,1.65,-9);
+box(0.95,0.95,0.95,C.crate,W/2-0.74,0.57,-14,0,0.3,0); box(0.85,0.85,0.85,C.crate,W/2-0.82,1.4,-14,0.1,0.2,0);
+box(0.95,0.95,0.95,C.crate,W/2-0.74,0.57,-22.5,0,-0.2,0);
+box(0.7,0.5,1.3,C.rust,-W/2+0.48,0.35,-30); box(0.12,0.85,0.82,C.pipe,-W/2+0.09,1.7,-19); for(let k=0;k<4;k++) box(0.1,0.04,0.62,C.wall2,-W/2+0.13,1.5+k*0.14,-19);
 const cableMat=new THREE.MeshStandardMaterial({color:0x14171b,roughness:1,metalness:0.2});
 function cable(x,z,sag){ const cv=new THREE.CatmullRomCurve3([new THREE.Vector3(x,H-0.1,z),new THREE.Vector3(x+0.1,H-0.1-sag,z-1.4),new THREE.Vector3(x-0.05,H-0.1,z-2.8)]);
   world.add(new THREE.Mesh(new THREE.TubeGeometry(cv,16,0.03,5,false),cableMat)); }
 cable(0.5,-11,0.9); cable(-0.6,-21,1.2); cable(0.3,-33,0.8); cable(-0.4,-39,1.0);
+cable(0.95,-38,1.35); cable(-1.0,-42,1.1);
 
 // end room
 box(W,0.2,7,C.floor,0,0,-LEN-3.5); box(W,0.2,7,C.ceil,0,H,-LEN-3.5);
 box(0.2,H,7,C.wall,-W/2,H/2,-LEN-3.5); box(0.2,H,7,C.wall,W/2,H/2,-LEN-3.5); box(W,H,0.3,C.wall2,0,H/2,-LEN-7);
 box(0.5,0.5,0.5,C.cyan,0,2.0,-LEN-6.7);
 const emer=new THREE.PointLight(0xff2a18,0,8,1.6); emer.position.set(0,2.4,-LEN-5); world.add(emer);
+const threatRim=new THREE.PointLight(0x28dfff,1.8,8,1.7); threatRim.position.set(0,2.45,-LEN-6.2); world.add(threatRim);
+const redRim=new THREE.PointLight(0xff2414,2.2,7,1.8); redRim.position.set(W/2-0.2,2.0,-LEN-2.1); world.add(redRim);
+for(let k=0;k<3;k++){
+  box(0.08,0.58,0.36,C.red,W/2-0.11,2.35,-LEN-1.6-k*1.65,0,0,0);
+  box(0.08,0.42,0.28,C.cyan,-W/2+0.11,2.05,-LEN-2.1-k*1.8,0,0,0);
+}
 
 // ---------- terminal screen ----------
 const scrC=document.createElement('canvas'); scrC.width=256; scrC.height=160; const sx=scrC.getContext('2d');
 const scrTex=new THREE.CanvasTexture(scrC); scrTex.colorSpace=THREE.SRGBColorSpace;
 const screen=new THREE.Mesh(new THREE.PlaneGeometry(0.62,0.82),
   new THREE.MeshStandardMaterial({map:scrTex,emissive:0x66ffaa,emissiveMap:scrTex,emissiveIntensity:1.5,color:0x000000,roughness:1}));
-screen.position.set(-W/2+0.24,1.55,-16); screen.rotation.y=Math.PI/2; world.add(screen);
-box(0.78,1.05,0.12,C.pipe,-W/2+0.17,1.55,-16);
+screen.position.set(-W/2+0.2,1.55,-16); screen.rotation.y=Math.PI/2; world.add(screen);
+box(0.14,1.05,0.78,C.pipe,-W/2+0.1,1.55,-16);
 const scrLight=new THREE.PointLight(0x66ffaa,1.5,3.2,2); scrLight.position.set(-W/2+0.45,1.55,-16); world.add(scrLight);
 let SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer'];
 let scrScroll=0, scrTimer=0;
@@ -211,33 +219,92 @@ bp(0.5,0.62,0.32,0,0.55,0,0.5); bp(0.3,0.3,0.3,0,1.0,0.2); bp(0.15,0.62,0.15,-0.
 body.position.set(-W/2+0.55,0,-33); body.rotation.y=0.6; world.add(body);
 decal(blood,1.5,1.5,-W/2+0.12,1.0,-33,0,Math.PI/2);
 
-// ---------- wet puddle reflection (optional) ----------
-try{
-  const { Reflector } = await import('three/addons/objects/Reflector.js');
-  const puddle = new Reflector(new THREE.PlaneGeometry(2.4,3.0), {color:0x141c22, textureWidth:512, textureHeight:512});
-  puddle.rotation.x=-Math.PI/2; puddle.position.set(-0.2,0.105,-37); scene.add(puddle);
-  const film=new THREE.Mesh(new THREE.PlaneGeometry(2.4,3.0), new THREE.MeshStandardMaterial({color:0x05080c,transparent:true,opacity:0.5,roughness:0.15,metalness:0.7}));
-  film.rotation.x=-Math.PI/2; film.position.set(-0.2,0.108,-37); scene.add(film);
-}catch(e){ console.warn('reflector skipped', e); }
+// ---------- wet floor sheen (feathered glossy decal — catches the flashlight, no mirror void) ----------
+const wetMask=tex(x=>{ const g=x.createRadialGradient(128,128,12,128,128,128); g.addColorStop(0,'rgba(255,255,255,0.85)'); g.addColorStop(0.55,'rgba(255,255,255,0.5)'); g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=g; x.fillRect(0,0,256,256); });
+// dielectric sheen: diffuse ≈ floor (so it never darkens to a void), low roughness so it catches the flashlight as a wet glint
+function wet(x,z,r){ const o=new THREE.Mesh(new THREE.CircleGeometry(r,28), new THREE.MeshStandardMaterial({color:0x262e34,roughness:0.13,metalness:0.0,transparent:true,alphaMap:wetMask,opacity:0.5,depthWrite:false}));
+  o.rotation.x=-Math.PI/2; o.position.set(x,0.103,z); o.receiveShadow=false; scene.add(o); return o; }
+wet(-0.2,-37,1.6); wet(-0.45,-33,1.05); wet(0.28,-43.5,1.45);
 
 // ---------- steam ----------
 function pts(n,col,size,op){ const p=new Float32Array(n*3); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
   const o=new THREE.Points(g,new THREE.PointsMaterial({color:col,size,sizeAttenuation:true,transparent:true,opacity:op,depthWrite:false,blending:THREE.AdditiveBlending,fog:true})); scene.add(o); return {o,p,n}; }
-const steam=pts(70,0x5a6a78,0.09,0.16); for(let i=0;i<steam.n;i++){ steam.p[i*3]=-W/2+0.4+(Math.random()-0.5)*0.5; steam.p[i*3+1]=1.6+Math.random()*1.4; steam.p[i*3+2]=-19+(Math.random()-0.5)*0.6; } steam.o.geometry.attributes.position.needsUpdate=true;
-const DN=230, dp=new Float32Array(DN*3); for(let i=0;i<DN;i++){ dp[i*3]=(Math.random()-0.5)*W; dp[i*3+1]=Math.random()*H; dp[i*3+2]=(Math.random()-0.5)*22; }
+const steam=pts(110,0x5a6a78,0.1,0.18); for(let i=0;i<steam.n;i++){ const rear=i>70; steam.p[i*3]=(rear?0:-W/2+0.4)+(Math.random()-0.5)*(rear?W:0.5); steam.p[i*3+1]=1.2+Math.random()*1.9; steam.p[i*3+2]=(rear?-LEN-3:-19)+(Math.random()-0.5)*(rear?5.5:0.6); } steam.o.geometry.attributes.position.needsUpdate=true;
+const DN=320, dp=new Float32Array(DN*3); for(let i=0;i<DN;i++){ dp[i*3]=(Math.random()-0.5)*W; dp[i*3+1]=Math.random()*H; dp[i*3+2]=(Math.random()-0.5)*22; }
 const dgeo=new THREE.BufferGeometry(); dgeo.setAttribute('position',new THREE.BufferAttribute(dp,3));
 const dust=new THREE.Points(dgeo,new THREE.PointsMaterial({color:0x8a96a0,size:0.011,sizeAttenuation:true,transparent:true,opacity:0.18,depthWrite:false,blending:THREE.NormalBlending,fog:true})); scene.add(dust);
 
 // ---------- monster ----------
 const mob=new THREE.Group();
-const mMat=new THREE.MeshStandardMaterial({color:0x0c1014,roughness:0.45,metalness:0.3});
-const throatMat=new THREE.MeshStandardMaterial({color:0x06140a,emissive:0x55e08a,emissiveIntensity:1.1,roughness:0.4});
-const mp=(g,m,x,y,z,rx=0)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.rotation.x=rx;o.castShadow=true;mob.add(o);return o;};
-mp(new THREE.CapsuleGeometry(0.22,1.15,5,14),mMat,0,1.2,0,0.22); mp(new THREE.SphereGeometry(0.18,18,18),mMat,0,2.05,0.16);
-const mThroat=mp(new THREE.SphereGeometry(0.08,16,16),throatMat,0,1.7,0.22);
-mp(new THREE.CapsuleGeometry(0.06,1.25,4,10),mMat,-0.32,1.25,0.06,0.55); mp(new THREE.CapsuleGeometry(0.06,1.25,4,10),mMat,0.32,1.25,0.06,-0.55);
-mp(new THREE.CapsuleGeometry(0.085,1.05,4,10),mMat,-0.12,0.55,0); mp(new THREE.CapsuleGeometry(0.085,1.05,4,10),mMat,0.12,0.55,0);
-mob.position.set(0.5,0,-LEN-4.6); scene.add(mob);
+// MIXED-HYBRID creature: smooth (exempt from PS1 vertex-snap) so it breaks the low-poly register and reads scary
+const tendrils=[], bioStrips=[];
+const mMat   = new THREE.MeshPhysicalMaterial({color:0x070a0e, roughness:0.27, metalness:0.18, clearcoat:0.75, clearcoatRoughness:0.2, emissive:0x02070a, emissiveIntensity:0.18});  // wet chitin skin
+const mClaw  = new THREE.MeshStandardMaterial({color:0xa6967d, roughness:0.46, metalness:0.08}); // bone talons / teeth
+const mFlesh = new THREE.MeshPhysicalMaterial({color:0x2b0712, roughness:0.48, metalness:0.03, clearcoat:0.45, clearcoatRoughness:0.32, emissive:0x5e1420, emissiveIntensity:0.5}); // inner membrane
+const throatMat=new THREE.MeshPhysicalMaterial({color:0x031a1a, emissive:0x40ffe8, emissiveIntensity:1.3, roughness:0.2, metalness:0.05, clearcoat:0.65, clearcoatRoughness:0.12}); // bioluminescent resonator (the "tell")
+// geometry, material, x,y,z, rx,ry,rz, scale(scalar|[x,y,z]), parent
+const mp=(g,m,x,y,z,rx=0,ry=0,rz=0,s=1,parent=mob)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.rotation.set(rx,ry,rz);
+  if(Array.isArray(s))o.scale.set(s[0],s[1],s[2]); else o.scale.setScalar(s); o.castShadow=true; parent.add(o); return o;};
+const mtube=(points,r=0.02,parent=mob,mat=mMat)=>{ const o=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points),18,r,6,false),mat); o.castShadow=true; parent.add(o); return o; };
+
+// pelvis + hunched, segmented torso leaning toward its prey
+mp(new THREE.SphereGeometry(0.23,14,12), mMat, 0,1.03,-0.07, 0,0,0, [1.1,0.82,1.16]);
+mp(new THREE.CapsuleGeometry(0.205,0.58,8,16), mMat, 0,1.38,0.09, 0.34);
+mp(new THREE.SphereGeometry(0.235,16,14), mMat, 0,1.65,0.22, 0.34, 0,0, [1.35,0.78,1.0]);          // chest mass
+for(let r=0;r<6;r++) mp(new THREE.TorusGeometry(0.205-r*0.014,0.014,6,18), mMat, 0,1.18+r*0.115,0.0+r*0.05, Math.PI/2+0.34); // chitin ribs
+// bioluminescent chest resonator (mThroat — pulsed by the loop) set into a fleshy socket
+mp(new THREE.TorusGeometry(0.115,0.032,8,20), mFlesh, 0,1.58,0.285, 0.34);
+const mThroat=mp(new THREE.CapsuleGeometry(0.064,0.18,8,14), throatMat, 0,1.58,0.3, 0.34);
+for(let r=0;r<6;r++){
+  const x=(r-2.5)*0.035;
+  const stripMat=throatMat.clone();
+  const strip=mp(new THREE.BoxGeometry(0.018,0.16-r*0.008,0.02), stripMat, x,1.5-r*0.018,0.312, 0.35,0,0);
+  bioStrips.push(strip);
+}
+const mGlow=new THREE.PointLight(0x40ffe8,0.0,3.8,2); mGlow.position.set(0,1.58,0.34); mob.add(mGlow); // glow it casts (driven in loop)
+// shoulders + dorsal spines (silhouette)
+mp(new THREE.SphereGeometry(0.13,12,10), mMat, -0.34,1.67,0.08, 0,0,0,[1.05,0.82,1]);
+mp(new THREE.SphereGeometry(0.13,12,10), mMat,  0.34,1.67,0.08, 0,0,0,[1.05,0.82,1]);
+for(let s2=0;s2<7;s2++) mp(new THREE.ConeGeometry(0.04,0.32-s2*0.022,6), mMat, (s2%2?0.06:-0.06),1.82-s2*0.11,-0.16-s2*0.014, -0.62);
+// neck thrust forward + elongated eyeless head
+mp(new THREE.CapsuleGeometry(0.082,0.26,6,12), mMat, 0,1.82,0.38, 0.96);                              // neck (thrust forward)
+const head=new THREE.Group(); head.position.set(0,2.02,0.58); head.rotation.x=0.54; mob.add(head);
+mp(new THREE.SphereGeometry(0.18,18,14), mMat, 0,0,0.07, 0,0,0, [0.98,0.78,2.25], head);             // long cranial dome
+mp(new THREE.SphereGeometry(0.16,14,12), mMat, 0,0.05,-0.2, -0.34,0,0, [0.95,0.46,2.05], head);      // hooded back-swept crest
+mp(new THREE.TorusGeometry(0.21,0.03,8,22), mMat, 0,-0.01,-0.08, 1.35,0,0, [1.05,0.66,0.52], head); // hood lip
+mp(new THREE.SphereGeometry(0.13,14,12), mFlesh, 0,-0.075,0.24, 0,0,0, [0.78,0.48,1.55], head);      // jaw / maw
+for(let tt=0;tt<8;tt++){ const a=(tt-3.5)*0.034; mp(new THREE.ConeGeometry(0.012,0.085,5), mClaw, a,-0.058,0.36, 1.7+(tt%2?0.32:0),0,0, 1, head); } // fangs
+mp(new THREE.SphereGeometry(0.02,8,8), throatMat, -0.085,0.055,0.18, 0,0,0,1, head);                 // sensory glow-pits
+mp(new THREE.SphereGeometry(0.02,8,8), throatMat,  0.085,0.055,0.18, 0,0,0,1, head);
+[-1,-0.5,0,0.5,1].forEach((s,i)=>{
+  const t=mtube([new THREE.Vector3(0.055*s,-0.06,0.2),new THREE.Vector3(0.09*s,-0.26,0.24),new THREE.Vector3(0.065*s,-0.43,0.15)],0.013,head,mFlesh);
+  t.userData.wiggle=i*1.7; tendrils.push(t);
+});
+
+// limbs
+function buildArm(side){ const arm=new THREE.Group(); arm.position.set(0.35*side,1.66,0.06); mob.add(arm);
+  mp(new THREE.CapsuleGeometry(0.058,0.48,6,12), mMat, 0.1*side,-0.26,0.02, 0.32,0,-0.55*side, 1, arm);      // long upper arm
+  mp(new THREE.SphereGeometry(0.062,10,8),       mMat, 0.2*side,-0.52,0.08, 0,0,0,1, arm);                  // elbow
+  mp(new THREE.CapsuleGeometry(0.045,0.62,6,12), mMat, 0.24*side,-0.88,0.25, 0.6,0,-0.1*side, 1, arm);       // forearm
+  const hand=new THREE.Group(); hand.position.set(0.27*side,-1.24,0.48); hand.rotation.x=0.58; arm.add(hand);
+  mp(new THREE.SphereGeometry(0.06,10,8), mMat, 0,0,0, 0,0,0,[1.15,0.5,1], hand);                           // palm
+  for(let f=0;f<4;f++) mp(new THREE.ConeGeometry(0.021,0.25,6), mClaw, (f-1.5)*0.042*side,-0.02,0.13, 1.45, 0, 0, 1, hand); } // talons
+buildArm(-1); buildArm(1);
+function buildLeg(side){ const leg=new THREE.Group(); leg.position.set(0.15*side,1.02,-0.04); mob.add(leg);
+  mp(new THREE.CapsuleGeometry(0.08,0.44,6,12), mMat, 0.03*side,-0.24,0.13, 0.52, 0,0, 1, leg);    // thigh (down-forward)
+  mp(new THREE.SphereGeometry(0.075,10,8),      mMat, 0.04*side,-0.5,0.28, 0,0,0,1, leg);          // knee
+  mp(new THREE.CapsuleGeometry(0.057,0.5,6,12), mMat, 0.04*side,-0.74,0.08, -0.58,0,0, 1, leg);    // shin (down-back -> digitigrade)
+  mp(new THREE.SphereGeometry(0.058,10,8),      mMat, 0.04*side,-0.99,-0.06, 0,0,0,1, leg);        // ankle
+  for(let f=0;f<3;f++) mp(new THREE.ConeGeometry(0.026,0.22,6), mClaw, (f-1)*0.055*side+0.035*side,-1.08,0.13, 1.5, 0,0, 1, leg); // toe-claws
+  mp(new THREE.ConeGeometry(0.025,0.14,6), mClaw, 0.035*side,-1.04,-0.18, 2.0, 0,0, 1, leg); }     // heel spur
+buildLeg(-1); buildLeg(1);
+// segmented tail curling back-down then up into a blade
+[[0,0.98,-0.22,-0.62],[0,0.85,-0.48,-0.42],[0,0.69,-0.7,-0.08],[0,0.54,-0.78,0.3],[0,0.43,-0.74,0.75]].forEach(([tx,ty,tz,trx],i)=>
+  mp(new THREE.CapsuleGeometry(0.075-i*0.012,0.18,5,9), mMat, tx,ty,tz, trx));
+mp(new THREE.ConeGeometry(0.055,0.27,6), mClaw, 0,0.48,-0.68, 1.18);  // tail blade
+
+const MOB_SCALE=1.15;
+mob.position.set(0.5,0,-LEN-4.6); mob.scale.setScalar(MOB_SCALE); scene.add(mob);
 let mActive=false, caught=false, restored=false, enraged=false, won=false;
 
 // ---------- audio (procedural) ----------
@@ -299,11 +366,11 @@ function restore(){ restored=true; enraged=true; lightFactor=0.08; shake=0.8; if
   setObj('IT ANSWERED · GET BACK TO THE AIRLOCK'); promptEl.style.display='none';
   mob.position.set(camera.position.x,0,camera.position.z-3.2); }                 // it surges in
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
-  mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6;
+  mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   overTxt.textContent='THE CHORUS TOOK YOU'; overSub.textContent='[R] try again'; overEl.style.display='flex'; setObj(''); }
 function respawn(){ caught=false; won=false; restored=false; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0;
   overEl.style.display='none'; promptEl.style.display='none'; setObj('REACH THE COMMS CONSOLE · HOLD THE LIGHT ON IT');
-  camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.set(1,1,1); mThroat.material.emissiveIntensity=1;
+  camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.setScalar(MOB_SCALE); mThroat.material.emissiveIntensity=1; mGlow.intensity=0;
   SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer']; scrScroll=0; drawScreen(); }
 
 // ---------- loop ----------
@@ -356,7 +423,11 @@ function animate(){ requestAnimationFrame(animate);
     mob.position.z=Math.max(-LEN-6,Math.min(-0.6,mob.position.z));
     mob.rotation.y += (Math.atan2(-ox,-oz)-mob.rotation.y)*0.12;
     mob.position.y=Math.sin(t*1.4)*0.03;
-    mThroat.material.emissiveIntensity = frozen?0.12:(0.7+0.7*(Math.sin(t*5)*0.5+0.5));
+    const pulse=frozen?0.12:(0.8+0.9*(Math.sin(t*5)*0.5+0.5));
+    mThroat.material.emissiveIntensity = pulse;
+    for(let i=0;i<bioStrips.length;i++) bioStrips[i].material.emissiveIntensity = pulse*(0.55+0.1*Math.sin(t*7+i));
+    for(let i=0;i<tendrils.length;i++){ tendrils[i].rotation.z=Math.sin(t*2.4+tendrils[i].userData.wiggle)*0.13; tendrils[i].rotation.x=Math.cos(t*1.8+i)*0.05; }
+    mGlow.intensity = mThroat.material.emissiveIntensity*0.7;
     if(dM<13){ heart-=dt; const iv=THREE.MathUtils.lerp(0.4,1.05,Math.min(1,(dM-3)/10)); if(heart<=0){ thump(); if(dM<7)setTimeout(thump,165); heart=iv; } }
     if(dM<1.5) die();
   }
