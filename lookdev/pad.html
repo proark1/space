@@ -201,7 +201,9 @@ const rain=new THREE.Points(rainGeo,new THREE.PointsMaterial({color:0x9fb4c4,siz
 const SMOKEN=440, smokePos=new Float32Array(SMOKEN*3), smokeSeed=new Float32Array(SMOKEN);
 for(let i=0;i<SMOKEN;i++){ const a=Math.random()*Math.PI*2, r=Math.random(); smokePos[i*3]=Math.cos(a)*r; smokePos[i*3+1]=Math.random()*0.4; smokePos[i*3+2]=Math.sin(a)*r; smokeSeed[i]=Math.random(); }
 const smokeGeo=new THREE.BufferGeometry(); smokeGeo.setAttribute('position',new THREE.BufferAttribute(smokePos,3));
-const smokeMat=new THREE.PointsMaterial({color:0xbfc4c8,size:6,sizeAttenuation:true,transparent:true,opacity:0.0,depthWrite:false,fog:true});
+// soft round puff texture so the points feather and overlap into smooth smoke (instead of hard squares)
+const smokeTex=tex(x=>{ const g=x.createRadialGradient(128,128,2,128,128,126); g.addColorStop(0,'rgba(255,255,255,0.92)'); g.addColorStop(0.4,'rgba(236,239,243,0.5)'); g.addColorStop(0.75,'rgba(206,211,218,0.15)'); g.addColorStop(1,'rgba(200,205,210,0)'); x.fillStyle=g; x.fillRect(0,0,256,256); });
+const smokeMat=new THREE.PointsMaterial({color:0xbfc4c8,map:smokeTex,size:8,sizeAttenuation:true,transparent:true,opacity:0.0,depthWrite:false,fog:true});
 const smoke=new THREE.Points(smokeGeo,smokeMat); scene.add(smoke); smoke.position.set(0,3,0);
 // ==BUILD END==
 
@@ -229,7 +231,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   // smoke billows at ignition, drifts, fades as she climbs
   const billow=since>=0?smooth(0,2.2,since):0;
   smoke.scale.set(lerp(2,34,billow), lerp(1,12,billow), lerp(2,34,billow));
-  smokeMat.opacity=0.7*billow*(1-(since>=0?smooth(7,12,since):0));
+  smokeMat.opacity=0.6*billow*(1-(since>=0?smooth(7,12,since):0));
   // --- sky darkens as she climbs out of the weather ---
   scene.background.copy(SKY_GROUND).lerp(SKY_SPACE,dark);
   scene.fog.color.copy(FOG_GROUND).lerp(FOG_SPACE,dark); scene.fog.density=lerp(0.0034,0.0006,dark);
