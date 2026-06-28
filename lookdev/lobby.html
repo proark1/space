@@ -106,9 +106,44 @@ part(BOX(0.3,5,16),M.wall,scene,-8,2.3,0);                              // left 
 part(BOX(0.3,5,16),M.wall,scene,8,2.3,0);                               // right wall (window)
 part(BOX(16,5,0.3),M.wall2,scene,0,2.3,8);                              // near wall
 for(let z=-6;z<=6;z+=3){ const s=part(BOX(9,0.12,0.4),M.strip,scene,0,4.32,z); lights.push({m:s,b:1.6,s:Math.random()*9}); }
-// viewport onto space + Earth
-part(BOX(0.34,3.2,9),M.trim,scene,7.85,2.6,0);
-part(new THREE.PlaneGeometry(8.4,2.9),M.glass,scene,7.78,2.6,0,0,-Math.PI/2,0);
+// --- THE BIG SCREEN (right wall): MISSION BRIEFING + CREW READINESS — the lobby's main display ---
+part(BOX(0.34,3.2,9),M.trim,scene,7.85,2.6,0);                              // screen bezel
+const bigC=document.createElement('canvas'); bigC.width=1536; bigC.height=530; const gx=bigC.getContext('2d');
+const bigTex=new THREE.CanvasTexture(bigC); bigTex.colorSpace=THREE.SRGBColorSpace; bigTex.anisotropy=8;
+function drawBig(cur){
+  gx.fillStyle='#06120c'; gx.fillRect(0,0,1536,530);
+  gx.strokeStyle='#1f5a36'; gx.lineWidth=8; gx.strokeRect(16,16,1504,498);
+  gx.textBaseline='alphabetic';
+  gx.fillStyle='#E8A33D'; gx.font='bold 46px monospace'; gx.textAlign='left'; gx.fillText('// MISSION BRIEFING',56,86);
+  gx.fillStyle='#4f8f6e'; gx.font='26px monospace'; gx.textAlign='right'; gx.fillText('SIGNAL LOST · DEPARTURE LOBBY',1480,82); gx.textAlign='left';
+  gx.strokeStyle='#1f5a36'; gx.lineWidth=3; gx.beginPath(); gx.moveTo(56,108); gx.lineTo(1480,108); gx.stroke();
+  gx.lineWidth=2; gx.beginPath(); gx.moveTo(792,140); gx.lineTo(792,478); gx.stroke();   // divider
+  const lab=(t,x,y)=>{ gx.fillStyle='#4f8f6e'; gx.font='28px monospace'; gx.fillText(t,x,y); };
+  const val=(t,x,y)=>{ gx.fillStyle='#7dffb0'; gx.font='28px monospace'; gx.fillText(t,x,y); };
+  lab('TARGET',56,176);    val('derelict hauler, gone dark',252,176);
+  lab('OBJECTIVE',56,224); val('re-establish contact',252,224);
+  val('restore her comms array',252,262); val('— that is the whole job',252,300);
+  gx.fillStyle='#bfe9ff'; gx.font='30px monospace'; gx.fillText('> "bring her voice back."',56,368);
+  gx.fillStyle='#4f8f6e'; gx.font='24px monospace'; gx.fillText('— EARTH CONTROL',96,404);
+  gx.fillStyle='#ff6a5a'; gx.font='bold 27px monospace'; gx.fillText('! DO NOT ANSWER ANYTHING',56,454);
+  gx.fillText('  THAT ANSWERS BACK'+(cur?' _':''),56,488);
+  gx.fillStyle='#7fd0ff'; gx.font='bold 30px monospace'; gx.fillText('// CREW READINESS',840,176);
+  const crew=[['CMDR','ASSAD DAR · YOU','#e8884f'],['PILOT','REYES','#5aa6e8'],['ENGR','KORO','#6fce8a'],['MED','LINA','#c8a6f0']];
+  crew.forEach((m,i)=>{ const y=226+i*42;
+    gx.fillStyle=m[2]; gx.beginPath(); gx.arc(858,y-9,9,0,7); gx.fill();
+    gx.fillStyle='#8fa39a'; gx.font='22px monospace'; gx.fillText(m[0],886,y);
+    gx.fillStyle='#d6ece0'; gx.font='26px monospace'; gx.fillText(m[1],1006,y);
+    gx.fillStyle='#7dffb0'; gx.font='22px monospace'; gx.textAlign='right'; gx.fillText('READY',1472,y); gx.textAlign='left'; });
+  gx.strokeStyle='#1f5a36'; gx.lineWidth=2; gx.beginPath(); gx.moveTo(840,406); gx.lineTo(1472,406); gx.stroke();
+  gx.fillStyle='#4f8f6e'; gx.font='24px monospace'; gx.fillText('STATUS',840,444); gx.fillStyle='#7dffb0'; gx.fillText('three crews lost to the silence',1000,444);
+  gx.fillStyle='#4f8f6e'; gx.fillText('CREW',840,478); gx.fillStyle='#7dffb0'; gx.fillText('4 / 4  READY',1000,478);
+  bigTex.needsUpdate=true;
+}
+drawBig(true);
+const bigScreen=new THREE.Mesh(new THREE.PlaneGeometry(8.4,2.9),new THREE.MeshStandardMaterial({map:bigTex,emissive:0x66ffaa,emissiveMap:bigTex,emissiveIntensity:1.15,color:0x000000,roughness:1,side:THREE.DoubleSide}));
+bigScreen.position.set(7.62,2.6,0); bigScreen.rotation.set(0,-Math.PI/2,0); scene.add(bigScreen);   // in front of the trim bezel
+const bigLight=new THREE.PointLight(0x8fffc4,1.7,11,2); bigLight.position.set(6.4,2.7,0); scene.add(bigLight);
+let briefT=0, briefBlink=true;
 { const N=900,p=new Float32Array(N*3); for(let i=0;i<N;i++){ p[i*3]=40+Math.random()*120; p[i*3+1]=-20+Math.random()*80; p[i*3+2]=(Math.random()-0.5)*120; }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
   scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xcfe0ff,size:0.4,sizeAttenuation:true,transparent:true,opacity:0.9,fog:false}))); }
@@ -128,52 +163,14 @@ part(BOX(1.5,0.1,1.5),M.strip,scene,0,0.01,-5.6);                               
 part(BOX(3.2,0.18,0.7),M.crate,scene,-4.5,0.55,3,0,0.2,0); part(BOX(0.18,0.5,0.7),M.trim,scene,-5.9,0.3,3.3); part(BOX(0.18,0.5,0.7),M.trim,scene,-3.1,0.3,2.7);
 for(let i=0;i<4;i++){ part(BOX(1.0,2.2,0.7),M.wall2,scene,-7.3,1.1,-3+i*1.3); part(BOX(0.84,0.05,0.5),M.strip,scene,-6.78,1.9,-3+i*1.3); }
 part(BOX(1.4,1.4,1.4),M.crate,scene,4.6,0.7,3.4); part(BOX(1.0,1.0,1.0),M.crate,scene,3.4,0.5,4.2,0,0.4,0);
-// --- CREW MANIFEST — secondary status panel (left wall) ---
-part(BOX(3.8,2.5,0.16),M.trim,scene,-4.8,2.5,-7.86);
-const crewC=document.createElement('canvas'); crewC.width=512; crewC.height=320; const cxx=crewC.getContext('2d');
-const crewTex=new THREE.CanvasTexture(crewC); crewTex.colorSpace=THREE.SRGBColorSpace;
-(function drawCrew(){ cxx.fillStyle='#06120c'; cxx.fillRect(0,0,512,320); cxx.strokeStyle='#1f5a36'; cxx.lineWidth=4; cxx.strokeRect(10,10,492,300);
-  cxx.textBaseline='alphabetic'; cxx.textAlign='left';
-  cxx.fillStyle='#E8A33D'; cxx.font='bold 21px monospace'; cxx.fillText('// CREW MANIFEST',26,44);
-  cxx.strokeStyle='#1f5a36'; cxx.lineWidth=2; cxx.beginPath(); cxx.moveTo(26,58); cxx.lineTo(486,58); cxx.stroke();
-  const crew=[['CMDR','ASSAD DAR · YOU','#e8884f'],['PILOT','REYES','#5aa6e8'],['ENGR','KORO','#6fce8a'],['MED','LINA','#c8a6f0']];
-  crew.forEach((m,i)=>{ const y=96+i*36;
-    cxx.fillStyle=m[2]; cxx.beginPath(); cxx.arc(40,y-6,7,0,7); cxx.fill();
-    cxx.fillStyle='#8fa39a'; cxx.font='15px monospace'; cxx.fillText(m[0],62,y);
-    cxx.fillStyle='#d6ece0'; cxx.font='17px monospace'; cxx.fillText(m[1],150,y);
-    cxx.fillStyle='#7dffb0'; cxx.font='15px monospace'; cxx.textAlign='right'; cxx.fillText('READY',486,y); cxx.textAlign='left'; });
-  cxx.strokeStyle='#1f5a36'; cxx.beginPath(); cxx.moveTo(26,256); cxx.lineTo(486,256); cxx.stroke();
-  cxx.fillStyle='#5a7d68'; cxx.font='15px monospace'; cxx.fillText('DEST   : derelict — sector 7',26,282);
-  cxx.fillStyle='#9fd0ff'; cxx.fillText('DEPART : awaiting host',26,304); crewTex.needsUpdate=true; })();
-const crewScreen=new THREE.Mesh(new THREE.PlaneGeometry(3.4,2.12),new THREE.MeshStandardMaterial({map:crewTex,emissive:0x66ffaa,emissiveMap:crewTex,emissiveIntensity:1.1,color:0x000000,roughness:1}));
-crewScreen.position.set(-4.8,2.5,-7.77); scene.add(crewScreen);
-const crewLight=new THREE.PointLight(0x66ffaa,0.8,5,2); crewLight.position.set(-4.8,2.5,-7.0); scene.add(crewLight);
-
-// --- MISSION BRIEFING — the big screen the crew reads (centre, above the airlock) ---
-part(BOX(5.0,1.95,0.16),M.trim,scene,0,3.45,-7.87);
-const briefC=document.createElement('canvas'); briefC.width=1024; briefC.height=384; const bxx=briefC.getContext('2d');
-const briefTex=new THREE.CanvasTexture(briefC); briefTex.colorSpace=THREE.SRGBColorSpace;
-function drawBrief(cur){ bxx.fillStyle='#06120c'; bxx.fillRect(0,0,1024,384); bxx.strokeStyle='#1f5a36'; bxx.lineWidth=6; bxx.strokeRect(14,14,996,356);
-  bxx.textBaseline='alphabetic';
-  bxx.fillStyle='#E8A33D'; bxx.font='bold 34px monospace'; bxx.textAlign='left'; bxx.fillText('// MISSION BRIEFING',40,62);
-  bxx.fillStyle='#4f8f6e'; bxx.font='19px monospace'; bxx.textAlign='right'; bxx.fillText('SIGNAL LOST · DEPARTURE LOBBY',984,58); bxx.textAlign='left';
-  bxx.strokeStyle='#1f5a36'; bxx.lineWidth=2; bxx.beginPath(); bxx.moveTo(40,80); bxx.lineTo(984,80); bxx.stroke();
-  const lab=(t,x,y)=>{ bxx.fillStyle='#4f8f6e'; bxx.font='19px monospace'; bxx.fillText(t,x,y); };
-  const val=(t,x,y)=>{ bxx.fillStyle='#7dffb0'; bxx.font='19px monospace'; bxx.fillText(t,x,y); };
-  lab('TARGET',40,126);    val('derelict hauler, gone dark',210,126);
-  lab('OBJECTIVE',40,166); val('re-establish contact',210,166);
-  val('restore her comms array',210,198); val('— that is the whole job',210,230);
-  lab('STATUS',560,126);   val('three crews lost',688,126); val('to the silence',688,156);
-  lab('CREW',560,198);     val('4 / 4  ready',688,198);
-  bxx.fillStyle='#bfe9ff'; bxx.font='20px monospace'; bxx.fillText('> "bring her voice back."',560,252);
-  bxx.fillStyle='#4f8f6e'; bxx.font='17px monospace'; bxx.fillText('— EARTH CONTROL',590,278);
-  bxx.fillStyle='#9fd0ff'; bxx.font='19px monospace'; bxx.fillText('▼ AIRLOCK BELOW — walk through to board',40,312);
-  bxx.fillStyle='#ff6a5a'; bxx.font='bold 20px monospace'; bxx.fillText('! DO NOT ANSWER ANYTHING THAT ANSWERS BACK'+(cur?' _':''),40,350); briefTex.needsUpdate=true; }
-drawBrief(true);
-const brief=new THREE.Mesh(new THREE.PlaneGeometry(4.74,1.78),new THREE.MeshStandardMaterial({map:briefTex,emissive:0x66ffaa,emissiveMap:briefTex,emissiveIntensity:1.2,color:0x000000,roughness:1}));
-brief.position.set(0,3.45,-7.78); scene.add(brief);
-const briefLight=new THREE.PointLight(0x8fffc4,1.3,7,2); briefLight.position.set(0,3.2,-6.7); scene.add(briefLight);
-let briefT=0, briefBlink=true;
+// the airlock gets a small "BOARD" sign on the lintel (briefing + readiness now live on the big right-wall screen)
+const signC=document.createElement('canvas'); signC.width=512; signC.height=64; const sgx=signC.getContext('2d');
+sgx.fillStyle='#0a0d12'; sgx.fillRect(0,0,512,64);
+sgx.fillStyle='#E8A33D'; sgx.font='bold 30px monospace'; sgx.textAlign='center'; sgx.textBaseline='middle';
+sgx.fillText('▼  AIRLOCK · BOARD', 256, 36);
+const signTex=new THREE.CanvasTexture(signC); signTex.colorSpace=THREE.SRGBColorSpace;
+const sign=new THREE.Mesh(new THREE.PlaneGeometry(2.3,0.29),new THREE.MeshStandardMaterial({map:signTex,emissive:0xE8A33D,emissiveMap:signTex,emissiveIntensity:0.9,color:0x000000,roughness:1,transparent:true}));
+sign.position.set(0,2.66,-7.68); scene.add(sign);
 
 // --- the hero portrait: ASSAD DAR, who answered the first signal (right wall, with a readable plaque) ---
 const HPX=4.6, HPY=2.62, HPZ=-7.77;
@@ -219,7 +216,7 @@ const eg=new THREE.DirectionalLight(0x6fa8e0,0.5); eg.position.set(12,1,-3); sce
 
 // ---- FP / TP controller ----
 const EYE=1.95, SPEED=3.4, BACK=3.6;
-const pos=new THREE.Vector3(1.6,0,3.2); let yaw=0, pitch=-0.05, mode='fp', locked=false;   // face into the room (toward the hatch)
+const pos=new THREE.Vector3(1.6,0,3.2); let yaw=-0.6, pitch=-0.04, mode='fp', locked=false;   // face between the hatch and the big briefing screen
 const OBST=[{x:4.6,z:3.4,r:1.45},{x:3.4,z:4.2,r:1.15},{x:-4.5,z:3,r:1.5}];   // crates + bench — no walking through
 function pushOut(cx,cz,r){ const dx=pos.x-cx, dz=pos.z-cz, d=Math.hypot(dx,dz); if(d>1e-4 && d<r){ pos.x=cx+dx/d*r; pos.z=cz+dz/d*r; } }
 const keys={};
@@ -245,7 +242,7 @@ const clock=new THREE.Clock(); const _f=new THREE.Vector3();
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   for(const L of lights) L.m.material.emissiveIntensity=L.b*(0.88+0.12*Math.sin(t*4+L.s));
   earth.rotation.y+=dt*0.01;
-  briefT-=dt; if(briefT<=0){ briefBlink=!briefBlink; drawBrief(briefBlink); briefT=0.55; }   // briefing cursor blink
+  briefT-=dt; if(briefT<=0){ briefBlink=!briefBlink; drawBig(briefBlink); briefT=0.55; }   // briefing cursor blink
   // --- move the player ---
   const s=Math.sin(yaw), c=Math.cos(yaw); const fx=-s, fz=-c, rx=c, rz=-s;   // forward & right on the floor
   let mx=0,mz=0;
