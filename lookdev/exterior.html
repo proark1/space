@@ -73,6 +73,7 @@ const controls=new OrbitControls(camera,canvas);
 controls.enableDamping=true; controls.dampingFactor=0.06; controls.autoRotate=false;
 controls.minDistance=30; controls.maxDistance=480; controls.target.set(8,1,-10);
 
+const pos=(o,x,y,z)=>{ y===undefined ? o.position.copy(x) : o.position.set(x,y,z); return o; }; // .position is read-only in three; mutate, never reassign
 // ---- lights ----
 scene.add(new THREE.AmbientLight(0x3a4a60,0.85));
 scene.add(new THREE.HemisphereLight(0x44607e,0x0c1018,0.7));
@@ -80,7 +81,7 @@ const sun=new THREE.DirectionalLight(0xfff0d6,3.3); sun.position.set(320,260,300
 sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.near=160; sun.shadow.camera.far=1200;
 sun.shadow.camera.left=-110; sun.shadow.camera.right=110; sun.shadow.camera.top=110; sun.shadow.camera.bottom=-110; sun.shadow.bias=-0.0004;
 scene.add(sun);
-scene.add(Object.assign(new THREE.DirectionalLight(0x6f8bb0,0.8),{position:new THREE.Vector3(-200,50,150)}));
+scene.add(pos(new THREE.DirectionalLight(0x6f8bb0,0.8),-200,50,150));
 
 // ---- stars + sun disc ----
 { const N=3400,p=new Float32Array(N*3),col=new Float32Array(N*3);
@@ -97,7 +98,7 @@ const planetTex=tex(x=>{ x.fillStyle='#0e4377'; x.fillRect(0,0,512,256);
   x.globalAlpha=0.55; x.fillStyle='#fff'; for(let i=0;i<46;i++){ x.beginPath(); x.ellipse(Math.random()*512,Math.random()*256,12+Math.random()*48,6+Math.random()*14,0,0,7); x.fill(); } x.globalAlpha=1; });
 const planet=new THREE.Mesh(new THREE.SphereGeometry(190,48,48),new THREE.MeshStandardMaterial({map:planetTex,roughness:1,metalness:0,emissive:0x07203a,emissiveIntensity:0.22}));
 planet.position.set(330,-30,-260); scene.add(planet);
-scene.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(206,48,48),new THREE.MeshBasicMaterial({color:0x6aa6e0,transparent:true,opacity:0.2,side:THREE.BackSide,fog:false})),{position:planet.position.clone()}));
+scene.add(pos(new THREE.Mesh(new THREE.SphereGeometry(206,48,48),new THREE.MeshBasicMaterial({color:0x6aa6e0,transparent:true,opacity:0.2,side:THREE.BackSide,fog:false})),planet.position.clone()));
 
 // ---- materials ----
 const grime=tex(x=>{ x.fillStyle='#9a9a94'; x.fillRect(0,0,256,256);
@@ -175,7 +176,7 @@ const cap=new THREE.Group();
 const capMat=new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:true});
 const nose=new THREE.Mesh(new THREE.ConeGeometry(1.2,3,12),capMat); nose.rotation.x=-Math.PI/2; nose.position.z=-1.7; cap.add(nose);
 const cbody=new THREE.Mesh(new THREE.CylinderGeometry(1.25,1.5,2.8,12),capMat); cbody.rotation.x=Math.PI/2; cbody.position.z=0.5; cap.add(cbody);
-cap.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.6,12,12),new THREE.MeshStandardMaterial({color:0x02060a,emissive:0x9fd0ff,emissiveIntensity:1.7})),{position:new THREE.Vector3(0,0.65,-1.0)}));
+cap.add(pos(new THREE.Mesh(new THREE.SphereGeometry(0.6,12,12),new THREE.MeshStandardMaterial({color:0x02060a,emissive:0x9fd0ff,emissiveIntensity:1.7})),0,0.65,-1.0));
 const thrMat=new THREE.MeshStandardMaterial({color:0x050608,emissive:0xff8a3a,emissiveIntensity:1.5,roughness:1}); const thr=[];
 [[-0.6,0],[0.6,0],[0,0.6]].forEach(([x,y])=>{ const tc=new THREE.Mesh(new THREE.ConeGeometry(0.36,0.9,10),thrMat); tc.rotation.x=Math.PI/2; tc.position.set(x,y,2.2); cap.add(tc); thr.push(tc); });
 const thrLight=new THREE.PointLight(0xff8a3a,0,14,2); thrLight.position.z=3; cap.add(thrLight);
