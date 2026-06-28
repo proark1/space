@@ -100,6 +100,12 @@ export class ClipBank {
       return { s, g };
     } catch (e) { return null; }
   }
+  // decoded duration in seconds for a clip id/token, or null if not in the catalog
+  async dur(idOrToken) {
+    const id = this.map[idOrToken] ? idOrToken : this.find(idOrToken);
+    if (!id) return null;
+    try { const b = await this._buf(id); return b.duration; } catch (e) { return null; }
+  }
 }
 
 // tiny helpers
