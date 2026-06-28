@@ -1,5 +1,5 @@
 {
-  "name": "@sl/ecs",
+  "name": "@sl/asset-pipeline",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,10 +14,10 @@
   "scripts": {
     "typecheck": "tsc -b",
     "build": "tsc -b",
+    "test": "vitest run",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@sl/shared-types": "workspace:*",
-    "bitecs": "^0.3.40"
+    "zod": "^3.23.8"
   }
 }

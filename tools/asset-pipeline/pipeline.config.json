@@ -1,0 +1,27 @@
+{
+  "budgets": {
+    "slice_first_load_mb": 25,
+    "per_glb": {
+      "kit_piece": { "maxTris": 8000, "maxDrawCalls": 4, "maxTexMemMB": 6 },
+      "weapon": { "maxTris": 9000, "maxDrawCalls": 3, "maxTexMemMB": 8 },
+      "creature": { "maxTris": 25000, "maxDrawCalls": 6, "maxTexMemMB": 16 },
+      "prop": { "maxTris": 3000, "maxDrawCalls": 2, "maxTexMemMB": 3 }
+    },
+    "scene_total": { "maxDrawCalls": 150, "maxTris": 600000, "maxTexMemMB": 256 }
+  },
+  "codec": {
+    "default": "meshopt",
+    "dracoWhenBytesOver": 1572864,
+    "ktx2": {
+      "uastcSlots": ["normalTexture", "emissiveTexture", "metallicRoughnessTexture", "occlusionTexture"],
+      "etc1sSlots": ["baseColorTexture"],
+      "uastc": { "level": 4, "rdo": 4.0, "zstd": 18 },
+      "etc1s": { "quality": 200 }
+    },
+    "lods": [
+      { "ratio": 1.0, "error": 0.0 },
+      { "ratio": 0.5, "error": 0.01 },
+      { "ratio": 0.25, "error": 0.03 }
+    ]
+  }
+}

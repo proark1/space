@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "apps/*"
+  - "tools/*"
 
 # pnpm 11 reads build/run settings from HERE (the package.json "pnpm" field is ignored).
 # vitest's bundler esbuild needs its postinstall; pnpm 11.9 wouldn't honor the scoped
