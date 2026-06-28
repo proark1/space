@@ -37,6 +37,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:false,powerPreference:'high-performance'});
@@ -87,7 +88,7 @@ const lerp=(a,b,k)=>a+(b-a)*k, clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{ const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
 
 // ==BUILD START==
-const flick=[], beacons=[], floods=[], plumeCones=[];
+const flick=[], beacons=[], floods=[], plumeCones=[], machD=[];
 
 const grime=tex(x=>{ x.fillStyle='#6e7278'; x.fillRect(0,0,256,256);
   for(let i=0;i<2400;i++){ const v=(Math.random()*46-23)|0; x.fillStyle=`rgba(${110+v},${112+v},${116+v},${Math.random()*0.4})`; const s=Math.random()*3+1; x.fillRect(Math.random()*256,Math.random()*256,s,s);}
@@ -188,6 +189,7 @@ const plume=new THREE.Group(); rocket.add(plume); plume.position.set(0,0.6,0); p
 plumeCones.push(part(CONE(1.9,6,14),M.plume.clone(),plume,0,-3,0,Math.PI,0,0));
 plumeCones.push(part(CONE(1.2,10,14),M.plume.clone(),plume,0,-6,0,Math.PI,0,0));
 plumeCones.push(part(CONE(0.7,16,12),new THREE.MeshBasicMaterial({color:0xfff0c0,transparent:true,opacity:0.7,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}),plume,0,-9,0,Math.PI,0,0));
+for(let i=0;i<5;i++){ const dia=part(new THREE.SphereGeometry(0.55-i*0.07,8,8),new THREE.MeshBasicMaterial({color:0xfff4d0,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}),plume,0,-2.5-i*2.0,0); machD.push(dia); }  // mach diamonds
 const plumeLight=new THREE.PointLight(0xff9a40,0,60,2); plumeLight.position.set(0,1,0); rocket.add(plumeLight);
 
 // ---- rain ----
@@ -197,7 +199,7 @@ const rainGeo=new THREE.BufferGeometry(); rainGeo.setAttribute('position',new TH
 const rain=new THREE.Points(rainGeo,new THREE.PointsMaterial({color:0x9fb4c4,size:1.4,sizeAttenuation:true,transparent:true,opacity:0.5,depthWrite:false,fog:true})); scene.add(rain);
 
 // ---- smoke (pad steam pre-launch → ground billow on ignition) ----
-const SMOKEN=300, smokePos=new Float32Array(SMOKEN*3), smokeSeed=new Float32Array(SMOKEN);
+const SMOKEN=440, smokePos=new Float32Array(SMOKEN*3), smokeSeed=new Float32Array(SMOKEN);
 for(let i=0;i<SMOKEN;i++){ const a=Math.random()*Math.PI*2, r=Math.random(); smokePos[i*3]=Math.cos(a)*r; smokePos[i*3+1]=Math.random()*0.4; smokePos[i*3+2]=Math.sin(a)*r; smokeSeed[i]=Math.random(); }
 const smokeGeo=new THREE.BufferGeometry(); smokeGeo.setAttribute('position',new THREE.BufferAttribute(smokePos,3));
 const smokeMat=new THREE.PointsMaterial({color:0xbfc4c8,size:6,sizeAttenuation:true,transparent:true,opacity:0.0,depthWrite:false,fog:true});
@@ -208,6 +210,7 @@ const smoke=new THREE.Points(smokeGeo,smokeMat); scene.add(smoke); smoke.positio
 const phaseEl=document.getElementById('phase');
 const clock=new THREE.Clock(); const LOOP=24;
 const _c=new THREE.Color();
+let lastTt=0, lightning=0;
 function setPhase(s){ if(phaseEl.textContent!==s) phaseEl.textContent=s; }
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   const tt=(t%LOOP)/LOOP;
@@ -221,8 +224,8 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   const pl=burn*(0.9+0.1*Math.sin(t*40));
   plume.scale.set(lerp(0.001,1.0,burn), lerp(0.001,1.0,burn*(0.7+0.3*Math.sin(t*30+1))), lerp(0.001,1.0,burn));
   plume.visible=burn>0.01; plumeLight.intensity=burn*55*(0.85+0.15*Math.sin(t*45));
-  if(window._rumbleGain) window._rumbleGain.gain.value=burn*0.18;   // engine rumble swells with thrust
   for(const c of plumeCones){ if(c.material.emissive) c.material.emissiveIntensity=3.0*(0.8+0.2*Math.sin(t*38+c.id)); }
+  for(let i=0;i<machD.length;i++){ machD[i].visible=burn>0.06; machD[i].material.opacity=burn*(0.5+0.45*Math.sin(t*30-i*1.3)); }
   // smoke: billow out at ignition, drift, fade through ascent
   const sm=smooth(IGNITE,LIFT+0.06,tt)*(1-smooth(0.5,0.82,tt));
   smoke.position.y=lerp(3,3,1); smoke.scale.set(lerp(2,34,smooth(IGNITE,0.5,tt)), lerp(1,12,smooth(IGNITE,0.5,tt)), lerp(2,34,smooth(IGNITE,0.5,tt)));
@@ -232,10 +235,13 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   scene.background.copy(SKY_GROUND).lerp(SKY_SPACE,dark);
   scene.fog.color.copy(FOG_GROUND).lerp(FOG_SPACE,dark); scene.fog.density=lerp(0.0034,0.0006,dark);
   cloudMat.color.copy(_c.setRGB(1,1,1)).lerp(_c.clone().setRGB(0.18,0.2,0.26),dark*0.7);
-  starsMat.opacity=dark*0.9; cloudUnder.intensity=lerp(0.7,0.05,dark);
+  starsMat.opacity=dark*0.9; lightning*=0.88; cloudUnder.intensity=lerp(0.7,0.05,dark)+lightning*5;
+  if(padAudio){ padAudio.thrust(burn,dark); padAudio.klaxon(tt<IGNITE,t); if(lastTt<IGNITE&&tt>=IGNITE) padAudio.ignite(); }
+  if(tt<0.55 && Math.random()<0.0045){ lightning=0.55+Math.random()*0.45; if(padAudio) padAudio.thunder(); }
+  lastTt=tt;
   // --- seam fade-to-black hides the reset ---
   let fade=1; if(tt>0.93) fade=1-smooth(0.93,1.0,tt); else if(tt<0.05) fade=smooth(0,0.05,tt);
-  renderer.toneMappingExposure=BASE_EXP*fade;
+  renderer.toneMappingExposure=BASE_EXP*fade*(1+lightning*0.5);
   // --- camera follows her up; ambient pad life ---
   controls.target.y += (clamp(14+ry*0.5,14,150)-controls.target.y)*0.04;
   for(const b of beacons) b.emissiveIntensity=(Math.sin(t*4)>0.4)?2.6:0.3;
@@ -248,17 +254,30 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   for(let i=0;i<SMOKEN;i++){ smokePos[i*3+1]+= (0.2+smokeSeed[i]*0.5)*dt; if(smokePos[i*3+1]>3.5) smokePos[i*3+1]=0; }
   smokeGeo.attributes.position.needsUpdate=true;
   setPhase(tt<IGNITE?'— HOLD —':tt<LIFT?'>> IGNITION':tt<0.5?'>> LIFTOFF':tt<0.86?'>> ASCENT':'· · ·');
-  controls.update(); Grade.uniforms.uTime.value=t; composer.render();
+  controls.update();
+  const shk=burn*0.45*(1-dark*0.6); if(shk>0.001){ camera.position.x+=(Math.random()-0.5)*shk; camera.position.y+=(Math.random()-0.5)*shk; camera.position.z+=(Math.random()-0.5)*shk; }
+  Grade.uniforms.uTime.value=t; composer.render();
 }
 
-// ---- placeholder launch audio (real SFX in Stage C) ----
-let audioOn=false;
-function startAudio(){ if(audioOn)return; audioOn=true; try{
-  const AC=window.AudioContext||window.webkitAudioContext; const ac=new AC();
-  const buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1);
-  const rumble=ac.createBufferSource(); rumble.buffer=buf; rumble.loop=true; const rf=ac.createBiquadFilter(); rf.type='lowpass'; rf.frequency.value=130; const rg=ac.createGain(); rg.gain.value=0.0; rumble.connect(rf).connect(rg).connect(ac.destination); rumble.start();
-  const rain2=ac.createBufferSource(); rain2.buffer=buf; rain2.loop=true; const r2f=ac.createBiquadFilter(); r2f.type='bandpass'; r2f.frequency.value=2600; const r2g=ac.createGain(); r2g.gain.value=0.04; rain2.connect(r2f).connect(r2g).connect(ac.destination); rain2.start();
-  window._rumbleGain=rg;  // animate swells with thrust
+// ---- launch soundscape (rich procedural; auto-layers real Audio Forge clips) ----
+let padAudio=null;
+function startAudio(){ if(padAudio)return; try{
+  const mix=new Mixer(0.95); mix.resume(); const ctx=mix.ctx, B=mix.master;
+  const rain=noiseBed(ctx,B,{type:'bandpass',freq:2600,q:0.5,gain:0.05});
+  noiseBed(ctx,B,{type:'highpass',freq:7000,q:0.4,gain:0.012});        // fine drizzle hiss
+  tone(ctx,B,{type:'sawtooth',freq:44,gain:0.012});                    // distant industrial hum
+  const roarSub=noiseBed(ctx,B,{type:'lowpass',freq:70,q:1.3,gain:0});
+  const roarMid=noiseBed(ctx,B,{type:'bandpass',freq:560,q:0.5,gain:0});
+  const sub=tone(ctx,B,{type:'sine',freq:30,gain:0});
+  const klax=tone(ctx,B,{type:'square',freq:300,gain:0});
+  padAudio={
+    thrust(v,dark){ roarSub.g.gain.value=v*0.5; roarMid.g.gain.value=v*0.16*(1-dark*0.7); sub.g.gain.value=v*0.32; roarMid.f.frequency.value=560-dark*380; rain.g.gain.value=0.05*(1-dark*0.9); },
+    klaxon(on,t){ klax.g.gain.value=on?(Math.sin(t*8)>0?0.01:0):0; },
+    ignite(){ burst(ctx,B,{type:'lowpass',freq:140,q:0.8,gain:0.6,decay:1.1}); burst(ctx,B,{type:'bandpass',freq:1900,q:0.4,gain:0.22,decay:0.5}); },
+    thunder(){ burst(ctx,B,{type:'lowpass',freq:70,q:0.9,gain:0.32,decay:1.6}); },
+  };
+  // auto-layer real generated clips if the Audio Forge catalog has them
+  new ClipBank(mix).load().then(b=>{ b.play('rain',{loop:true,gain:0.5}); b.play('ambience',{loop:true,gain:0.4}); });
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 

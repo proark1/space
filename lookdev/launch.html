@@ -37,6 +37,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:false,powerPreference:'high-performance'});
@@ -131,6 +132,9 @@ const world=new THREE.Group(); scene.add(world);
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3)); g.setAttribute('color',new THREE.BufferAttribute(col,3));
   world.add(new THREE.Points(g,new THREE.PointsMaterial({size:2,sizeAttenuation:false,vertexColors:true,transparent:true,opacity:0.9,depthWrite:false,fog:false}))); }
 { const s=new THREE.Mesh(SPH(26,16,16),new THREE.MeshBasicMaterial({color:0xffe9c4,fog:false})); s.position.set(-520,360,-380); world.add(s); }
+// faint nebula band for depth in the void
+const nebTex=tex(x=>{ const g=x.createRadialGradient(150,110,8,150,110,180); g.addColorStop(0,'#18233e'); g.addColorStop(0.5,'#0a1020'); g.addColorStop(1,'#04060c'); x.fillStyle=g; x.fillRect(0,0,256,256); x.globalAlpha=0.35; for(let i=0;i<46;i++){ x.fillStyle=['#243a66','#3a2a58','#163a46'][i%3]; x.beginPath(); x.ellipse(Math.random()*256,Math.random()*256,20+Math.random()*64,12+Math.random()*28,Math.random()*6,0,7); x.fill(); } x.globalAlpha=1; },256,256);
+world.add(new THREE.Mesh(SPH(1500,24,16),new THREE.MeshBasicMaterial({map:nebTex,side:THREE.BackSide,fog:false})));
 
 // Earth (recedes)
 const earthTex=tex(x=>{ x.fillStyle='#0b3b6b'; x.fillRect(0,0,512,256);
@@ -224,20 +228,29 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   shipGlow.intensity=7+Math.sin(t*4)*2;
   // micro cabin life (kept tiny so it doesn't fight free-look)
   cabin.rotation.z=Math.sin(t*0.32)*0.006; cabin.position.y=Math.sin(t*0.6)*0.004;
-  for(const c of crew){ c.g.position.y=Math.sin(t*1.4+c.s)*0.01; }
+  for(const c of crew){ c.g.position.y=Math.sin(t*1.4+c.s)*0.01; c.g.rotation.z=Math.sin(t*0.7+c.s)*0.02; c.g.rotation.y=Math.sin(t*0.5+c.s)*0.03; }
+  if(cabinAudio){ cabinAudio.approach(e,t); if(Math.random()<0.003) cabinAudio.creak(); if(e>0.7 && Math.random()<0.012) cabinAudio.stat(); }
   for(const f of flick){ f.m.material.emissiveIntensity=f.b*(0.62+0.38*Math.sin(t*8+f.s))*((Math.sin(t*1.7+f.s)>0.93)?0.4:1.0); }
   statEl.style.opacity=(e>0.72)?0.85:0;
   Grade.uniforms.uTime.value=t; composer.render();
 }
 
-// ---- minimal placeholder cabin ambience (real VO/SFX come in Stage C) ----
-let audioOn=false;
-function startAudio(){ if(audioOn)return; audioOn=true; try{
-  const AC=window.AudioContext||window.webkitAudioContext; const ac=new AC();
-  const mk=(type,freq,gain)=>{ const o=ac.createOscillator(); o.type=type; o.frequency.value=freq; const g=ac.createGain(); g.gain.value=gain; o.connect(g).connect(ac.destination); o.start(); return o; };
-  mk('sine',57,0.05); mk('triangle',86,0.016);
-  const buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*0.5;
-  const n=ac.createBufferSource(); n.buffer=buf; n.loop=true; const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=400; const g=ac.createGain(); g.gain.value=0.05; n.connect(f).connect(g).connect(ac.destination); n.start();
+// ---- cabin soundscape (rich procedural; auto-layers real Audio Forge clips) ----
+let cabinAudio=null;
+function startAudio(){ if(cabinAudio)return; try{
+  const mix=new Mixer(0.85); mix.resume(); const ctx=mix.ctx, B=mix.master;
+  tone(ctx,B,{type:'sine',freq:56,gain:0.05});                 // cabin power drone
+  tone(ctx,B,{type:'triangle',freq:84,gain:0.014});
+  noiseBed(ctx,B,{type:'lowpass',freq:360,q:0.7,gain:0.05});   // air handling
+  const dread=tone(ctx,B,{type:'sine',freq:40,gain:0});        // dread swell as the derelict nears
+  const carrier=tone(ctx,B,{type:'sine',freq:212,gain:0});     // the derelict's faint carrier tone
+  const commsBed=noiseBed(ctx,B,{type:'bandpass',freq:1400,q:0.8,gain:0});
+  cabinAudio={
+    approach(e,t){ dread.g.gain.value=Math.max(0,e-0.5)*0.12; carrier.g.gain.value=Math.max(0,e-0.6)*0.02; carrier.o.frequency.value=212+Math.sin(t*1.3)*6; commsBed.g.gain.value=Math.max(0,e-0.7)*0.05; },
+    creak(){ burst(ctx,B,{type:'lowpass',freq:90+Math.random()*60,q:1.5,gain:0.16,decay:1.2}); },
+    stat(){ burst(ctx,B,{type:'bandpass',freq:1800,q:0.5,gain:0.07,decay:0.22}); },
+  };
+  new ClipBank(mix).load().then(b=>{ b.play('comms',{loop:true,gain:0.3}); b.play('drone',{loop:true,gain:0.3}); });
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
