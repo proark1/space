@@ -6,7 +6,7 @@
 <title>SIGNAL LOST — launch (the pad)</title>
 <style>
   html,body{margin:0;height:100%;background:#070809;overflow:hidden}
-  #c{width:100vw;height:100vh;display:block;image-rendering:pixelated}
+  #c{width:100vw;height:100vh;display:block}
   #hud{position:fixed;left:14px;bottom:12px;font:11px ui-monospace,Menlo,monospace;color:#8a97a4;pointer-events:none}
   #hud b{color:#E8A33D}
   #nav{position:fixed;right:14px;top:12px;font:12px ui-monospace,monospace;display:flex;gap:8px}
@@ -40,8 +40,9 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 
 const canvas=document.getElementById('c');
-const renderer=new THREE.WebGLRenderer({canvas,antialias:false,powerPreference:'high-performance'});
-renderer.setPixelRatio(1); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const DPR=Math.min(window.devicePixelRatio||1,2);
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.toneMapping=THREE.ACESFilmicToneMapping; const BASE_EXP=1.18; renderer.toneMappingExposure=BASE_EXP;
 
 const scene=new THREE.Scene();
@@ -50,8 +51,7 @@ const FOG_GROUND=new THREE.Color(0x12161c), FOG_SPACE=new THREE.Color(0x03040b);
 scene.background=SKY_GROUND.clone(); scene.fog=new THREE.FogExp2(FOG_GROUND.clone().getHex(),0.0034);
 const camera=new THREE.PerspectiveCamera(56,1,0.3,5000); camera.position.set(64,20,70);
 
-const INTERNAL=0.62;
-const composer=new EffectComposer(renderer);
+const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
 const bloom=new UnrealBloomPass(new THREE.Vector2(1,1),0.7,0.62,0.62); composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -59,31 +59,28 @@ const Grade=new ShaderPass({
  uniforms:{tDiffuse:{value:null},uTime:{value:0},uRes:{value:new THREE.Vector2(1,1)}},
  vertexShader:`varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
  fragmentShader:`varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes;
-  float bayer(vec2 p){int i=int(mod(p.x,4.0))+int(mod(p.y,4.0))*4; float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; float v=0.; for(int k=0;k<16;k++){if(k==i)v=m[k];} return v/16.0-0.5;}
   float rnd(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5);}
-  void main(){vec2 uv=vUv,d=uv-0.5; float ca=0.0008+dot(d,d)*0.005;
+  void main(){vec2 uv=vUv,d=uv-0.5; float ca=0.0006+dot(d,d)*0.0026;
    vec3 col; col.r=texture2D(tDiffuse,uv+d*ca).r; col.g=texture2D(tDiffuse,uv).g; col.b=texture2D(tDiffuse,uv-d*ca).b;
-   float g=dot(col,vec3(0.299,0.587,0.114)); col=mix(vec3(g),col,0.78);   // cold desaturated grade
-   float lv=30.0; col=floor(col*lv+bayer(gl_FragCoord.xy))/lv;
-   col*=0.97+0.03*sin(gl_FragCoord.y*3.14159); col+=(rnd(uv*uRes+uTime)-0.5)*0.022;
-   col*=mix(0.55,1.0,smoothstep(1.25,0.1,length(d))); gl_FragColor=vec4(max(col,0.0),1.0);} `
+   float g=dot(col,vec3(0.299,0.587,0.114)); col=mix(vec3(g),col,0.85);   // cold desaturated grade (lighter)
+   col+=(rnd(uv*uRes+uTime)-0.5)*0.014;
+   col*=mix(0.6,1.0,smoothstep(1.25,0.08,length(d))); gl_FragColor=vec4(max(col,0.0),1.0);} `
 });
 composer.addPass(Grade);
-function resize(){const w=innerWidth,h=innerHeight,lw=Math.max(2,Math.floor(w*INTERNAL)),lh=Math.max(2,Math.floor(h*INTERNAL));
- renderer.setSize(lw,lh,false); composer.setSize(lw,lh); bloom.setSize(lw,lh); Grade.uniforms.uRes.value.set(lw,lh);
+function resize(){const w=innerWidth,h=innerHeight;
+ renderer.setSize(w,h,false); composer.setSize(w,h); Grade.uniforms.uRes.value.set(w*DPR,h*DPR);
  camera.aspect=w/h; camera.updateProjectionMatrix();}
 
 const controls=new OrbitControls(camera,canvas);
 controls.enableDamping=true; controls.dampingFactor=0.06; controls.autoRotate=true; controls.autoRotateSpeed=0.35;
 controls.minDistance=28; controls.maxDistance=360; controls.maxPolarAngle=Math.PI*0.52; controls.target.set(0,14,0);
 
-function snap(m){ m.onBeforeCompile=sh=>{ sh.vertexShader=sh.vertexShader.replace('#include <project_vertex>',
-  '#include <project_vertex>\n vec4 _sp=gl_Position; _sp.xyz/=_sp.w; _sp.xy=floor(_sp.xy*112.0)/112.0; _sp.xyz*=_sp.w; gl_Position=_sp;'); }; return m; }
+function snap(m){ return m; }   // outer scene: no PS1 vertex snap — crisp, smooth geometry
 function tex(draw,w=256,h=256){ const c=document.createElement('canvas'); c.width=w;c.height=h; draw(c.getContext('2d')); const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t; }
 function part(geo,m,parent,x,y,z,rx,ry,rz){ const o=new THREE.Mesh(geo,m); o.position.set(x||0,y||0,z||0); if(rx||ry||rz)o.rotation.set(rx||0,ry||0,rz||0); o.castShadow=o.receiveShadow=true; (parent instanceof THREE.Object3D?parent:scene).add(o); return o; }
 const BOX=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
-const CYL=(rt,rb,h,s)=>new THREE.CylinderGeometry(rt,rb,h,s||12);
-const CONE=(r,h,s)=>new THREE.ConeGeometry(r,h,s||12);
+const CYL=(rt,rb,h,s)=>new THREE.CylinderGeometry(rt,rb,h,s||28);
+const CONE=(r,h,s)=>new THREE.ConeGeometry(r,h,s||24);
 const lerp=(a,b,k)=>a+(b-a)*k, clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smooth=(a,b,x)=>{ const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
 
@@ -95,15 +92,15 @@ const grime=tex(x=>{ x.fillStyle='#6e7278'; x.fillRect(0,0,256,256);
   for(let i=0;i<16;i++){ x.strokeStyle=`rgba(24,20,16,${Math.random()*0.4})`; x.beginPath(); x.moveTo(Math.random()*256,0); x.lineTo(Math.random()*256+30,256); x.stroke(); } });
 grime.wrapS=grime.wrapT=THREE.RepeatWrapping; grime.repeat.set(3,3);
 const M={
-  concrete:new THREE.MeshStandardMaterial({color:0x44474c,map:grime,roughness:0.95,metalness:0.05,flatShading:true}),
-  pad:     new THREE.MeshStandardMaterial({color:0x2f3338,map:grime,roughness:0.92,metalness:0.1,flatShading:true}),
-  steel:   new THREE.MeshStandardMaterial({color:0x6b7079,roughness:0.5,metalness:0.7,flatShading:true}),
-  dark:    new THREE.MeshStandardMaterial({color:0x32373d,map:grime,roughness:0.85,metalness:0.4,flatShading:true}),
-  rocket:  new THREE.MeshStandardMaterial({color:0xb9bbb6,map:grime,roughness:0.7,metalness:0.25,flatShading:true}),
-  rocket2: new THREE.MeshStandardMaterial({color:0x7a7d80,map:grime,roughness:0.72,metalness:0.3,flatShading:true}),
-  rust:    new THREE.MeshStandardMaterial({color:0x6e4733,map:grime,roughness:0.95,metalness:0.15,flatShading:true}),
-  nozzle:  new THREE.MeshStandardMaterial({color:0x26282c,roughness:0.5,metalness:0.7,flatShading:true}),
-  capsule: new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:true}),
+  concrete:new THREE.MeshStandardMaterial({color:0x44474c,map:grime,roughness:0.95,metalness:0.05,flatShading:false}),
+  pad:     new THREE.MeshStandardMaterial({color:0x2f3338,map:grime,roughness:0.92,metalness:0.1,flatShading:false}),
+  steel:   new THREE.MeshStandardMaterial({color:0x6b7079,roughness:0.5,metalness:0.7,flatShading:false}),
+  dark:    new THREE.MeshStandardMaterial({color:0x32373d,map:grime,roughness:0.85,metalness:0.4,flatShading:false}),
+  rocket:  new THREE.MeshStandardMaterial({color:0xb9bbb6,map:grime,roughness:0.7,metalness:0.25,flatShading:false}),
+  rocket2: new THREE.MeshStandardMaterial({color:0x7a7d80,map:grime,roughness:0.72,metalness:0.3,flatShading:false}),
+  rust:    new THREE.MeshStandardMaterial({color:0x6e4733,map:grime,roughness:0.95,metalness:0.15,flatShading:false}),
+  nozzle:  new THREE.MeshStandardMaterial({color:0x26282c,roughness:0.5,metalness:0.7,flatShading:false}),
+  capsule: new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:false}),
   hazard:  new THREE.MeshStandardMaterial({color:0x1a1204,emissive:0xE8A33D,emissiveIntensity:0.9,roughness:1}),
   beacon:  new THREE.MeshStandardMaterial({color:0x1a0303,emissive:0xff3525,emissiveIntensity:2.4,roughness:1}),
   flood:   new THREE.MeshStandardMaterial({color:0x222,emissive:0xdfeaff,emissiveIntensity:3.0,roughness:1}),
@@ -163,14 +160,14 @@ const klaxonBeam=part(CONE(2.2,9,12),new THREE.MeshBasicMaterial({color:0xffa030
 // ---- THE ROCKET (rises as a whole; origin at pad deck) ----
 const rocket=new THREE.Group(); scene.add(rocket); rocket.position.set(0,3,0);
 (function buildRocket(g){
-  part(CYL(2.6,2.8,22,18),M.rocket,g,0,15,0);                                  // booster body
-  for(let y=6;y<=24;y+=3) part(CYL(2.83,2.83,0.5,18),M.rocket2,g,0,y,0);        // bands
+  part(CYL(2.6,2.8,22,36),M.rocket,g,0,15,0);                                  // booster body
+  for(let y=6;y<=24;y+=3) part(CYL(2.83,2.83,0.5,36),M.rocket2,g,0,y,0);        // bands
   part(BOX(0.5,18,0.5),M.rust,g,2.6,15,0.6); part(BOX(0.4,16,0.4),M.dark,g,-2.4,15,1.0); // conduits
   for(let i=0;i<3;i++){ const a=i/3*Math.PI*2; part(BOX(2.0,0.5,0.12),M.hazard,g,Math.cos(a)*2.7,7+i*0.0,Math.sin(a)*2.7,0,-a,0); } // hazard ring
-  part(CYL(2.8,2.2,2.4,18),M.nozzle,g,0,3.5,0);                                 // engine skirt
+  part(CYL(2.8,2.2,2.4,32),M.nozzle,g,0,3.5,0);                                 // engine skirt
   for(let i=0;i<5;i++){ const a=i/5*Math.PI*2, r=i<4?1.4:0; const nx=i<4?Math.cos(a)*r:0, nz=i<4?Math.sin(a)*r:0; part(CONE(0.85,1.8,12),M.nozzle,g,nx,1.6,nz,Math.PI,0,0); }
-  part(CYL(2.2,2.6,1.6,18),M.dark,g,0,27.2,0);                                  // interstage
-  part(CYL(2.0,2.2,7,18),M.rocket,g,0,31.5,0);                                  // 2nd stage
+  part(CYL(2.2,2.6,1.6,32),M.dark,g,0,27.2,0);                                  // interstage
+  part(CYL(2.0,2.2,7,36),M.rocket,g,0,31.5,0);                                  // 2nd stage
   for(const a of [0,Math.PI*0.5,Math.PI,Math.PI*1.5]) part(BOX(0.4,7,0.3),M.rocket2,g,Math.cos(a)*2.05,31.5,Math.sin(a)*2.05);
   // capsule (matches the /launch & /exterior silhouette)
   part(CYL(1.7,2.0,2.4,16),M.dark,g,0,36,0);                                    // adapter

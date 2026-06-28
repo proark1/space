@@ -6,7 +6,7 @@
 <title>SIGNAL LOST — the derelict (exterior)</title>
 <style>
   html,body{margin:0;height:100%;background:#04060e;overflow:hidden}
-  #c{width:100vw;height:100vh;display:block;image-rendering:pixelated}
+  #c{width:100vw;height:100vh;display:block}
   #hud{position:fixed;left:14px;bottom:12px;font:11px ui-monospace,Menlo,monospace;color:#8a97a4;pointer-events:none}
   #hud b{color:#E8A33D}
   #nav{position:fixed;right:14px;top:12px;font:12px ui-monospace,monospace}
@@ -39,16 +39,16 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const canvas=document.getElementById('c');
-const renderer=new THREE.WebGLRenderer({canvas,antialias:false,powerPreference:'high-performance'});
-renderer.setPixelRatio(1); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const DPR=Math.min(window.devicePixelRatio||1,2);
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.5;
 
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x05070f);
 scene.fog=new THREE.FogExp2(0x070a14,0.00045);
 const camera=new THREE.PerspectiveCamera(54,1,0.5,6000); camera.position.set(120,42,96);
 
-const INTERNAL=0.6;
-const composer=new EffectComposer(renderer);
+const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
 const bloom=new UnrealBloomPass(new THREE.Vector2(1,1),0.5,0.5,0.72); composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -56,17 +56,15 @@ const Grade=new ShaderPass({
  uniforms:{tDiffuse:{value:null},uTime:{value:0},uRes:{value:new THREE.Vector2(1,1)}},
  vertexShader:`varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
  fragmentShader:`varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes;
-  float bayer(vec2 p){int i=int(mod(p.x,4.0))+int(mod(p.y,4.0))*4; float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.; float v=0.; for(int k=0;k<16;k++){if(k==i)v=m[k];} return v/16.0-0.5;}
   float rnd(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5);}
-  void main(){vec2 uv=vUv,d=uv-0.5; float ca=0.0007+dot(d,d)*0.005;
+  void main(){vec2 uv=vUv,d=uv-0.5; float ca=0.0005+dot(d,d)*0.0022;
    vec3 col; col.r=texture2D(tDiffuse,uv+d*ca).r; col.g=texture2D(tDiffuse,uv).g; col.b=texture2D(tDiffuse,uv-d*ca).b;
-   float lv=30.0; col=floor(col*lv+bayer(gl_FragCoord.xy))/lv;
-   col*=0.97+0.03*sin(gl_FragCoord.y*3.14159); col+=(rnd(uv*uRes+uTime)-0.5)*0.02;
-   col*=mix(0.65,1.0,smoothstep(1.15,0.12,length(d))); gl_FragColor=vec4(max(col,0.0),1.0);} `
+   col+=(rnd(uv*uRes+uTime)-0.5)*0.012;
+   col*=mix(0.74,1.0,smoothstep(1.25,0.10,length(d))); gl_FragColor=vec4(max(col,0.0),1.0);} `
 });
 composer.addPass(Grade);
-function resize(){const w=innerWidth,h=innerHeight,lw=Math.max(2,Math.floor(w*INTERNAL)),lh=Math.max(2,Math.floor(h*INTERNAL));
- renderer.setSize(lw,lh,false); composer.setSize(lw,lh); bloom.setSize(lw,lh); Grade.uniforms.uRes.value.set(lw,lh);
+function resize(){const w=innerWidth,h=innerHeight;
+ renderer.setSize(w,h,false); composer.setSize(w,h); Grade.uniforms.uRes.value.set(w*DPR,h*DPR);
  camera.aspect=w/h; camera.updateProjectionMatrix();}
 
 const controls=new OrbitControls(camera,canvas);
@@ -88,7 +86,7 @@ scene.add(pos(new THREE.DirectionalLight(0x6f8bb0,0.8),-200,50,150));
   for(let i=0;i<N;i++){ const v=new THREE.Vector3().randomDirection().multiplyScalar(1800+Math.random()*1100); p[i*3]=v.x;p[i*3+1]=v.y;p[i*3+2]=v.z; const c=Math.random(),r=0.65+Math.random()*0.35; col[i*3]=r;col[i*3+1]=r*(0.82+c*0.18);col[i*3+2]=r*(0.88+c*0.12); }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3)); g.setAttribute('color',new THREE.BufferAttribute(col,3));
   scene.add(new THREE.Points(g,new THREE.PointsMaterial({size:2,sizeAttenuation:false,vertexColors:true,transparent:true,opacity:0.85}))); }
-{ const s=new THREE.Mesh(new THREE.SphereGeometry(34,16,16),new THREE.MeshBasicMaterial({color:0xffe9c4,fog:false})); s.position.set(720,600,640); scene.add(s); }
+{ const s=new THREE.Mesh(new THREE.SphereGeometry(34,40,40),new THREE.MeshBasicMaterial({color:0xffe9c4,fog:false})); s.position.set(720,600,640); scene.add(s); }
 
 // ---- planet ----
 function tex(draw,w=512,h=256){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
@@ -106,12 +104,12 @@ const grime=tex(x=>{ x.fillStyle='#9a9a94'; x.fillRect(0,0,256,256);
   for(let i=0;i<18;i++){ x.strokeStyle=`rgba(30,26,20,${Math.random()*0.4})`; x.beginPath(); x.moveTo(Math.random()*256,0); x.lineTo(Math.random()*256+40,256); x.stroke(); } },256,256);
 grime.wrapS=grime.wrapT=THREE.RepeatWrapping; grime.repeat.set(2,2);
 const M={
-  hull: new THREE.MeshStandardMaterial({color:0x717a86, map:grime, roughness:0.8, metalness:0.35, flatShading:true}),
-  hull2:new THREE.MeshStandardMaterial({color:0x5e6772, map:grime, roughness:0.82, metalness:0.36, flatShading:true}),
-  dark: new THREE.MeshStandardMaterial({color:0x434e5a, map:grime, roughness:0.85, metalness:0.42, flatShading:true}),
-  rust: new THREE.MeshStandardMaterial({color:0x7c563b, map:grime, roughness:0.92, metalness:0.2, flatShading:true}),
-  metal:new THREE.MeshStandardMaterial({color:0x868f9e, roughness:0.32, metalness:0.78, flatShading:true}),
-  panel:new THREE.MeshStandardMaterial({color:0x10243a, roughness:0.4, metalness:0.5, flatShading:true}),
+  hull: new THREE.MeshStandardMaterial({color:0x717a86, map:grime, roughness:0.8, metalness:0.35, flatShading:false}),
+  hull2:new THREE.MeshStandardMaterial({color:0x5e6772, map:grime, roughness:0.82, metalness:0.36, flatShading:false}),
+  dark: new THREE.MeshStandardMaterial({color:0x434e5a, map:grime, roughness:0.85, metalness:0.42, flatShading:false}),
+  rust: new THREE.MeshStandardMaterial({color:0x7c563b, map:grime, roughness:0.92, metalness:0.2, flatShading:false}),
+  metal:new THREE.MeshStandardMaterial({color:0x868f9e, roughness:0.32, metalness:0.78, flatShading:false}),
+  panel:new THREE.MeshStandardMaterial({color:0x10243a, roughness:0.4, metalness:0.5, flatShading:false}),
   amber:new THREE.MeshStandardMaterial({color:0x1a1004, emissive:0xE8A33D, emissiveIntensity:1.25, roughness:1}),
   cyan: new THREE.MeshStandardMaterial({color:0x06131a, emissive:0x8fd6ff, emissiveIntensity:1.5, roughness:1}),
   engine:new THREE.MeshStandardMaterial({color:0x041416, emissive:0x36e0d0, emissiveIntensity:2.4, roughness:1}),
@@ -119,7 +117,7 @@ const M={
 
 const ship=new THREE.Group(); scene.add(ship);
 function bx(w,h,d,m,x,y,z,par,rx,ry,rz){const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);o.rotation.set(rx||0,ry||0,rz||0);o.castShadow=o.receiveShadow=true;(par||ship).add(o);return o;}
-function cl(r1,r2,h,m,x,y,z,par,rx,rz,seg){const o=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,seg||12),m);o.position.set(x,y,z);o.rotation.set(rx||0,0,rz||0);o.castShadow=o.receiveShadow=true;(par||ship).add(o);return o;}
+function cl(r1,r2,h,m,x,y,z,par,rx,rz,seg){const o=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,seg||24),m);o.position.set(x,y,z);o.rotation.set(rx||0,0,rz||0);o.castShadow=o.receiveShadow=true;(par||ship).add(o);return o;}
 const flicker=[];
 
 // ---- BIG detailed hull (segmented for panel breaks) ----
@@ -147,7 +145,7 @@ for(let i=-3;i<4;i++) bx(0.2,0.5,9,M.metal,-22+i*3.4,-3-i*0.6,-30,null,0.18,0,0)
 const dish=new THREE.Mesh(new THREE.ConeGeometry(3,1.6,16,1,true),M.metal); dish.position.set(0,9.5,6); dish.rotation.x=Math.PI; dish.castShadow=true; ship.add(dish);
 cl(0.22,0.22,11,M.metal,3.5,6,-10,null,0,0.2); cl(0.18,0.18,9,M.metal,-3,6,8,null,0,-0.2); cl(0.3,0.3,3,M.metal,5,5,18);
 // greeble
-for(let i=0;i<140;i++){ const s=0.5+Math.random()*1.8; const side=Math.floor(Math.random()*3); let x,y,z=-42+Math.random()*84;
+for(let i=0;i<240;i++){ const s=0.4+Math.random()*1.8; const side=Math.floor(Math.random()*3); let x,y,z=-42+Math.random()*84;
   if(side===0){y=4.2;x=(Math.random()-0.5)*10;} else if(side===1){x=6.7;y=(Math.random()-0.5)*7.5;} else {x=-6.7;y=(Math.random()-0.5)*7.5;}
   bx(s,s*0.5,s*(0.6+Math.random()),Math.random()>0.8?M.rust:M.dark,x,y,z); }
 // windows
@@ -173,7 +171,7 @@ const COLLAR=new THREE.Vector3(); // world position of the collar mouth, compute
 
 // ---- arriving capsule ----
 const cap=new THREE.Group();
-const capMat=new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:true});
+const capMat=new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:false});
 const nose=new THREE.Mesh(new THREE.ConeGeometry(1.2,3,12),capMat); nose.rotation.x=-Math.PI/2; nose.position.z=-1.7; cap.add(nose);
 const cbody=new THREE.Mesh(new THREE.CylinderGeometry(1.25,1.5,2.8,12),capMat); cbody.rotation.x=Math.PI/2; cbody.position.z=0.5; cap.add(cbody);
 cap.add(pos(new THREE.Mesh(new THREE.SphereGeometry(0.6,12,12),new THREE.MeshStandardMaterial({color:0x02060a,emissive:0x9fd0ff,emissiveIntensity:1.7})),0,0.65,-1.0));
