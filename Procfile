@@ -1,1 +1,1 @@
-web: python3 lookdev/serve.py
+web: python3 -m http.server ${PORT:-8080} --bind 0.0.0.0 --directory /app

@@ -1,17 +1,17 @@
-# This Railway service deploys the Python look-dev server: `python3 lookdev/serve.py`
-# (see railway.json / Procfile). Exclude the in-progress TypeScript monorepo scaffold
-# (apps/ + packages/ + root pnpm/turbo/tsconfig) so NIXPACKS auto-detects PYTHON, not
-# Node/pnpm — otherwise `railway up` uploads those root files and the build switches to a
-# Node build of the unfinished monorepo and fails.
-# REMOVE these entries once the monorepo itself becomes the deploy target.
+# Railway now deploys the Vite client landing page through Dockerfile.
+# Keep local caches, secrets, and unrelated look-dev prototypes out of CLI uploads.
+.git/
+.claude/
 node_modules/
+**/node_modules/
 .turbo/
-apps/
-packages/
-package.json
-pnpm-lock.yaml
-pnpm-workspace.yaml
-turbo.json
-tsconfig.json
-tsconfig.base.json
-.npmrc
+**/.turbo/
+**/dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+docs/
+lookdev/
+tools/
+requirements.txt

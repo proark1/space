@@ -1,13 +1,23 @@
-# SIGNAL LOST — deploys the Python look-dev server (look-dev scenes + Audio Forge + hero portrait).
-# Explicit Docker build so the deploy is DETERMINISTIC: it never depends on NIXPACKS language
-# auto-detection, so the in-progress TypeScript monorepo at the repo root (apps/ + packages/ +
-# root package.json) can never hijack the build. Works identically for `railway up` and a future
-# GitHub-source deploy. serve.py is standard-library only — no pip install needed.
+# SIGNAL LOST — deploys the Vite client landing page.
+# The build stage installs the TypeScript workspace and emits apps/client/dist.
+# The runtime stage serves the static build on Railway's injected $PORT.
+FROM node:22-slim AS build
+
+WORKDIR /app
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json tsconfig.base.json ./
+COPY apps/ ./apps/
+COPY packages/ ./packages/
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @sl/client build
+
 FROM python:3.12-slim
 
 WORKDIR /app
-COPY lookdev/ ./lookdev/
+COPY --from=build /app/apps/client/dist ./
 
-# Railway injects $PORT and mounts the persistent volume; serve.py reads $PORT, $HOST
-# (default 0.0.0.0) and $AUDIO_DIR (set to the volume path on the service).
-CMD ["python3", "lookdev/serve.py"]
+CMD ["sh", "-c", "python3 -m http.server ${PORT:-8080} --bind 0.0.0.0 --directory /app"]
