@@ -1,0 +1,19 @@
+{
+  "name": "@sl/shared-types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  }
+}

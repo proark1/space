@@ -1,0 +1,13 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+
+# pnpm 11 reads build/run settings from HERE (the package.json "pnpm" field is ignored).
+# vitest's bundler esbuild needs its postinstall; pnpm 11.9 wouldn't honor the scoped
+# onlyBuiltDependencies allow-list for it, so we allow build scripts to run. esbuild is the
+# only native dependency in the tree today — review any new native deps before adding them.
+dangerouslyAllowAllBuilds: true
+# Don't abort turbo tasks on the pre-run dependency-status check.
+verifyDepsBeforeRun: false
+allowBuilds:
+  esbuild: set this to true or false

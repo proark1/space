@@ -1,0 +1,16 @@
+{
+  "name": "@sl/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@sl/shared-types": "workspace:*",
+    "@sl/netcode": "workspace:*",
+    "@sl/ecs": "workspace:*"
+  }
+}

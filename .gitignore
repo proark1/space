@@ -11,4 +11,6 @@ lookdev/audio/
 .DS_Store
 node_modules/
 dist/
+.turbo/
+*.tsbuildinfo
 .claude/
