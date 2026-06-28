@@ -49,7 +49,7 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x03050b);
 scene.fog=new THREE.FogExp2(0x05080f,0.0010);
 const camera=new THREE.PerspectiveCamera(62,1,0.04,8000);
-camera.rotation.order='YXZ'; camera.position.set(0,0.06,0.18);
+camera.rotation.order='YXZ'; camera.position.set(0,0.02,0.85);   // YOU sit in the back seat of the ring
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -184,9 +184,9 @@ readout(M.cyan,0.3,0.14,0.5,-1.04,0.9);
 readout(M.red,0.14,0.14,0.95,-1.06,1.4);
 for(let i=0;i<8;i++) part(CYL(0.04,0.04,0.06,8),M.metal,cabin,-1.0+i*0.26,-0.52,-1.0,-0.5,0,0);
 
-// seats + crew (suited astronauts from units.js, seated, facing the window)
-function seat(px,pz,accent){
-  const s=new THREE.Group(); s.position.set(px,0,pz); cabin.add(s);
+// seats + crew — 4 in an inward-facing ring (max 4 players) so the crew can see each other
+function seat(px,pz,faceY,accent){
+  const s=new THREE.Group(); s.position.set(px,0,pz); s.rotation.y=faceY; cabin.add(s);
   part(BOX(0.7,0.12,0.7),M.seat,s,0,-0.95,0);
   part(BOX(0.7,1.0,0.12),M.seat,s,0,-0.5,0.32);
   part(BOX(0.12,0.5,0.7),M.seat,s,-0.31,-0.7,0); part(BOX(0.12,0.5,0.7),M.seat,s,0.31,-0.7,0);
@@ -198,10 +198,11 @@ function seat(px,pz,accent){
   }
   return s;
 }
-seat(0,0.15,null);             // player seat (you are here — no avatar drawn)
-seat(0.95,0.2,0x2f86c8);       // crewmate — blue
-seat(-0.8,1.08,0x3fae5a);      // crewmate — green
-seat(0.8,1.08,0xb58ad6);       // crewmate — violet
+// ring: YOU at the back (camera), up to 3 crew facing inward — everyone sees everyone
+seat(0,0.85,0,null);                  // YOU (back seat / camera) — face the centre & window
+seat(0,-0.85,Math.PI,0x2f86c8);       // crewmate ahead — blue (faces you)
+seat(-0.85,0,-Math.PI/2,0x3fae5a);    // crewmate left — green
+seat(0.85,0,Math.PI/2,0xb58ad6);      // crewmate right — violet
 // ==BUILD END==
 
 // ---- transit timeline + render loop ----

@@ -106,6 +106,10 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.path = "/pad.html"; return super().do_GET()
         if p in ("/units", "/units/", "/crew"):
             self.path = "/units.html"; return super().do_GET()
+        if p in ("/lobby", "/lobby/", "/waiting"):
+            self.path = "/lobby.html"; return super().do_GET()
+        if p in ("/dock", "/dock/", "/docking"):
+            self.path = "/dock.html"; return super().do_GET()
         if p == "/api/manifest":
             return self._json({"items": self._manifest(), "audioDir": AUDIO, "db": DB_PATH})
         if p == "/api/voices":
