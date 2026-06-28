@@ -4,6 +4,7 @@ ROOT  = os.path.dirname(os.path.abspath(__file__))
 # AUDIO_DIR points at a persistent Railway volume (e.g. /data/audio); defaults to ./audio locally
 AUDIO = os.environ.get("AUDIO_DIR") or os.path.join(ROOT, "audio")
 DB_PATH = os.path.join(AUDIO, "_catalog.db")
+HERO  = os.path.join(AUDIO, "_hero.jpg")  # commemorative lobby portrait — lives on the same persistent volume
 PORT  = int(os.environ.get("PORT", "8173"))
 HOST  = os.environ.get("HOST", "0.0.0.0")
 EL    = "https://api.elevenlabs.io"
@@ -110,6 +111,20 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.path = "/lobby.html"; return super().do_GET()
         if p in ("/dock", "/dock/", "/docking"):
             self.path = "/dock.html"; return super().do_GET()
+        if p in ("/hero", "/hero.jpg", "/hero.png"):
+            if os.path.isfile(HERO):
+                data = open(HERO, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers(); self.wfile.write(data); return
+            self.send_response(404); self.end_headers(); return
+        if p == "/api/hero":
+            ex = os.path.isfile(HERO)
+            return self._json({"exists": ex, "url": "/hero" if ex else None,
+                               "updatedAt": stamp(HERO)[1] if ex else None})
         if p == "/api/manifest":
             return self._json({"items": self._manifest(), "audioDir": AUDIO, "db": DB_PATH})
         if p == "/api/voices":
@@ -141,13 +156,29 @@ class H(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?")[0]
-        if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice"):
+        if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice", "/api/hero-upload"):
             self.send_response(404); self.end_headers(); return
         try:
             ln = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(ln).decode() or "{}")
         except Exception as e:
             return self._json({"ok": False, "error": "bad request: " + str(e)}, 200)
+        if p == "/api/hero-upload":  # local image storage — no ElevenLabs key required
+            try:
+                du = body.get("dataUrl", "")
+                if "," in du:
+                    du = du.split(",", 1)[1]
+                raw = base64.b64decode(du)
+                if not raw:
+                    return self._json({"ok": False, "error": "empty image"}, 200)
+                if len(raw) > 8_000_000:
+                    return self._json({"ok": False, "error": "image too large (max 8 MB)"}, 200)
+                with open(HERO, "wb") as f:
+                    f.write(raw)
+                size, updated = stamp(HERO)
+                return self._json({"ok": True, "file": "/hero", "size": size, "updatedAt": updated})
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 200)
         k = key_of(self)
         if not k:
             return self._json({"ok": False, "error": "No API key — paste your ElevenLabs key at the top."}, 200)

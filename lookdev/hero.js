@@ -1,0 +1,113 @@
+// hero.js — the commemorative "hero in front of a rocket" portrait of ASSAD DAR.
+// Shared by the departure lobby (the picture on the wall) and the admin Hero panel
+// (live preview + what the uploaded photo gets framed into). Pure 2D-canvas drawing,
+// NO imports, so it runs in the browser AND in the headless Node construction harness.
+//
+//   drawHeroPoster(ctx, W, H, photo)
+//     photo = an HTMLImageElement (the uploaded face) or null for the painted fallback.
+
+export const HERO_NAME  = 'ASSAD DAR';
+export const HERO_TITLE = 'THE ONE WHO ANSWERED THE SIGNAL';
+export const HERO_SUB   = 'SAVIOUR OF THE SILENCE — EARTH REMEMBERS';
+
+function rr(c, x, y, w, h, r){ r = Math.min(r, w / 2, h / 2); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function cover(c, img, x, y, w, h){ const ir = img.width / img.height, tr = w / h; let sw, sh, sx, sy; if (ir > tr){ sh = img.height; sw = sh * tr; sx = (img.width - sw) / 2; sy = 0; } else { sw = img.width; sh = sw / tr; sx = 0; sy = (img.height - sh) / 2; } c.drawImage(img, sx, sy, sw, sh, x, y, w, h); }
+
+export function drawHeroPoster(ctx, W, H, photo){
+  const x = v => v * W, y = v => v * H;
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+
+  // ---------- sky / deep space ----------
+  let g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#05091a'); g.addColorStop(0.4, '#0b1c33'); g.addColorStop(0.72, '#1d2f44'); g.addColorStop(1, '#070b14');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 150; i++){ const sx = Math.random() * W, sy = Math.random() * H * 0.6, r = Math.random() * 1.4 + 0.2; ctx.globalAlpha = Math.random() * 0.7 + 0.2; ctx.fillStyle = '#dfeaff'; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  // ignition glow rising behind the hero
+  g = ctx.createRadialGradient(x(0.5), y(0.74), y(0.02), x(0.5), y(0.74), y(0.5));
+  g.addColorStop(0, 'rgba(255,210,140,0.95)'); g.addColorStop(0.3, 'rgba(255,150,70,0.5)'); g.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // ---------- the rocket, launching behind ----------
+  const cx = x(0.52), bw = x(0.12), top = y(0.07), base = y(0.66);
+  // gantry tower
+  ctx.strokeStyle = 'rgba(40,52,66,0.9)'; ctx.lineWidth = x(0.012);
+  ctx.beginPath(); ctx.moveTo(x(0.34), y(0.12)); ctx.lineTo(x(0.34), base); ctx.stroke();
+  ctx.lineWidth = x(0.005);
+  for (let i = 0; i < 9; i++){ const ty = y(0.14) + i * ((base - y(0.14)) / 9); ctx.beginPath(); ctx.moveTo(x(0.34), ty); ctx.lineTo(cx - bw * 0.5, ty + y(0.02)); ctx.stroke(); }
+  // body
+  g = ctx.createLinearGradient(cx - bw / 2, 0, cx + bw / 2, 0);
+  g.addColorStop(0, '#9aa6b4'); g.addColorStop(0.5, '#eef2f6'); g.addColorStop(1, '#7e8a98');
+  ctx.fillStyle = g; rr(ctx, cx - bw / 2, top + y(0.05), bw, base - top - y(0.05), bw * 0.18); ctx.fill();
+  // nose cone
+  ctx.fillStyle = '#cfd8e2'; ctx.beginPath(); ctx.moveTo(cx, top); ctx.lineTo(cx - bw / 2, top + y(0.06)); ctx.lineTo(cx + bw / 2, top + y(0.06)); ctx.closePath(); ctx.fill();
+  // bands, window, insignia
+  ctx.fillStyle = 'rgba(40,52,66,0.55)'; ctx.fillRect(cx - bw / 2, top + y(0.13), bw, y(0.012)); ctx.fillRect(cx - bw / 2, top + y(0.2), bw, y(0.012));
+  ctx.fillStyle = '#2b3a4a'; ctx.beginPath(); ctx.arc(cx, top + y(0.1), bw * 0.18, 0, 7); ctx.fill();
+  ctx.fillStyle = '#E8A33D'; ctx.fillRect(cx - bw * 0.22, top + y(0.27), bw * 0.44, y(0.03));
+  // fins
+  ctx.fillStyle = '#8893a2';
+  ctx.beginPath(); ctx.moveTo(cx - bw / 2, base - y(0.06)); ctx.lineTo(cx - bw * 0.95, base); ctx.lineTo(cx - bw / 2, base); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx + bw / 2, base - y(0.06)); ctx.lineTo(cx + bw * 0.95, base); ctx.lineTo(cx + bw / 2, base); ctx.closePath(); ctx.fill();
+  // exhaust plume
+  g = ctx.createRadialGradient(cx, base + y(0.02), y(0.01), cx, base + y(0.06), y(0.22));
+  g.addColorStop(0, 'rgba(255,240,200,0.95)'); g.addColorStop(0.25, 'rgba(255,170,80,0.8)'); g.addColorStop(0.6, 'rgba(180,90,50,0.4)'); g.addColorStop(1, 'rgba(80,70,70,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, base + y(0.08), x(0.26), y(0.22), 0, 0, 7); ctx.fill();
+  // billowing smoke
+  for (let i = 0; i < 14; i++){ const a = Math.random() * Math.PI * 2, rad = Math.random() * x(0.3); const sx = cx + Math.cos(a) * rad, sy = base + y(0.08) + Math.abs(Math.sin(a)) * y(0.16); const r2 = x(0.04) + Math.random() * x(0.06); g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r2); const sh = 60 + (Math.random() * 40 | 0); g.addColorStop(0, `rgba(${sh + 40},${sh + 30},${sh + 30},0.4)`); g.addColorStop(1, 'rgba(60,55,55,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, r2, 0, 7); ctx.fill(); }
+
+  // ---------- the hero, front and centre ----------
+  const pw = x(0.5), ph = y(0.5), px = x(0.25), py = y(0.2);
+  // brass frame behind the panel
+  g = ctx.createLinearGradient(px, py, px, py + ph);
+  g.addColorStop(0, '#6a4f22'); g.addColorStop(0.5, '#caa256'); g.addColorStop(1, '#5a4420');
+  ctx.fillStyle = g; rr(ctx, px - x(0.022), py - x(0.022), pw + x(0.044), ph + x(0.044), x(0.03)); ctx.fill();
+  // portrait, clipped
+  ctx.save();
+  rr(ctx, px, py, pw, ph, x(0.02)); ctx.clip();
+  if (photo){
+    cover(ctx, photo, px, py, pw, ph);
+    g = ctx.createLinearGradient(px, py, px, py + ph);
+    g.addColorStop(0, 'rgba(255,200,120,0.22)'); g.addColorStop(0.5, 'rgba(20,30,55,0)'); g.addColorStop(1, 'rgba(6,10,22,0.55)');
+    ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
+  } else {
+    // painted astronaut bust (fallback until a photo is uploaded in admin)
+    g = ctx.createLinearGradient(px, py, px, py + ph); g.addColorStop(0, '#16243c'); g.addColorStop(1, '#0a1322'); ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
+    const hx = px + pw / 2, hy = py + ph * 0.42;
+    ctx.fillStyle = '#c9d3e0'; ctx.beginPath(); ctx.moveTo(px + pw * 0.1, py + ph); ctx.quadraticCurveTo(hx, py + ph * 0.6, px + pw * 0.9, py + ph); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e7edf5'; ctx.beginPath(); ctx.arc(hx, hy, pw * 0.26, 0, 7); ctx.fill();
+    ctx.fillStyle = '#0a1830'; ctx.beginPath(); ctx.ellipse(hx, hy + pw * 0.02, pw * 0.19, pw * 0.16, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,150,0.9)'; ctx.beginPath(); ctx.arc(hx - pw * 0.07, hy - pw * 0.03, pw * 0.02, 0, 7); ctx.fill();
+  }
+  // inner vignette
+  g = ctx.createRadialGradient(px + pw / 2, py + ph * 0.45, ph * 0.1, px + pw / 2, py + ph * 0.5, ph * 0.7);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
+  ctx.restore();
+  // gold ring
+  ctx.strokeStyle = '#e6c674'; ctx.lineWidth = x(0.006); rr(ctx, px, py, pw, ph, x(0.02)); ctx.stroke();
+
+  // ---------- nameplate ----------
+  const nx = x(0.13), nw = x(0.74), ny = y(0.77), nh = y(0.13);
+  g = ctx.createLinearGradient(nx, ny, nx, ny + nh);
+  g.addColorStop(0, '#caa256'); g.addColorStop(0.5, '#8a6a2e'); g.addColorStop(1, '#5a4420');
+  ctx.fillStyle = g; rr(ctx, nx, ny, nw, nh, x(0.015)); ctx.fill();
+  ctx.strokeStyle = '#e8cf8a'; ctx.lineWidth = x(0.004); rr(ctx, nx + x(0.008), ny + x(0.008), nw - x(0.016), nh - x(0.016), x(0.012)); ctx.stroke();
+  ctx.fillStyle = '#1c130a'; ctx.font = `bold ${y(0.052)}px Georgia, "Times New Roman", serif`;
+  ctx.fillText(HERO_NAME, W / 2 + 1, ny + y(0.055) + 1);
+  ctx.fillStyle = '#fff0cf'; ctx.fillText(HERO_NAME, W / 2, ny + y(0.055));
+  ctx.fillStyle = '#2a1d0c'; ctx.font = `${y(0.02)}px ui-monospace, monospace`;
+  ctx.fillText(HERO_TITLE, W / 2, ny + y(0.085));
+  ctx.fillStyle = '#3a2a12'; ctx.font = `${y(0.015)}px ui-monospace, monospace`;
+  ctx.fillText(HERO_SUB, W / 2, ny + y(0.11));
+
+  // ---------- poster frame + vignette ----------
+  ctx.strokeStyle = 'rgba(230,200,120,0.8)'; ctx.lineWidth = x(0.01); ctx.strokeRect(x(0.03), y(0.025), W - x(0.06), H - y(0.05));
+  ctx.strokeStyle = 'rgba(230,200,120,0.35)'; ctx.lineWidth = x(0.003); ctx.strokeRect(x(0.045), y(0.037), W - x(0.09), H - y(0.074));
+  g = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.2, W / 2, H * 0.5, H * 0.75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  ctx.restore();
+}

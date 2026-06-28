@@ -88,6 +88,22 @@
   <div class="catnav" id="catnav"></div>
 </header>
 <main>
+  <div class="cat" style="color:var(--amber)">Lobby hero · ASSAD DAR — the one who answered</div>
+  <div class="item" id="heropanel">
+    <div class="note">Upload a photo of the hero. It's framed into a “hero in front of a rocket” commemorative portrait and hung on the wall of the <a href="/lobby">departure lobby</a> (opposite the mission briefing). Stored on your server — no API key needed.</div>
+    <div class="row" style="align-items:flex-start;gap:18px">
+      <canvas id="herocv" width="288" height="384" style="border:1px solid var(--line);border-radius:10px;background:#05091a;width:222px;height:296px"></canvas>
+      <div style="flex:1;min-width:200px">
+        <label class="lbl">Photo of the hero</label>
+        <input type="file" id="herofile" accept="image/*">
+        <div class="row" style="margin-top:12px">
+          <button class="gen" id="herosave" disabled>Set as lobby portrait</button>
+          <a href="/lobby" target="_blank" style="font-size:11px">open lobby ↗</a>
+        </div>
+        <div class="stat" id="herostat" style="margin-top:10px">checking current portrait…</div>
+      </div>
+    </div>
+  </div>
   <div id="vdlist"></div>
   <div id="list"></div>
 </main>
@@ -345,6 +361,35 @@ $('#search').addEventListener('input',e=>{ const q=e.target.value.trim().toLower
 
 loadManifest();
 if(keyEl.value) $('#connect').click();
+</script>
+
+<script type="module">
+// Hero portrait panel — composites the uploaded photo into the lobby poster (same renderer as the lobby) and uploads it.
+import { drawHeroPoster } from './hero.js';
+const cv=document.getElementById('herocv'), hctx=cv.getContext('2d');
+const stat=document.getElementById('herostat'), fileInp=document.getElementById('herofile'), saveBtn=document.getElementById('herosave');
+let photo=null;
+const paint=()=>drawHeroPoster(hctx, cv.width, cv.height, photo);
+paint();
+function bust(){ return '?'+Date.now(); }
+// show whatever portrait is currently set
+(function(){ const img=new Image(); img.crossOrigin='anonymous';
+  img.onload=()=>{ photo=img; paint(); saveBtn.disabled=false; stat.textContent='current portrait loaded — choose a photo to replace it'; stat.className='stat ok'; };
+  img.onerror=()=>{ stat.textContent='no portrait yet — the painted hero is shown as a placeholder'; stat.className='stat'; };
+  img.src='/hero'+bust(); })();
+fileInp.onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const img=new Image(); img.onload=()=>{ photo=img; paint(); saveBtn.disabled=false; stat.textContent='preview ready — click “Set as lobby portrait”'; stat.className='stat'; };
+  img.onerror=()=>{ stat.textContent='could not read that image'; stat.className='stat err'; };
+  img.src=URL.createObjectURL(f); };
+function downscale(img,max){ let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height; const s=Math.min(1,max/Math.max(w,h||1));
+  w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); return c; }
+saveBtn.onclick=async()=>{ if(!photo) return; saveBtn.disabled=true; stat.textContent='uploading…'; stat.className='stat';
+  const dataUrl=downscale(photo,1024).toDataURL('image/jpeg',0.86);
+  try{ const j=await (await fetch('/api/hero-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataUrl})})).json();
+    if(j.ok){ stat.textContent='✓ portrait set — now hanging in the lobby ('+Math.round(j.size/1024)+' KB)'; stat.className='stat ok'; }
+    else{ stat.textContent='✗ '+(j.error||'upload failed'); stat.className='stat err'; }
+  }catch(err){ stat.textContent='✗ '+err.message; stat.className='stat err'; }
+  saveBtn.disabled=false; };
 </script>
 </body>
 </html>
