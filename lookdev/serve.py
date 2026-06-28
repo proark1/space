@@ -106,7 +106,7 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.path = "/pad.html"; return super().do_GET()
         if p in ("/units", "/units/", "/crew"):
             self.path = "/units.html"; return super().do_GET()
-        if p in ("/lobby", "/lobby/", "/waiting"):
+        if p in ("/lobby", "/lobby/", "/waiting", "/play", "/start", "/intro"):
             self.path = "/lobby.html"; return super().do_GET()
         if p in ("/dock", "/dock/", "/docking"):
             self.path = "/dock.html"; return super().do_GET()

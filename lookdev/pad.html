@@ -38,6 +38,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
+import { FLOW, fadeIn, goNext } from './flow.js';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -240,7 +241,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   }
   if(since<-0.2 && Math.random()<0.0045){ lightning=0.55+Math.random()*0.45; if(padAudio) padAudio.thunder(); }
   prevSince=since;
-  if(since>FLIGHT){ armLaunch(RELOOP); voCountdown=false; }      // flight done → re-arm (beep countdown on the replay loops)
+  if(since>FLIGHT){ if(FLOW){ goNext('/launch?flow=1'); } else { armLaunch(RELOOP); voCountdown=false; } }   // flow: cut to the cockpit transit; standalone: loop
   // --- fade in at each hold start, fade out at reset (hides the seam) ---
   let fade=1; const tin=since+holdDur;
   if(tin<0.8) fade=smooth(0,0.8,tin);
@@ -292,7 +293,7 @@ function startAudio(){ if(padAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-addEventListener('resize',resize); resize(); animate();
+addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
 </html>

@@ -46,6 +46,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units.js';
+import { FLOW, fadeIn, goNext } from './flow.js';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -152,6 +153,7 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 
 // ---- host sequence ----
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
+boardLink.onclick=e=>{ e.preventDefault(); goNext('/pad?flow=1'); };   // board -> the launch sequence
 let phase='wait', doorOpen=0, seqT=0;
 function startSeq(){ if(phase!=='wait')return; phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY'; }
 startBtn.onclick=startSeq;
@@ -177,7 +179,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   else { camera.position.set(pos.x - fx*BACK, EYE+0.9, pos.z - fz*BACK); player.visible=true; }
   camera.rotation.set(pitch,yaw,0);
   // walk through the open door → board
-  if(pos.z<-7.6){ location.href='/launch'; }
+  if(pos.z<-7.6){ goNext('/pad?flow=1'); }   // walked through the hatch -> launch sequence
   // --- host-start: doors open, AI crew run aboard ---
   if(phase==='open'){ doorOpen=Math.min(1,doorOpen+dt*0.7); doorL.position.x=-0.8-doorOpen*1.45; doorR.position.x=0.8+doorOpen*1.45;
     if(doorOpen>=1){ phase='walk'; seqT=0; statusEl.textContent='● DOORS OPEN — WALK TO THE HATCH TO BOARD'; boardLink.style.display='inline-block'; } }
@@ -188,7 +190,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-addEventListener('resize',resize); resize(); animate();
+addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
 </html>

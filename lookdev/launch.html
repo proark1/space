@@ -39,6 +39,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 import { makeAstronaut } from './units.js';
+import { FLOW, fadeIn, goNext } from './flow.js';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -213,6 +214,7 @@ const clock=new THREE.Clock(); const LOOP=46;
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   camera.rotation.y=yaw; camera.rotation.x=pitch;
   const tt=(t%LOOP)/LOOP, e=ease(tt);
+  if(FLOW && tt>0.96){ goNext('/dock?flow=1'); }   // flow: final approach -> manual docking
   // Earth recedes, shrinks, drifts to the window's edge
   earth.position.set(lerp(-26,-78,e), lerp(-12,-22,e), lerp(-92,-320,e));
   earth.scale.setScalar(lerp(1.0,0.42,e)); earthBall.rotation.y+=dt*0.012;
@@ -248,7 +250,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-addEventListener('resize',resize); resize(); animate();
+addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
 </html>
