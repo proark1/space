@@ -1,0 +1,11 @@
+# Cloudflare Pages config for the SIGNAL LOST client (static Vite build).
+# Deploy:
+#   pnpm --filter @sl/client build      # bakes apps/client/.env.local (TURN creds) into dist/
+#   cd apps/client && npx wrangler login # one-time
+#   npx wrangler pages deploy            # uploads dist/ per pages_build_output_dir below
+#
+# Note: TURN creds are baked into the public bundle here (fine for the T17 test).
+# For production, fetch ephemeral creds at runtime instead of baking static ones.
+name = "signal-lost-client"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-23"
