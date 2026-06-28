@@ -83,34 +83,53 @@ const CYL=(a,b,h,s)=>new THREE.CylinderGeometry(a,b,h,s||28);
 
 // ==BUILD START==
 const ringLights=[], clampPivots=[];
+function tex(draw){const c=document.createElement('canvas');c.width=c.height=256;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.colorSpace=THREE.SRGBColorSpace;return t;}
+const grime=tex(x=>{ x.fillStyle='#6b727c'; x.fillRect(0,0,256,256); for(let i=0;i<2400;i++){ const v=(Math.random()*54-27)|0; x.fillStyle=`rgba(${120+v},${122+v},${128+v},${Math.random()*0.4})`; const s=Math.random()*3+1; x.fillRect(Math.random()*256,Math.random()*256,s,s);} for(let i=0;i<16;i++){ x.strokeStyle=`rgba(24,20,16,${Math.random()*0.4})`; x.beginPath(); x.moveTo(Math.random()*256,0); x.lineTo(Math.random()*256+30,256); x.stroke(); } }); grime.repeat.set(3,3);
 const M={
-  hull: new THREE.MeshStandardMaterial({color:0x5e6772,roughness:0.82,metalness:0.4}),
-  dark: new THREE.MeshStandardMaterial({color:0x39424c,roughness:0.85,metalness:0.45}),
+  hull: new THREE.MeshStandardMaterial({color:0x6e7884,map:grime,roughness:0.82,metalness:0.4}),
+  hull2:new THREE.MeshStandardMaterial({color:0x59626d,map:grime,roughness:0.84,metalness:0.4}),
+  dark: new THREE.MeshStandardMaterial({color:0x39424c,map:grime,roughness:0.85,metalness:0.45}),
   metal:new THREE.MeshStandardMaterial({color:0x868f9e,roughness:0.34,metalness:0.8}),
   frame:new THREE.MeshStandardMaterial({color:0x12161c,roughness:0.7,metalness:0.4}),
-  amber:new THREE.MeshStandardMaterial({color:0x1a1004,emissive:0xE8A33D,emissiveIntensity:1.1,roughness:1}),
+  amber:new THREE.MeshStandardMaterial({color:0x1a1004,emissive:0xE8A33D,emissiveIntensity:1.2,roughness:1}),
+  engine:new THREE.MeshStandardMaterial({color:0x04140f,emissive:0x37e0c0,emissiveIntensity:2.2,roughness:1}),
 };
-scene.add(new THREE.AmbientLight(0x35435a,0.7));
-scene.add(new THREE.HemisphereLight(0x44607e,0x0c1018,0.6));
-const sun=new THREE.DirectionalLight(0xfff0d6,2.6); sun.position.set(60,40,40); scene.add(sun);
+scene.add(new THREE.AmbientLight(0x35435a,0.85));
+scene.add(new THREE.HemisphereLight(0x46627e,0x0c1018,0.75));
+const sun=new THREE.DirectionalLight(0xfff0d6,3.2); sun.position.set(60,45,55); scene.add(sun);
+const fill=new THREE.DirectionalLight(0x6f8bb0,0.85); fill.position.set(-50,10,30); scene.add(fill);
 // stars + earth backdrop
 { const N=2200,p=new Float32Array(N*3); for(let i=0;i<N;i++){ const v=new THREE.Vector3().randomDirection().multiplyScalar(1400+Math.random()*900); p[i*3]=v.x;p[i*3+1]=v.y;p[i*3+2]=v.z; }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
   scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xcfe0ff,size:2,sizeAttenuation:false,transparent:true,opacity:0.85,fog:false}))); }
 part(new THREE.SphereGeometry(150,40,40),new THREE.MeshStandardMaterial({color:0x16518c,emissive:0x07203a,emissiveIntensity:0.3,roughness:1}),scene,-220,-120,-520);
 
-// ---- the dock target world (moves with capsule offset & approach) ----
+// ---- the derelict: a section of the huge ship + the docking port (align the collar to the cross) ----
 const world=new THREE.Group(); scene.add(world);
-// a slab of the derelict hull the collar sits on
-part(BOX(26,26,6),M.dark,world,0,0,-6);
-for(let i=0;i<90;i++){ const a=Math.random()*Math.PI*2, r=4.5+Math.random()*8; part(BOX(0.4+Math.random()*1.4,0.4+Math.random()*1.0,0.5+Math.random()*1.2),Math.random()>0.7?M.metal:M.dark,world,Math.cos(a)*r,Math.sin(a)*r,-3+Math.random()*2); }
-part(CYL(3.2,3.6,1.4,32),M.metal,world,0,0,-2.2,Math.PI/2,0,0);           // collar base
-const collar=part(CYL(2.4,2.4,1.2,36),M.metal,world,0,0,-1.0,Math.PI/2,0,0); // docking collar mouth
-part(new THREE.TorusGeometry(2.4,0.18,12,40),M.amber,world,0,0,-0.4);     // lit collar rim
-const tgt=part(new THREE.SphereGeometry(0.16,16,16),new THREE.MeshStandardMaterial({color:0,emissive:0x7dffb0,emissiveIntensity:3,roughness:1}),world,0,0,-0.2); // centre target light
-for(let a=0;a<16;a++){ const an=a/16*Math.PI*2; const lm=part(new THREE.SphereGeometry(0.12,8,8),new THREE.MeshStandardMaterial({color:0,emissive:0xff5030,emissiveIntensity:2.6,roughness:1}),world,Math.cos(an)*2.4,Math.sin(an)*2.4,-0.3); ringLights.push(lm.material); }
-for(let a=0;a<4;a++){ const an=a/4*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(Math.cos(an)*2.7,Math.sin(an)*2.7,-0.6); piv.rotation.z=an; world.add(piv); part(BOX(1.4,0.3,0.5),M.metal,piv,0.7,0,0); clampPivots.push(piv); }
-const dockLight=new THREE.PointLight(0xff7050,8,30,2); dockLight.position.set(0,0,2); world.add(dockLight);
+const hull=new THREE.Group(); world.add(hull); hull.position.z=-6;
+for(let ix=-2;ix<=2;ix++) for(let iy=-2;iy<=2;iy++) part(BOX(11.2,11.2,8),((ix+iy)&1)?M.hull:M.hull2,hull,ix*11,iy*11,0);   // big segmented hull face (extends past the frame = huge ship)
+part(BOX(58,58,16,M.dark),hull,0,0,-9);                                                  // hull bulk behind
+part(BOX(13,13,2.4,M.dark),hull,0,0,4.2); part(BOX(9,9,1.2,M.metal),hull,0,0,5.2);       // recessed dock bay
+for(let k=-2;k<=2;k++){ part(BOX(0.5,57,0.45,M.metal),hull,k*11,0,4.1); part(BOX(57,0.5,0.45,M.metal),hull,0,k*11,4.1); }   // panel seams
+for(let i=0;i<150;i++){ const a=Math.random()*Math.PI*2, r=8+Math.random()*20, s=0.5+Math.random()*2.0; part(BOX(s,s*(0.4+Math.random()),0.6+Math.random()*1.5),Math.random()>0.7?M.metal:M.dark,hull,Math.cos(a)*r,Math.sin(a)*r,4.4+Math.random()*0.6); }   // greeble
+for(let gy=-2;gy<=2;gy++){ if(gy===0) continue; for(let wx=-22;wx<=22;wx+=2.4){ if(Math.abs(wx)<8 && Math.abs(gy*11)<8) continue; if(Math.random()>0.45) part(BOX(0.8,0.5,0.2),M.amber,hull,wx,gy*11+(Math.random()-0.5)*5,4.6); } }   // lit windows
+const rl=(c,x,y)=>part(new THREE.SphereGeometry(0.35,10,10),new THREE.MeshStandardMaterial({color:0,emissive:c,emissiveIntensity:3,roughness:1}),hull,x,y,5.1);
+rl(0xff3030,-7,7); rl(0x30ff60,7,7); rl(0xff3030,-7,-7); rl(0x30ff60,7,-7);
+part(BOX(12,7,9,M.dark),hull,0,27,2); part(BOX(8,4,6,M.hull),hull,0,31.5,2.5); part(BOX(6,1.2,5,M.amber),hull,0,34,3);   // command-tower hint above
+part(CYL(2.2,2.6,3,16),M.engine,hull,-25,-21,2,Math.PI/2,0,0); part(CYL(2.2,2.6,3,16),M.engine,hull,-20,-25,2,Math.PI/2,0,0);   // engine glow to one side
+const engL=new THREE.PointLight(0x37e0c0,12,46,2); engL.position.set(-22,-23,7); hull.add(engL);
+part(BOX(24,0.6,16,M.metal),hull,32,6,-1,0,0,-0.5); for(let i=-4;i<5;i++) part(BOX(0.3,0.7,16,M.dark),hull,26+i*2.4,6+i*1.2,-1,0,0,-0.5);   // radiator wing
+part(BOX(5,4,1,new THREE.MeshBasicMaterial({color:0x000000})),hull,16,-15,4.7);   // dark hull breach
+// the docking port reaching out toward the capsule
+part(BOX(5,5,4,M.metal),world,0,0,-3.6); part(BOX(4.4,0.5,4,M.amber),world,0,2.5,-3.6); part(BOX(4.4,0.5,4,M.amber),world,0,-2.5,-3.6);
+for(let i=0;i<4;i++) part(CYL(2.0,2.0,0.7,28),(i&1?M.dark:M.metal),world,0,0,-2.7+i*0.7);                   // concertina airlock tube
+part(CYL(3.2,3.6,1.0,32),M.metal,world,0,0,-1.5,Math.PI/2,0,0);                                            // collar base
+const collar=part(CYL(2.4,2.4,1.2,36),M.metal,world,0,0,-0.7,Math.PI/2,0,0);                                // the docking collar
+part(new THREE.TorusGeometry(2.4,0.18,12,40),M.amber,world,0,0,-0.1);                                       // lit collar rim
+const tgt=part(new THREE.SphereGeometry(0.16,16,16),new THREE.MeshStandardMaterial({color:0,emissive:0x7dffb0,emissiveIntensity:3,roughness:1}),world,0,0,0.1);   // centre target
+for(let a=0;a<16;a++){ const an=a/16*Math.PI*2; const lm=part(new THREE.SphereGeometry(0.12,8,8),new THREE.MeshStandardMaterial({color:0,emissive:0xff5030,emissiveIntensity:2.6,roughness:1}),world,Math.cos(an)*2.4,Math.sin(an)*2.4,0.0); ringLights.push(lm.material); }
+for(let a=0;a<4;a++){ const an=a/4*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(Math.cos(an)*2.7,Math.sin(an)*2.7,-0.4); piv.rotation.z=an; world.add(piv); part(BOX(1.4,0.3,0.5),M.metal,piv,0.7,0,0); clampPivots.push(piv); }
+const dockLight=new THREE.PointLight(0xff7050,9,28,2); dockLight.position.set(0,0,2.5); world.add(dockLight);
 
 // ---- capsule window frame (you are looking out of the capsule) ----
 const frame=new THREE.Group(); camera.add(frame); scene.add(camera);
