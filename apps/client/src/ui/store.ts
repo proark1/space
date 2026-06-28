@@ -46,9 +46,19 @@ export const useNet = create<NetState>()((set, get) => {
     if (tickTimer !== null) clearInterval(tickTimer);
   };
 
+  // TURN is read from env (set VITE_TURN_* to clear symmetric NAT for the T17 gate).
+  // Absent → STUN-only, which is fine for same-machine / easy-NAT testing.
+  const iceServers = (): RTCIceServer[] =>
+    buildIceServers({
+      turnUrls: import.meta.env.VITE_TURN_URLS?.split(',').map((u) => u.trim()).filter(Boolean),
+      turnHost: import.meta.env.VITE_TURN_HOST,
+      turnUsername: import.meta.env.VITE_TURN_USERNAME,
+      turnCredential: import.meta.env.VITE_TURN_CREDENTIAL,
+    });
+
   const begin = (isHost: boolean, code: string, firstLog: string): void => {
     stop();
-    const session = createSession({ code, isHost, iceServers: buildIceServers({}), events: events() });
+    const session = createSession({ code, isHost, iceServers: iceServers(), events: events() });
     set({
       code,
       isHost,

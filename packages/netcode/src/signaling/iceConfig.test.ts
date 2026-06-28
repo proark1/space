@@ -22,6 +22,19 @@ describe('buildIceServers', () => {
     expect(blob).toContain('"credential":"secret"');
   });
 
+  it('uses full TURN urls verbatim when provided (provider non-standard ports)', () => {
+    const servers = buildIceServers({
+      turnUrls: ['turn:global.relay.metered.ca:80', 'turns:global.relay.metered.ca:443?transport=tcp'],
+      turnUsername: 'u',
+      turnCredential: 'c',
+    });
+    const blob = JSON.stringify(servers);
+    expect(blob).toContain('turn:global.relay.metered.ca:80');
+    expect(blob).toContain('turns:global.relay.metered.ca:443?transport=tcp');
+    expect(blob).toContain('"username":"u"');
+    expect(blob).not.toContain('3478'); // did not fall back to standard-port construction
+  });
+
   it('throws when TURN is required but missing', () => {
     expect(() => buildIceServers({}, { requireTurn: true })).toThrow();
   });
