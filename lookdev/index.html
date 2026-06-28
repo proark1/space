@@ -215,9 +215,9 @@ try{
 function pts(n,col,size,op){ const p=new Float32Array(n*3); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
   const o=new THREE.Points(g,new THREE.PointsMaterial({color:col,size,sizeAttenuation:true,transparent:true,opacity:op,depthWrite:false,blending:THREE.AdditiveBlending,fog:true})); scene.add(o); return {o,p,n}; }
 const steam=pts(70,0x5a6a78,0.09,0.16); for(let i=0;i<steam.n;i++){ steam.p[i*3]=-W/2+0.4+(Math.random()-0.5)*0.5; steam.p[i*3+1]=1.6+Math.random()*1.4; steam.p[i*3+2]=-19+(Math.random()-0.5)*0.6; } steam.o.geometry.attributes.position.needsUpdate=true;
-const DN=460, dp=new Float32Array(DN*3); for(let i=0;i<DN;i++){ dp[i*3]=(Math.random()-0.5)*W; dp[i*3+1]=Math.random()*H; dp[i*3+2]=(Math.random()-0.5)*22; }
+const DN=230, dp=new Float32Array(DN*3); for(let i=0;i<DN;i++){ dp[i*3]=(Math.random()-0.5)*W; dp[i*3+1]=Math.random()*H; dp[i*3+2]=(Math.random()-0.5)*22; }
 const dgeo=new THREE.BufferGeometry(); dgeo.setAttribute('position',new THREE.BufferAttribute(dp,3));
-const dust=new THREE.Points(dgeo,new THREE.PointsMaterial({color:0xc8d2da,size:0.018,sizeAttenuation:true,transparent:true,opacity:0.55,depthWrite:false,blending:THREE.AdditiveBlending,fog:true})); scene.add(dust);
+const dust=new THREE.Points(dgeo,new THREE.PointsMaterial({color:0x8a96a0,size:0.011,sizeAttenuation:true,transparent:true,opacity:0.18,depthWrite:false,blending:THREE.NormalBlending,fog:true})); scene.add(dust);
 
 // ---------- monster ----------
 const mob=new THREE.Group();
