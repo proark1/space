@@ -70,7 +70,7 @@ function resize(){const w=innerWidth,h=innerHeight;
 
 const controls=new OrbitControls(camera,canvas);
 controls.enableDamping=true; controls.dampingFactor=0.06; controls.autoRotate=false;
-controls.minDistance=30; controls.maxDistance=480; controls.target.set(8,1,-10);
+controls.minDistance=30; controls.maxDistance=480; controls.target.set(13,1,-13);
 
 const pos=(o,x,y,z)=>{ y===undefined ? o.position.copy(x) : o.position.set(x,y,z); return o; }; // .position is read-only in three; mutate, never reassign
 // ---- lights ----
@@ -157,18 +157,35 @@ rl(0xff3030,-7,0,-46); rl(0x30ff60,7,0,-46); const beacon=rl(0xffffff,0,11.4,-28
 bx(5,4,0.6,new THREE.MeshBasicMaterial({color:0x000000}),6.8,1,16); for(let i=0;i<9;i++) bx(0.25,0.25,1+Math.random()*2.5,M.metal,6.7,(Math.random()-0.5)*3,16+(Math.random()-0.5)*4,null,Math.random(),Math.random(),Math.random());
 ship.rotation.y=0.15;
 
-// ===== REAL DOCKING PORT (boom + airlock tube + collar + ring lights + clamps) =====
+// ===== REAL DOCKING PORT (recessed bay + guidance funnel + collar + petals + ring lights + approach ladder) =====
 const dock=new THREE.Group(); dock.position.set(6.5,1,-12); ship.add(dock);
+const dpart=(geo,m,x,y,z,rx,ry,rz)=>{const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);o.rotation.set(rx||0,ry||0,rz||0);o.castShadow=o.receiveShadow=true;dock.add(o);return o;};
 bx(8,2.2,2.6,M.metal,4,0,0,dock); bx(8,0.4,0.4,M.amber,4,1.2,0,dock); bx(8,0.4,0.4,M.amber,4,-1.2,0,dock);  // boom + lit rails
-for(let i=0;i<4;i++) cl(1.7,1.7,0.7,(i%2?M.dark:M.metal),5+i*0.75,0,0,dock,0,Math.PI/2,16);                  // concertina airlock tube
+// recessed bay set into the hull — reads as a real docking berth, not a bare pipe
+bx(6.4,6.4,1.0,M.dark,7.0,0,0,dock); bx(5.2,5.2,1.2,M.hull2,7.0,0,0,dock);
+bx(6.8,0.5,1.6,M.amber,7.0,3.1,0,dock); bx(6.8,0.5,1.6,M.amber,7.0,-3.1,0,dock);                              // lit bay rim (top/bottom)
+bx(0.5,6.4,1.6,M.amber,3.9,0,0,dock);                                                                        // lit bay rim (inboard)
+for(let i=0;i<4;i++) cl(1.7,1.7,0.7,(i%2?M.dark:M.metal),5.2+i*0.75,0,0,dock,0,Math.PI/2,16);                // concertina airlock tube
 bx(0.5,3,3,new THREE.MeshStandardMaterial({color:0,emissive:0x8fd6ff,emissiveIntensity:1.8,roughness:1}),8.0,0,0,dock); // glowing airlock door
+// painted concentric alignment target on the door (the capsule lines up to this)
+const tgtMat=new THREE.MeshStandardMaterial({color:0,emissive:0x7dffb0,emissiveIntensity:1.3,roughness:1});
+dpart(new THREE.TorusGeometry(0.9,0.06,8,40),tgtMat,8.25,0,0,0,Math.PI/2,0);
+dpart(new THREE.TorusGeometry(1.6,0.06,8,40),tgtMat,8.25,0,0,0,Math.PI/2,0);
 cl(2.0,2.0,1.2,M.metal,8.7,0,0,dock,0,Math.PI/2,20);                                                          // the docking collar
-const ringLights=[]; for(let a=0;a<12;a++){ const ang=a/12*Math.PI*2; const lm=new THREE.Mesh(new THREE.SphereGeometry(0.18,6,6),new THREE.MeshStandardMaterial({color:0,emissive:0xff5030,emissiveIntensity:3,roughness:1})); lm.position.set(8.9,Math.cos(ang)*1.85,Math.sin(ang)*1.85); dock.add(lm); ringLights.push(lm.material); }
-const clamps=[]; for(let a=0;a<3;a++){ const ang=a/3*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(8.5,Math.cos(ang)*2.0,Math.sin(ang)*2.0); piv.rotation.set(ang,0,0); dock.add(piv); bx(1.8,0.4,0.7,M.metal,0.8,-0.7,0,piv); clamps.push(piv); }
-const dockLight=new THREE.PointLight(0xff7050,10,20,2); dockLight.position.set(11,0,0); dock.add(dockLight);
-// approach guide lights leading out from the collar
-const guides=[]; for(let i=1;i<=7;i++){ const gm=new THREE.Mesh(new THREE.SphereGeometry(0.3,8,8),new THREE.MeshStandardMaterial({color:0,emissive:0xff9040,emissiveIntensity:3,roughness:1})); gm.position.set(6.5+8.7+i*4.2,1,-12); ship.add(gm); guides.push({m:gm.material,i}); }
-const COLLAR=new THREE.Vector3(); // world position of the collar mouth, computed each frame
+dpart(new THREE.TorusGeometry(2.0,0.16,12,40),M.amber,9.0,0,0,0,Math.PI/2,0);                                 // lit collar rim
+// guidance funnel — the alignment cone the capsule slides into (wide mouth outboard)
+dpart(new THREE.CylinderGeometry(2.05,3.1,2.4,28,1,true),new THREE.MeshStandardMaterial({color:0x6a7686,roughness:0.4,metalness:0.7,side:THREE.DoubleSide}),10.2,0,0,0,0,Math.PI/2);
+// hazard chevrons ringing the funnel mouth
+for(let a=0;a<12;a++){ const an=a/12*Math.PI*2; dpart(new THREE.BoxGeometry(0.6,0.5,0.12),(a%2?M.amber:M.dark),11.3,Math.cos(an)*3.05,Math.sin(an)*3.05,an,0,0); }
+// static capture petals around the collar (visual teeth of the latch ring)
+for(let a=0;a<6;a++){ const an=a/6*Math.PI*2+0.25; dpart(new THREE.BoxGeometry(1.2,0.14,0.9),M.metal,9.6,Math.cos(an)*2.15,Math.sin(an)*2.15,an,0,0); }
+const ringLights=[]; for(let a=0;a<12;a++){ const ang=a/12*Math.PI*2; const lm=new THREE.Mesh(new THREE.SphereGeometry(0.17,6,6),new THREE.MeshStandardMaterial({color:0,emissive:0xff5030,emissiveIntensity:3,roughness:1})); lm.position.set(9.1,Math.cos(ang)*2.1,Math.sin(ang)*2.1); dock.add(lm); ringLights.push(lm.material); }
+// articulated capture clamps (swing closed on hard dock)
+const clamps=[]; for(let a=0;a<4;a++){ const ang=a/4*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(8.6,Math.cos(ang)*2.25,Math.sin(ang)*2.25); piv.rotation.set(ang,0,0); dock.add(piv); bx(1.8,0.36,0.6,M.metal,0.8,-0.8,0,piv); clamps.push(piv); }
+const dockLight=new THREE.PointLight(0xff7050,10,22,2); dockLight.position.set(11,0,0); dock.add(dockLight);
+// approach-light ladder leading out from the collar (paired strobes form a clear corridor)
+const guides=[]; for(let i=1;i<=8;i++){ for(const sgn of [1,-1]){ const gm=new THREE.Mesh(new THREE.SphereGeometry(0.26,8,8),new THREE.MeshStandardMaterial({color:0,emissive:0xff9040,emissiveIntensity:3,roughness:1})); gm.position.set(6.5+9.4+i*4.6,1+sgn*1.8,-12); ship.add(gm); guides.push({m:gm.material,i}); } }
+const COLLAR=new THREE.Vector3(), AX=new THREE.Vector3(), SIDE=new THREE.Vector3(), UP=new THREE.Vector3(0,1,0); // docking frame, recomputed each frame
 
 // ---- arriving capsule ----
 const cap=new THREE.Group();
@@ -176,33 +193,53 @@ const capMat=new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metal
 const nose=new THREE.Mesh(new THREE.ConeGeometry(1.2,3,12),capMat); nose.rotation.x=-Math.PI/2; nose.position.z=-1.7; cap.add(nose);
 const cbody=new THREE.Mesh(new THREE.CylinderGeometry(1.25,1.5,2.8,12),capMat); cbody.rotation.x=Math.PI/2; cbody.position.z=0.5; cap.add(cbody);
 cap.add(pos(new THREE.Mesh(new THREE.SphereGeometry(0.6,12,12),new THREE.MeshStandardMaterial({color:0x02060a,emissive:0x9fd0ff,emissiveIntensity:1.7})),0,0.65,-1.0));
+const probe=new THREE.Mesh(new THREE.TorusGeometry(0.5,0.08,8,20),M.metal); probe.position.z=-3.1; cap.add(probe); // nose probe that mates the collar
 const thrMat=new THREE.MeshStandardMaterial({color:0x050608,emissive:0xff8a3a,emissiveIntensity:1.5,roughness:1}); const thr=[];
 [[-0.6,0],[0.6,0],[0,0.6]].forEach(([x,y])=>{ const tc=new THREE.Mesh(new THREE.ConeGeometry(0.36,0.9,10),thrMat); tc.rotation.x=Math.PI/2; tc.position.set(x,y,2.2); cap.add(tc); thr.push(tc); });
 const thrLight=new THREE.PointLight(0xff8a3a,0,14,2); thrLight.position.z=3; cap.add(thrLight);
+// forward retro thrusters — flare to brake on final approach
+const retroMat=new THREE.MeshStandardMaterial({color:0x0a0e16,emissive:0x9fc6ff,emissiveIntensity:0,roughness:1}); const retro=[];
+[[-0.78,0.25],[0.78,0.25],[0,-0.8]].forEach(([x,y])=>{ const r=new THREE.Mesh(new THREE.ConeGeometry(0.17,0.55,8),retroMat.clone()); r.rotation.x=-Math.PI/2; r.position.set(x,y,-1.6); cap.add(r); retro.push(r); });
+const retroLight=new THREE.PointLight(0x9fc6ff,0,10,2); retroLight.position.z=-3; cap.add(retroLight);
 cap.traverse(o=>{if(o.isMesh)o.castShadow=true;}); cap.scale.setScalar(1.35); scene.add(cap);
-const P0=new THREE.Vector3(120,34,-12), PM=new THREE.Vector3(34,5,-12), _v=new THREE.Vector3(), _look=new THREE.Vector3();
+const _p1=new THREE.Vector3(),_p2=new THREE.Vector3(),_p3=new THREE.Vector3(),_p4=new THREE.Vector3(),_p5=new THREE.Vector3(),_aim=new THREE.Vector3(),_m=new THREE.Matrix4();
 const capEl=document.getElementById('cap'); const ez=k=>1-Math.pow(1-k,3);
 
-const clock=new THREE.Clock(); const T=16;
+const clock=new THREE.Clock(); const T=18;
 function animate(){ requestAnimationFrame(animate); const dt=clock.getDelta(), t=clock.elapsedTime; controls.update();
   ship.position.y=Math.sin(t*0.2)*0.5; ship.rotation.z=Math.sin(t*0.14)*0.012;
-  // collar mouth in world space (= ship-local (6.5+8.9, 1, -12))
-  COLLAR.set(6.5+8.9,1,-12).applyMatrix4(ship.matrixWorld);
-  const PD=_v.copy(COLLAR); PD.x+=3.0; // capsule sits just outside the collar, nose touching
-  _look.copy(COLLAR);
-  const tt=(t%T)/T; let burn=0, docked=false;
-  if(tt<0.58){ const k=ez(tt/0.58); cap.position.copy(P0).lerp(PM,k); burn=0.4+0.6*(k>0.5?1:0.3); }
-  else if(tt<0.76){ const k=ez((tt-0.58)/0.18); cap.position.copy(PM).lerp(PD,k); burn=0.95; }
-  else { cap.position.copy(PD); burn=0.04; docked=true; }
-  cap.lookAt(_look);
-  capEl.style.opacity=(tt>0.42 && tt<0.82)?0.9:0;
-  thrLight.intensity=burn*10; thr.forEach(c=>c.material.emissiveIntensity=0.6+burn*4);
+  // docking frame in world space: collar mouth + its outward normal (ship-local +x), recomputed each frame
+  COLLAR.set(6.5+9.0,1,-12).applyMatrix4(ship.matrixWorld);
+  AX.set(1,0,0).transformDirection(ship.matrixWorld); SIDE.copy(AX).cross(UP).normalize();
+  // waypoints: a curved lead-in that flattens onto the docking axis, then a straight slide down the corridor
+  const START=_p1.copy(COLLAR).addScaledVector(AX,120).addScaledVector(UP,28).addScaledVector(SIDE,46);
+  const CTRL =_p2.copy(COLLAR).addScaledVector(AX,82).addScaledVector(UP,5).addScaledVector(SIDE,6);
+  const GATE =_p3.copy(COLLAR).addScaledVector(AX,40);
+  const NEAR =_p4.copy(COLLAR).addScaledVector(AX,7.0);
+  const DOCK =_p5.copy(COLLAR).addScaledVector(AX,3.8);
+  const tt=(t%T)/T; let burn=0, retroF=0, docked=false, phase=1;
+  if(tt<0.50){ const k=ez(tt/0.50), u=1-k;                                              // curved lead-in START->CTRL->GATE
+    cap.position.copy(START).multiplyScalar(u*u).addScaledVector(CTRL,2*u*k).addScaledVector(GATE,k*k);
+    burn=0.45+0.55*Math.min(1,k*2); phase=1; }
+  else if(tt<0.80){ const k=ez((tt-0.50)/0.30); cap.position.copy(GATE).lerp(NEAR,k);   // straight final approach, braking
+    burn=0.12*(1-k); retroF=Math.min(1,k*1.7); phase=2; }
+  else if(tt<0.88){ const k=ez((tt-0.80)/0.08); cap.position.copy(NEAR).lerp(DOCK,k);   // soft-dock capture slide
+    retroF=0.4*(1-k); docked=k>0.55; phase=3; }
+  else { cap.position.copy(DOCK); docked=true; phase=4; }                                // hard dock — hold
+  // nose stays aimed at the collar the whole way in, so it always reads as heading for the dock
+  _aim.copy(COLLAR); _m.lookAt(cap.position,_aim,UP); cap.quaternion.setFromRotationMatrix(_m);
+  if(phase<=1) cap.rotateZ((1-ez(tt/0.50))*0.55);                                        // bank into the turn, level out
+  capEl.style.opacity=(tt<0.02||tt>0.985)?0:0.9;
+  capEl.textContent=phase<=1?'▸ INBOUND':phase===2?'▸ FINAL APPROACH':phase===3?'▸ DOCKING':'✓ HARD DOCK';
+  capEl.style.color=phase===4?'#7dffb0':'#9fd0ff';
+  thrLight.intensity=burn*12; thr.forEach(c=>c.material.emissiveIntensity=0.5+burn*4.2);
+  retro.forEach(r=>r.material.emissiveIntensity=retroF*3.6); retroLight.intensity=retroF*8;
   // dock lights: red while waiting, chase during approach, GREEN when docked
   const gcol=docked?0x35ff70:0xff5030;
   ringLights.forEach((m,i)=>{ m.emissive.setHex(gcol); m.emissiveIntensity=docked?3.2:(1.0+2.4*Math.max(0,Math.sin(t*3-i*0.5))); });
-  dockLight.color.setHex(docked?0x40ff80:0xff7050); dockLight.intensity=docked?12:8+Math.sin(t*5)*2;
-  clamps.forEach((p,i)=>{ const close=docked?0.5:-0.4; p.children[0].position.y += ((-0.7+close)-p.children[0].position.y)*0.1; });
-  guides.forEach(g=>{ g.m.emissive.setHex(docked?0x35ff70:0xff9040); g.m.emissiveIntensity=1.0+3.0*Math.max(0,Math.sin(t*2.4 - g.i*0.5)); });
+  dockLight.color.setHex(docked?0x40ff80:0xff7050); dockLight.intensity=docked?13:8+Math.sin(t*5)*2;
+  clamps.forEach((p)=>{ const close=docked?0.55:-0.45; p.children[0].position.y += ((-0.8+close)-p.children[0].position.y)*0.12; });
+  guides.forEach(g=>{ g.m.emissive.setHex(docked?0x35ff70:0xff9040); g.m.emissiveIntensity=0.6+3.2*Math.max(0,Math.sin(t*3 + g.i*0.7)); });
   for(const f of flicker){ const n=Math.sin(t*16+f.seed)*0.5+0.5; const drop=(Math.sin(t*2.5+f.seed)>0.88)?0.12:1.0; f.m.material.emissiveIntensity=f.base*(0.45+0.55*n)*drop; }
   beacon.material.emissiveIntensity=(Math.sin(t*3)>0.7)?5:0.3; eLight.intensity=34+Math.sin(t*5)*6; planet.rotation.y+=dt*0.005;
   Grade.uniforms.uTime.value=t; composer.render();
