@@ -98,6 +98,8 @@ class H(http.server.SimpleHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p in ("/admin", "/admin/"):
             self.path = "/admin.html"; return super().do_GET()
+        if p in ("/exterior", "/exterior/", "/outside"):
+            self.path = "/exterior.html"; return super().do_GET()
         if p == "/api/manifest":
             return self._json({"items": self._manifest(), "audioDir": AUDIO, "db": DB_PATH})
         if p == "/api/voices":
