@@ -1,0 +1,13 @@
+# Only lookdev/ is copied into the image — keep the build context small and the
+# monorepo scaffold out of it entirely.
+.git
+.claude
+node_modules
+apps
+packages
+.turbo
+*.tsbuildinfo
+pnpm-lock.yaml
+pnpm-workspace.yaml
+docs
+lookdev/audio
