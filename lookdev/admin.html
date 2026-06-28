@@ -102,9 +102,12 @@
         <textarea id="heroprompt" rows="4"></textarea>
         <div class="row" style="margin-top:12px">
           <button class="gen" id="herogen" disabled>✨ Generate hero with Gemini</button>
+          <button id="heroregen" disabled title="another take from the same photo">↻ Regenerate</button>
           <button id="herosave" disabled title="hang the photo without AI">use photo as-is</button>
         </div>
         <div class="stat" id="herostat" style="margin-top:10px">checking current portrait…</div>
+        <label class="lbl" id="herotakeslbl" style="display:none;margin-top:10px">Variations — click one to hang it in the lobby</label>
+        <div id="herotakes" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px"></div>
       </div>
     </div>
   </div>
@@ -373,6 +376,8 @@ import { drawHeroPoster, drawHeroFramed } from './hero.js';
 const $h=id=>document.getElementById(id);
 const cv=$h('herocv'), hctx=cv.getContext('2d');
 const stat=$h('herostat'), keyInp=$h('herokey'), fileInp=$h('herofile'), promptInp=$h('heroprompt'), genBtn=$h('herogen'), saveBtn=$h('herosave');
+const regenBtn=$h('heroregen'), takesWrap=$h('herotakes'), takesLbl=$h('herotakeslbl');
+let takeN=0;
 const DEFAULT_PROMPT="Using the person in the attached photograph as the exact subject, create a dramatic, photorealistic commemorative HERO PORTRAIT of this same person — preserve their face, identity and likeness faithfully. Depict them as the legendary astronaut-commander who answered the first signal and saved the world: standing tall and resolute in a sleek white-and-grey spacesuit, helmet held under one arm, in front of a massive rocket lifting off on a launch pad with billowing fire and smoke, dramatic golden-hour backlight and lens flare, epic and inspiring. Vertical portrait composition, cinematic lighting, head-and-torso framing.";
 promptInp.value=DEFAULT_PROMPT;
 keyInp.value=localStorage.getItem('gmKey')||''; keyInp.onchange=()=>localStorage.setItem('gmKey',keyInp.value.trim());
@@ -385,21 +390,39 @@ drawHeroPoster(hctx,cv.width,cv.height,null);   // painted placeholder
   img.onerror=()=>{ stat.textContent='no portrait yet — painted placeholder shown'; stat.className='stat'; };
   img.src='/hero'+bust(); })();
 fileInp.onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
-  const img=new Image(); img.onload=()=>{ photo=img; showImg(img); genBtn.disabled=false; saveBtn.disabled=false; stat.textContent='photo ready — “Generate hero with Gemini”, or use it as-is'; stat.className='stat'; };
+  const img=new Image(); img.onload=()=>{ photo=img; showImg(img); genBtn.disabled=false; saveBtn.disabled=false;
+    takesWrap.innerHTML=''; takeN=0; takesLbl.style.display='none'; regenBtn.disabled=true;   // new subject → fresh variations
+    stat.textContent='photo ready — “Generate hero with Gemini”, or use it as-is'; stat.className='stat'; };
   img.onerror=()=>{ stat.textContent='could not read that image'; stat.className='stat err'; };
   img.src=URL.createObjectURL(f); };
 function downscale(img,max){ let w=img.naturalWidth||img.width,h=img.naturalHeight||img.height; const s=Math.min(1,max/Math.max(w,h||1));
   w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); return c; }
-genBtn.onclick=async()=>{ if(!photo) return; const key=keyInp.value.trim();
-  genBtn.disabled=true; saveBtn.disabled=true; stat.textContent='✨ generating with Gemini… (this can take 30–60s)'; stat.className='stat';
+function markLive(el){ takesWrap.querySelectorAll('img').forEach(x=>x.style.outline='2px solid transparent'); if(el) el.style.outline='2px solid var(--green)'; }
+function addTake(url){ takeN++; takesLbl.style.display='block';
+  const im=document.createElement('img'); im.src=url; im.title='take '+takeN+' — click to hang it in the lobby';
+  im.style.cssText='width:66px;height:88px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer;outline:2px solid transparent';
+  im.onclick=()=>hangTake(url,im); takesWrap.prepend(im); return im; }
+async function hangTake(url,el){   // re-hang an already-generated take — no Gemini cost
+  stat.textContent='hanging this take…'; stat.className='stat';
+  try{ const j=await (await fetch('/api/hero-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataUrl:url})})).json();
+    if(j.ok){ const out=new Image(); out.onload=()=>showImg(out); out.src=url; markLive(el); stat.textContent='✓ this take is now hanging in the lobby'; stat.className='stat ok'; }
+    else{ stat.textContent='✗ '+(j.error||'failed'); stat.className='stat err'; }
+  }catch(err){ stat.textContent='✗ '+err.message; stat.className='stat err'; } }
+async function runGenerate(isVariation){ if(!photo) return; const key=keyInp.value.trim();
+  genBtn.disabled=true; regenBtn.disabled=true; saveBtn.disabled=true;
+  stat.textContent=(isVariation?'↻ generating a variation':'✨ generating with Gemini')+'… (30–60s)'; stat.className='stat';
   const dataUrl=downscale(photo,1024).toDataURL('image/jpeg',0.9);
+  let prompt=promptInp.value.trim();
+  if(isVariation) prompt+=' — Give a fresh, distinct heroic take: vary the pose, camera angle and lighting.';
   const headers={'Content-Type':'application/json'}; if(key) headers['x-gemini-key']=key;
-  try{ const j=await (await fetch('/api/hero-generate',{method:'POST',headers,body:JSON.stringify({dataUrl,prompt:promptInp.value.trim()})})).json();
-    if(j.ok){ const out=new Image(); out.onload=()=>showImg(out); out.src=j.dataUrl;
-      stat.textContent='✓ hero generated by '+(j.model||'Gemini')+' — now hanging in the lobby ('+Math.round(j.size/1024)+' KB)'; stat.className='stat ok'; }
+  try{ const j=await (await fetch('/api/hero-generate',{method:'POST',headers,body:JSON.stringify({dataUrl,prompt})})).json();
+    if(j.ok){ const im=addTake(j.dataUrl); const out=new Image(); out.onload=()=>showImg(out); out.src=j.dataUrl; markLive(im);
+      stat.textContent='✓ take '+takeN+' by '+(j.model||'Gemini')+' — now in the lobby. ↻ Regenerate for another.'; stat.className='stat ok'; }
     else{ stat.textContent='✗ '+(j.error||'generation failed'); stat.className='stat err'; }
   }catch(err){ stat.textContent='✗ '+err.message; stat.className='stat err'; }
-  genBtn.disabled=false; saveBtn.disabled=false; };
+  genBtn.disabled=false; regenBtn.disabled=(takeN===0); saveBtn.disabled=false; }
+genBtn.onclick=()=>runGenerate(false);
+regenBtn.onclick=()=>runGenerate(true);
 saveBtn.onclick=async()=>{ if(!photo) return; saveBtn.disabled=true; genBtn.disabled=true; stat.textContent='uploading…'; stat.className='stat';
   const dataUrl=downscale(photo,1280).toDataURL('image/jpeg',0.88);
   try{ const j=await (await fetch('/api/hero-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataUrl})})).json();
