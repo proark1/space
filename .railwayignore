@@ -1,0 +1,17 @@
+# This Railway service deploys the Python look-dev server: `python3 lookdev/serve.py`
+# (see railway.json / Procfile). Exclude the in-progress TypeScript monorepo scaffold
+# (apps/ + packages/ + root pnpm/turbo/tsconfig) so NIXPACKS auto-detects PYTHON, not
+# Node/pnpm — otherwise `railway up` uploads those root files and the build switches to a
+# Node build of the unfinished monorepo and fails.
+# REMOVE these entries once the monorepo itself becomes the deploy target.
+node_modules/
+.turbo/
+apps/
+packages/
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+turbo.json
+tsconfig.json
+tsconfig.base.json
+.npmrc
