@@ -154,7 +154,7 @@ for(let z=-38;z<=36;z+=2.6){ for(const yy of [2.4,0.8,-0.8,-2.4]){ const lit=Mat
 // running lights, beacon, hull breach
 const rl=(c,x,y,z)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8),new THREE.MeshStandardMaterial({color:0,emissive:c,emissiveIntensity:3.5,roughness:1}));m.position.set(x,y,z);ship.add(m);return m;};
 rl(0xff3030,-7,0,-46); rl(0x30ff60,7,0,-46); const beacon=rl(0xffffff,0,11.4,-28);
-bx(5,4,0.6,new THREE.MeshBasicMaterial({color:0x000000}),6.8,1,16); for(let i=0;i<9;i++) bx(0.25,0.25,1+Math.random()*2.5,M.metal,6.7,(Math.random()-0.5)*3,16+(Math.random()-0.5)*4,Math.random(),Math.random(),Math.random());
+bx(5,4,0.6,new THREE.MeshBasicMaterial({color:0x000000}),6.8,1,16); for(let i=0;i<9;i++) bx(0.25,0.25,1+Math.random()*2.5,M.metal,6.7,(Math.random()-0.5)*3,16+(Math.random()-0.5)*4,null,Math.random(),Math.random(),Math.random());
 ship.rotation.y=0.15;
 
 // ===== REAL DOCKING PORT (boom + airlock tube + collar + ring lights + clamps) =====
