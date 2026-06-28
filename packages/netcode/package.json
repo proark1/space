@@ -18,6 +18,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@sl/shared-types": "workspace:*"
+    "@sl/shared-types": "workspace:*",
+    "trystero": "^0.21.0"
   }
 }

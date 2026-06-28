@@ -1,9 +1,10 @@
-/** Replicated entity archetypes. Wire-stable: append only, never renumber. */
+/** Replicated entity archetypes. Wire values per spec 02 §5.1 — append-only, never renumber. */
 export const EntityType = {
-  Player: 0,
-  Stalker: 1,
-  Swarmer: 2,
-  Projectile: 3,
-  Prop: 4,
+  Player: 1,
+  Stalker: 2,
+  Swarmer: 3,
+  Projectile: 4,
+  Door: 5,
+  Pickup: 6,
 } as const;
 export type EntityType = (typeof EntityType)[keyof typeof EntityType];

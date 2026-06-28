@@ -37,7 +37,7 @@ export function encodeComponent(
         w.f32(v);
         break;
       case 'pos':
-        w.u16(quantizePosAxis(v));
+        w.i16(quantizePosAxis(v));
         break;
       case 'yaw':
         w.u16(quantizeYaw(v));
@@ -67,7 +67,7 @@ export function decodeComponent(r: ByteReader, comp: ReplicatedComponent): Compo
         out[f.name] = r.f32();
         break;
       case 'pos':
-        out[f.name] = dequantizePosAxis(r.u16());
+        out[f.name] = dequantizePosAxis(r.i16());
         break;
       case 'yaw':
         out[f.name] = dequantizeYaw(r.u16());

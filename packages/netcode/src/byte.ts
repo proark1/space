@@ -5,7 +5,7 @@
  */
 
 export class ByteWriter {
-  private buf: Uint8Array;
+  private buf: Uint8Array<ArrayBuffer>;
   private view: DataView;
   private off = 0;
 
@@ -66,7 +66,7 @@ export class ByteWriter {
   }
 
   /** A view over exactly the written bytes (no copy). */
-  bytes(): Uint8Array {
+  bytes(): Uint8Array<ArrayBuffer> {
     return this.buf.subarray(0, this.off);
   }
 }

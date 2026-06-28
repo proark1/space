@@ -4,7 +4,6 @@
     { "path": "packages/shared-types" },
     { "path": "packages/netcode" },
     { "path": "packages/ecs" },
-    { "path": "packages/audio-content" },
-    { "path": "apps/client" }
+    { "path": "packages/audio-content" }
   ]
 }

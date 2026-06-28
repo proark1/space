@@ -4,13 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -b",
-    "build": "tsc -b",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf dist .tsbuild *.tsbuildinfo"
   },
   "dependencies": {
     "@sl/shared-types": "workspace:*",
     "@sl/netcode": "workspace:*",
-    "@sl/ecs": "workspace:*"
+    "@sl/ecs": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.0"
   }
 }

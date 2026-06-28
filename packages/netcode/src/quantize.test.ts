@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { POS_BOUND, TAU, YAW_QUANTUM, REPLICATED_REGISTRY } from '@sl/shared-types';
+import { POS_MAX, TAU, YAW_QUANTUM, REPLICATED_REGISTRY } from '@sl/shared-types';
 import { ByteWriter, ByteReader } from './byte';
 import { writePos, readPos, writeYaw, readYaw } from './quantize';
 import { encodeComponent, decodeComponent } from './codec';
@@ -19,9 +19,9 @@ describe('position quantization', () => {
   it('decodes within 0.01 m over 10k random values', () => {
     let maxErr = 0;
     for (let i = 0; i < 10_000; i++) {
-      const x = rand(-POS_BOUND, POS_BOUND);
-      const y = rand(-POS_BOUND, POS_BOUND);
-      const z = rand(-POS_BOUND, POS_BOUND);
+      const x = rand(-POS_MAX, POS_MAX);
+      const y = rand(-POS_MAX, POS_MAX);
+      const z = rand(-POS_MAX, POS_MAX);
       const w = new ByteWriter(16);
       writePos(w, x, y, z);
       const p = readPos(new ByteReader(w.bytes()));
@@ -34,8 +34,8 @@ describe('position quantization', () => {
     const w = new ByteWriter(16);
     writePos(w, 9999, -9999, 0);
     const p = readPos(new ByteReader(w.bytes()));
-    expect(p.x).toBeLessThanOrEqual(POS_BOUND);
-    expect(p.y).toBeGreaterThanOrEqual(-POS_BOUND);
+    expect(p.x).toBeLessThanOrEqual(POS_MAX);
+    expect(p.y).toBeGreaterThanOrEqual(-POS_MAX);
   });
 });
 

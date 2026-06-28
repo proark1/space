@@ -1,15 +1,15 @@
-import { POS_BOUND, POS_RANGE, POS_STEPS, TAU, YAW_STEPS } from '@sl/shared-types';
+import { POS_SCALE, POS_MAX, TAU, YAW_STEPS } from '@sl/shared-types';
 import type { ByteWriter, ByteReader } from './byte';
 
-/** Quantize one position axis (metres) into a uint16 over the world sector. */
+/** Quantize one position axis (metres) to fixed-point int16 centimetres. */
 export function quantizePosAxis(v: number): number {
-  const clamped = v < -POS_BOUND ? -POS_BOUND : v > POS_BOUND ? POS_BOUND : v;
-  return Math.round(((clamped + POS_BOUND) / POS_RANGE) * POS_STEPS);
+  const clamped = v < -POS_MAX ? -POS_MAX : v > POS_MAX ? POS_MAX : v;
+  return Math.round(clamped * POS_SCALE);
 }
 
 /** Inverse of {@link quantizePosAxis}. */
 export function dequantizePosAxis(q: number): number {
-  return (q / POS_STEPS) * POS_RANGE - POS_BOUND;
+  return q / POS_SCALE;
 }
 
 /** Quantize a yaw (radians, any range) into a uint16 over [0, TAU). */
@@ -25,16 +25,16 @@ export function dequantizeYaw(q: number): number {
 }
 
 export function writePos(w: ByteWriter, x: number, y: number, z: number): void {
-  w.u16(quantizePosAxis(x));
-  w.u16(quantizePosAxis(y));
-  w.u16(quantizePosAxis(z));
+  w.i16(quantizePosAxis(x));
+  w.i16(quantizePosAxis(y));
+  w.i16(quantizePosAxis(z));
 }
 
 export function readPos(r: ByteReader): { x: number; y: number; z: number } {
   return {
-    x: dequantizePosAxis(r.u16()),
-    y: dequantizePosAxis(r.u16()),
-    z: dequantizePosAxis(r.u16()),
+    x: dequantizePosAxis(r.i16()),
+    y: dequantizePosAxis(r.i16()),
+    z: dequantizePosAxis(r.i16()),
   };
 }
 
