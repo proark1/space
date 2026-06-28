@@ -122,6 +122,37 @@ class H(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b)))
         self.end_headers(); self.wfile.write(b)
 
+    def _serve_bytes(self, data, ctype):
+        # Serves media with HTTP Range support so the browser can pull just the header
+        # bytes it needs for <audio preload="metadata"> (duration) and seek cheaply —
+        # without this the player would download every clip in full on page load.
+        total = len(data)
+        hdrs = {"Content-Type": ctype, "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
+        rng = self.headers.get("Range", "")
+        if rng.startswith("bytes="):
+            try:
+                s, _, e = rng[6:].split(",")[0].strip().partition("-")
+                if s == "":                      # suffix range "bytes=-N" -> the final N bytes
+                    start = max(0, total - int(e)); end = total - 1
+                else:
+                    start = int(s); end = int(e) if e else total - 1
+                end = min(end, total - 1)
+                if start < 0 or start > end or start >= total:
+                    raise ValueError
+                chunk = data[start:end + 1]
+                self.send_response(206)
+                hdrs["Content-Range"] = "bytes %d-%d/%d" % (start, end, total)
+                hdrs["Content-Length"] = str(len(chunk))
+                for k, v in hdrs.items(): self.send_header(k, v)
+                self.end_headers(); self.wfile.write(chunk); return
+            except Exception:
+                pass  # malformed range -> fall through to a normal 200
+        self.send_response(200)
+        hdrs["Content-Length"] = str(total)
+        for k, v in hdrs.items(): self.send_header(k, v)
+        self.end_headers(); self.wfile.write(data)
+
     def _save(self, eid, data, ext=".mp3"):
         fn = eid.replace("/", "_") + ext
         with open(os.path.join(AUDIO, fn), "wb") as f:
@@ -163,12 +194,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         if p in ("/hero", "/hero.jpg", "/hero.png", "/hero.img"):
             if os.path.isfile(HERO):
                 data = open(HERO, "rb").read()
-                self.send_response(200)
-                self.send_header("Content-Type", img_mime(data))
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers(); self.wfile.write(data); return
+                return self._serve_bytes(data, img_mime(data))
             self.send_response(404); self.end_headers(); return
         if p == "/api/hero":
             ex = os.path.isfile(HERO)
@@ -193,13 +219,8 @@ class H(http.server.SimpleHTTPRequestHandler):
             name = os.path.basename(p[len("/audio/"):])
             fp = os.path.join(AUDIO, name)
             if os.path.isfile(fp):
-                data = open(fp, "rb").read()
-                self.send_response(200)
-                self.send_header("Content-Type", MIME.get(name.rsplit(".", 1)[-1].lower(), "application/octet-stream"))
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers(); self.wfile.write(data); return
+                ctype = MIME.get(name.rsplit(".", 1)[-1].lower(), "application/octet-stream")
+                return self._serve_bytes(open(fp, "rb").read(), ctype)
             self.send_response(404); self.end_headers(); return
         return super().do_GET()
 

@@ -39,7 +39,27 @@
   .stat{font-size:11px;color:var(--mut)} .stat.err{color:var(--red)} .stat.ok{color:var(--green)}
   .meta{font-size:11px;color:var(--mut)} .meta b{color:var(--amber);font-weight:600}
   .pv{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;font-size:11px;color:var(--mut)}
-  audio{height:30px;vertical-align:middle}
+  /* compact themed audio player — shows the real clip duration, matches the dark theme */
+  .player{display:inline-flex;align-items:center;gap:9px;background:#0b1118;border:1px solid var(--line);border-radius:8px;padding:5px 10px 5px 6px;min-width:250px;max-width:360px;vertical-align:middle}
+  .player .pp{width:26px;height:26px;flex:none;display:grid;place-items:center;border:1px solid #2a3a48;border-radius:50%;background:#0c1117;color:var(--amber);cursor:pointer;padding:0;font:11px/1 ui-monospace,monospace}
+  .player .pp:hover{border-color:var(--amber);background:#13202b}
+  .player.playing .pp{color:var(--cyan);border-color:var(--cyan)}
+  .player.loading .pp{opacity:.45}
+  .player .seek{flex:1;min-width:80px;height:6px;background:#1a2430;border-radius:4px;position:relative;cursor:pointer}
+  .player .seek:hover{background:#22303f}
+  .player .seekfill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,var(--amber),#f4c074);border-radius:4px;pointer-events:none}
+  .player.playing .seekfill{background:linear-gradient(90deg,var(--cyan),#a6e2ff)}
+  .player .time{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:80px;text-align:right}
+  .player .time b{color:var(--cyan);font-weight:600}
+  .player .dl{color:#54616d;text-decoration:none;font-size:15px;line-height:1;flex:none}
+  .player .dl:hover{color:var(--amber)}
+  .dur-badge{color:var(--cyan);font-weight:600;font-variant-numeric:tabular-nums}
+  .item.done{border-left:3px solid #2f5e44}
+  .item.vd.done{border-left:3px solid #44407a}
+  .item:hover{border-color:#28394a}
+  .genbar{height:3px;background:#0c1117;border-radius:3px;margin-top:10px;overflow:hidden;display:none}
+  .genbar.on{display:block}
+  .genbarfill{height:100%;width:0;background:linear-gradient(90deg,var(--amber),var(--green));transition:width .25s ease}
   .note{color:var(--mut);font-size:11px;margin:6px 0 0} a{color:var(--cyan)} code{color:var(--purple)}
   .scenes{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
   .scenes a{font-size:11px;color:#cdd6e0;text-decoration:none;background:#0c1117;border:1px solid #2a3a48;border-radius:20px;padding:5px 12px;letter-spacing:1px}
@@ -86,6 +106,7 @@
   </div>
   <div class="note" id="connstat">Paste your key and hit Connect (loads your voices). Key goes only to your own server, never to a file.</div>
   <div class="catnav" id="catnav"></div>
+  <div class="genbar" id="genbar"><div class="genbarfill" id="genbarfill"></div></div>
 </header>
 <main>
   <div class="cat" style="color:var(--amber)">Lobby hero · ASSAD DAR — the one who answered</div>
@@ -226,7 +247,39 @@ const keyEl=$('#key'), voiceEl=$('#voice'), modelEl=$('#model'), vdModelEl=$('#v
 keyEl.value=localStorage.getItem('elKey')||'';
 let manifest={};
 const fmt=b=> b>=1048576 ? (b/1048576).toFixed(2)+' MB' : (b/1024).toFixed(1)+' KB';
+const mmss=s=>{ if(!isFinite(s)||s<0) s=0; s=Math.round(s); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+const tidy=d=>(d||'').replace('T',' ').replace(/:\d\d$/,'');   // 2026-06-28T05:43:01 -> 2026-06-28 05:43
 function hdrs(){ return {'Content-Type':'application/json','x-eleven-key':keyEl.value.trim()}; }
+
+// Custom audio player: themed, compact, and it shows the REAL clip duration (current / total).
+// Relies on the server's Range support so preload="metadata" only pulls the header bytes.
+let _curAudio=null;
+function makePlayer(src, onMeta){
+  const name=src.split('/').pop().split('?')[0];
+  const wrap=document.createElement('div'); wrap.className='player loading';
+  wrap.innerHTML='<button class="pp" type="button" title="play / pause">▶</button>'
+    +'<div class="seek" title="click to seek"><div class="seekfill"></div></div>'
+    +'<span class="time"><b>0:00</b> / —:—</span>'
+    +'<a class="dl" title="download '+name+'" download="'+name+'">⤓</a>';
+  const pp=wrap.querySelector('.pp'), seek=wrap.querySelector('.seek'), fill=wrap.querySelector('.seekfill'), timeEl=wrap.querySelector('.time'), dl=wrap.querySelector('.dl');
+  dl.href=src;
+  const a=new Audio(); a.preload='metadata'; a.src=src;
+  const paint=()=>{ const d=a.duration, c=a.currentTime||0; fill.style.width=(d>0?Math.min(100,c/d*100):0)+'%';
+    timeEl.innerHTML='<b>'+mmss(c)+'</b> / '+(isFinite(d)&&d>0?mmss(d):'—:—'); };
+  const meta=()=>{ wrap.classList.remove('loading'); paint(); if(onMeta&&isFinite(a.duration)&&a.duration>0) onMeta(a.duration); };
+  a.addEventListener('loadedmetadata',meta);
+  a.addEventListener('durationchange',meta);
+  a.addEventListener('timeupdate',paint);
+  a.addEventListener('ended',()=>{ wrap.classList.remove('playing'); pp.textContent='▶'; a.currentTime=0; paint(); });
+  a.addEventListener('play',()=>{ if(_curAudio&&_curAudio!==a) _curAudio.pause(); _curAudio=a; wrap.classList.add('playing'); pp.textContent='❚❚'; });
+  a.addEventListener('pause',()=>{ wrap.classList.remove('playing'); pp.textContent='▶'; });
+  a.addEventListener('error',()=>{ wrap.classList.remove('loading'); timeEl.innerHTML='<b style="color:var(--red)">load error</b>'; });
+  pp.onclick=()=>{ a.paused ? a.play().catch(()=>{}) : a.pause(); };
+  seek.onclick=e=>{ const r=seek.getBoundingClientRect(); const f=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+    if(isFinite(a.duration)&&a.duration>0){ a.currentTime=f*a.duration; paint(); } };
+  wrap._audio=a;
+  return wrap;
+}
 
 function renderVD(){
   const wrap=$('#vdlist'); wrap.innerHTML='<div class="cat vd">Voices — design new (Voice Design · v3 audio tags)</div>';
@@ -243,7 +296,12 @@ function renderVD(){
     el.querySelector('.design').onclick=()=>design(v, el);
     wrap.appendChild(el);
     const prev=Object.values(manifest).filter(m=>m.id.startsWith(v.id+'-preview-'));
-    if(prev.length){ el.querySelector('.previews').innerHTML=prev.map(m=>`<div class="pv"><b>${fmt(m.size)}</b><audio controls preload="none" src="/${m.file}?t=${Date.now()}"></audio> <span style="color:#54616d">(re-design to enable save)</span></div>`).join(''); }
+    if(prev.length){ el.classList.add('done'); const pvWrap=el.querySelector('.previews');
+      prev.forEach(m=>{ const row=document.createElement('div'); row.className='pv';
+        const b=document.createElement('b'); b.textContent=fmt(m.size); row.appendChild(b);
+        row.appendChild(makePlayer('/'+m.file));
+        const note=document.createElement('span'); note.style.color='#54616d'; note.textContent='(re-design to enable save)'; row.appendChild(note);
+        pvWrap.appendChild(row); }); }
   }
 }
 const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
@@ -274,7 +332,10 @@ function render(){
 }
 function showResult(el, m){
   const s=el.querySelector('.status'); s.textContent='✓ saved'; s.className='stat status ok';
-  el.querySelector('.result').innerHTML=`<b>${fmt(m.size)}</b> · ${(m.createdAt||'').replace('T',' ')} · <audio controls preload="none" src="/${m.file}?t=${Date.now()}"></audio>`;
+  el.classList.add('done');
+  const res=el.querySelector('.result');
+  res.innerHTML=`<span class="dur-badge" title="real clip length">·:··</span> · <b>${fmt(m.size)}</b> · ${tidy(m.createdAt)} `;
+  res.appendChild(makePlayer('/'+m.file, d=>{ const b=res.querySelector('.dur-badge'); if(b) b.textContent=mmss(d); }));
 }
 function totals(){ const a=Object.values(manifest); $('#tot').textContent=`${a.length} file${a.length!==1?'s':''} · ${fmt(a.reduce((x,y)=>x+(y.size||0),0))}`; }
 async function loadManifest(){ try{ const j=await (await fetch('/api/manifest')).json(); manifest={}; for(const m of j.items) manifest[m.id]=m; }catch(e){} renderVD(); render(); }
@@ -307,10 +368,14 @@ async function design(v, el){
     const j=await (await fetch('/api/design',{method:'POST',headers:hdrs(),body:JSON.stringify({id:v.id,payload})})).json();
     if(!j.ok){ status.textContent='✗ '+(j.error||('HTTP '+(j.status||'?'))); status.className='stat status err'; btn.disabled=false; return; }
     status.textContent='✓ designed — pick one to save'; status.className='stat status ok';
-    const pv=el.querySelector('.previews');
+    const pv=el.querySelector('.previews'); el.classList.add('done');
     j.previews.forEach((p,i)=>{ const row=document.createElement('div'); row.className='pv';
-      row.innerHTML=`<span>#${i+1}</span><b>${fmt(p.size)}</b><audio controls preload="none" src="/${p.file}?t=${Date.now()}"></audio><button class="save">★ Save as voice</button><span class="stat sv"></span>`;
-      row.querySelector('.save').onclick=()=>saveVoice(v, p.generated_voice_id, el, row);
+      const num=document.createElement('span'); num.textContent='#'+(i+1); row.appendChild(num);
+      const b=document.createElement('b'); b.textContent=fmt(p.size); row.appendChild(b);
+      row.appendChild(makePlayer('/'+p.file));
+      const save=document.createElement('button'); save.className='save'; save.textContent='★ Save as voice'; row.appendChild(save);
+      const sv=document.createElement('span'); sv.className='stat sv'; row.appendChild(sv);
+      save.onclick=()=>saveVoice(v, p.generated_voice_id, el, row);
       pv.appendChild(row); manifest[p.id]=p; });
     totals();
   }catch(e){ status.textContent='✗ '+e.message; status.className='stat status err'; }
@@ -336,7 +401,15 @@ async function saveVoice(v, gvid, el, row){
   btn.disabled=false;
 }
 
-$('#genall').onclick=async()=>{ for(const grp of CATALOG) for(const it of grp.items){ if(manifest[it.id]) continue; const el=document.querySelector(`#list .item[data-id="${it.id}"]`); if(el) await gen(it, el); } };
+$('#genall').onclick=async()=>{
+  const todo=[]; for(const grp of CATALOG) for(const it of grp.items){ if(!manifest[it.id]) todo.push(it); }
+  const btn=$('#genall'); if(!todo.length){ const o=btn.textContent; btn.textContent='✓ all generated'; setTimeout(()=>btn.textContent=o,1500); return; }
+  const bar=$('#genbar'), fill=$('#genbarfill'); btn.disabled=true; bar.classList.add('on'); fill.style.width='0%';
+  let done=0;
+  for(const it of todo){ const el=document.querySelector(`#list .item[data-id="${it.id}"]`); if(el) await gen(it, el);
+    done++; btn.textContent='⏳ '+done+' / '+todo.length; fill.style.width=(done/todo.length*100)+'%'; }
+  btn.textContent='Generate all missing'; btn.disabled=false; setTimeout(()=>bar.classList.remove('on'),900);
+};
 async function refreshVoices(){
   const j=await (await fetch('/api/voices',{headers:hdrs()})).json();
   if(!j.ok) return j;
