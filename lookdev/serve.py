@@ -4,10 +4,14 @@ ROOT  = os.path.dirname(os.path.abspath(__file__))
 # AUDIO_DIR points at a persistent Railway volume (e.g. /data/audio); defaults to ./audio locally
 AUDIO = os.environ.get("AUDIO_DIR") or os.path.join(ROOT, "audio")
 DB_PATH = os.path.join(AUDIO, "_catalog.db")
-HERO  = os.path.join(AUDIO, "_hero.jpg")  # commemorative lobby portrait — lives on the same persistent volume
+HERO  = os.path.join(AUDIO, "_hero.img")  # commemorative lobby portrait (any image type) — on the persistent volume
 PORT  = int(os.environ.get("PORT", "8173"))
 HOST  = os.environ.get("HOST", "0.0.0.0")
 EL    = "https://api.elevenlabs.io"
+GBASE  = "https://generativelanguage.googleapis.com"            # Gemini image generation (Nano Banana)
+GMODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image")  # Nano Banana Pro — best likeness for a hero master
+GASPECT = os.environ.get("GEMINI_ASPECT", "3:4")               # portrait, fits the lobby frame
+GSIZE   = os.environ.get("GEMINI_IMAGE_SIZE", "2K")            # 1K | 2K | 4K  (set "" to let the model default)
 os.makedirs(AUDIO, exist_ok=True)
 os.chdir(ROOT)
 CTX = ssl.create_default_context()
@@ -57,6 +61,51 @@ def stamp(path):
 
 def key_of(h):
     return h.headers.get("x-eleven-key") or os.environ.get("ELEVENLABS_API_KEY") or ""
+
+def gkey_of(h):  # Gemini key — header (pasted in admin) or server env, never a file
+    return h.headers.get("x-gemini-key") or os.environ.get("GEMINI_API_KEY") or ""
+
+def img_mime(data):  # sniff image type from magic bytes so /hero serves the right Content-Type
+    if data[:4] == b"\x89PNG": return "image/png"
+    if data[:3] == b"\xff\xd8\xff": return "image/jpeg"
+    if data[:4] == b"GIF8": return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP": return "image/webp"
+    return "application/octet-stream"
+
+HERO_PROMPT = (
+    "Using the person in the attached photograph as the exact subject, create a dramatic, photorealistic "
+    "commemorative HERO PORTRAIT of this same person — preserve their face, identity and likeness faithfully. "
+    "Depict them as the legendary astronaut-commander who answered the first signal and saved the world: "
+    "standing tall and resolute in a sleek white-and-grey spacesuit, helmet held under one arm, in front of a "
+    "massive rocket lifting off on a launch pad with billowing fire and smoke, dramatic golden-hour backlight "
+    "and lens flare, epic and inspiring, a slightly weathered heroic sci-fi tone. Vertical portrait composition, "
+    "cinematic lighting, head-and-torso framing. He is a saviour Earth remembers.")
+
+def gemini_image(prompt, img_b64, mime, key):
+    """Call Gemini (Nano Banana) image generation: photo + prompt -> generated image bytes."""
+    parts = [{"text": prompt}]
+    if img_b64:
+        parts.append({"inlineData": {"mimeType": mime or "image/jpeg", "data": img_b64}})
+    gen = {"responseModalities": ["IMAGE"]}
+    ic = {}
+    if GASPECT: ic["aspectRatio"] = GASPECT
+    if GSIZE:   ic["imageSize"] = GSIZE
+    if ic: gen["imageConfig"] = ic
+    payload = {"contents": [{"role": "user", "parts": parts}], "generationConfig": gen}
+    req = urllib.request.Request(GBASE + "/v1beta/models/" + GMODEL + ":generateContent",
+        data=json.dumps(payload).encode(), method="POST",
+        headers={"x-goog-api-key": key, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, context=CTX, timeout=180) as r:
+        data = json.loads(r.read().decode())
+    cands = data.get("candidates") or []
+    if not cands:
+        fb = (data.get("promptFeedback") or {}).get("blockReason")
+        raise RuntimeError("Gemini returned no image" + (": blocked (" + fb + ")" if fb else ""))
+    for part in ((cands[0].get("content") or {}).get("parts") or []):
+        inl = part.get("inlineData") or part.get("inline_data")
+        if inl and inl.get("data"):
+            return base64.b64decode(inl["data"]), (inl.get("mimeType") or inl.get("mime_type") or "image/png")
+    raise RuntimeError("Gemini returned no image (finishReason=%s)" % cands[0].get("finishReason"))
 
 def kind_of(endpoint):
     if "sound-generation" in endpoint: return "sfx"
@@ -111,11 +160,11 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.path = "/lobby.html"; return super().do_GET()
         if p in ("/dock", "/dock/", "/docking"):
             self.path = "/dock.html"; return super().do_GET()
-        if p in ("/hero", "/hero.jpg", "/hero.png"):
+        if p in ("/hero", "/hero.jpg", "/hero.png", "/hero.img"):
             if os.path.isfile(HERO):
                 data = open(HERO, "rb").read()
                 self.send_response(200)
-                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Type", img_mime(data))
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Cache-Control", "no-store")
@@ -156,13 +205,37 @@ class H(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?")[0]
-        if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice", "/api/hero-upload"):
+        if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice",
+                     "/api/hero-upload", "/api/hero-generate"):
             self.send_response(404); self.end_headers(); return
         try:
             ln = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(ln).decode() or "{}")
         except Exception as e:
             return self._json({"ok": False, "error": "bad request: " + str(e)}, 200)
+        if p == "/api/hero-generate":  # Gemini turns the uploaded photo into the hero; auto-hangs in the lobby
+            gk = gkey_of(self)
+            if not gk:
+                return self._json({"ok": False, "error": "No Gemini API key — set GEMINI_API_KEY on the server or paste a key in the Hero panel."}, 200)
+            try:
+                du = body.get("dataUrl", ""); mime = "image/jpeg"
+                if du.startswith("data:") and ";base64," in du:
+                    mime = du[5:du.index(";base64,")]; du = du.split(",", 1)[1]
+                elif "," in du:
+                    du = du.split(",", 1)[1]
+                prompt = (body.get("prompt") or "").strip() or HERO_PROMPT
+                out, omime = gemini_image(prompt, du or None, mime, gk)
+                if len(out) > 16_000_000:
+                    return self._json({"ok": False, "error": "generated image too large"}, 200)
+                with open(HERO, "wb") as f:
+                    f.write(out)  # auto-hang in the lobby
+                size, updated = stamp(HERO)
+                return self._json({"ok": True, "model": GMODEL, "size": size, "updatedAt": updated,
+                                   "dataUrl": "data:" + omime + ";base64," + base64.b64encode(out).decode()})
+            except urllib.error.HTTPError as e:
+                return self._json({"ok": False, "error": "Gemini HTTP " + str(e.code) + ": " + e.read().decode()[:500]}, 200)
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 200)
         if p == "/api/hero-upload":  # local image storage — no ElevenLabs key required
             try:
                 du = body.get("dataUrl", "")

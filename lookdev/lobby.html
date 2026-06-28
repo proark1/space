@@ -47,7 +47,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units.js';
-import { drawHeroPoster } from './hero.js';
+import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 
 const canvas=document.getElementById('c');
@@ -146,7 +146,11 @@ const heroPlane=new THREE.Mesh(new THREE.PlaneGeometry(2.85,3.8),new THREE.MeshS
 heroPlane.position.set(HPX,HPY,HPZ); scene.add(heroPlane);
 for(const sx of [-1,1]) part(BOX(0.1,4.0,0.12),M.amber,scene,HPX+1.52*sx,HPY,-7.74);  // gilt frame sides
 for(const sy of [-1,1]) part(BOX(3.14,0.1,0.12),M.amber,scene,HPX,HPY+1.97*sy,-7.74); // gilt frame top/bottom
-part(BOX(2.0,0.32,0.1),M.crate,scene,HPX,0.3,-7.74); part(BOX(2.0,0.06,0.12),M.amber,scene,HPX,0.3,-7.71);  // museum placard below
+const placC=document.createElement('canvas'); placC.width=512; placC.height=100; drawPlacard(placC.getContext('2d'),512,100);   // engraved name plaque
+const placTex=new THREE.CanvasTexture(placC); placTex.colorSpace=THREE.SRGBColorSpace; placTex.anisotropy=8;
+part(BOX(2.06,0.4,0.1),M.trim,scene,HPX,0.3,-7.8);
+const placard=new THREE.Mesh(new THREE.PlaneGeometry(1.92,0.34),new THREE.MeshStandardMaterial({map:placTex,emissive:0xffffff,emissiveMap:placTex,emissiveIntensity:0.3,roughness:0.6,metalness:0.4}));
+placard.position.set(HPX,0.3,-7.73); scene.add(placard);
 const heroLight=new THREE.SpotLight(0xffd9a0,3.0,9,0.62,0.55,1.2); heroLight.position.set(HPX,4.25,HPZ+2.3); heroLight.target.position.set(HPX,HPY,HPZ); scene.add(heroLight); scene.add(heroLight.target);
 const heroGlow=new THREE.PointLight(0xffcaa0,0.55,5,2); heroGlow.position.set(HPX,HPY+0.4,HPZ+1.1); scene.add(heroGlow);
 
@@ -161,7 +165,7 @@ POS.forEach((p,i)=>{ const a=makeAstronaut({accent:TEAM[i]}); a.position.set(p[0
 
 // load the uploaded hero photo (if any) and frame it into the portrait; the painted hero stays otherwise
 (function loadHeroPhoto(){ const img=new Image(); img.crossOrigin='anonymous';
-  img.onload=()=>{ try{ drawHeroPoster(heroCtx,768,1024,img); heroTex.needsUpdate=true; }catch(e){} };
+  img.onload=()=>{ try{ drawHeroFramed(heroCtx,768,1024,img); heroTex.needsUpdate=true; }catch(e){} };
   img.onerror=()=>{};   // 404 → keep the painted fallback
   img.src='/hero?'+Date.now();
 })();
