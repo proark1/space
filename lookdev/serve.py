@@ -102,6 +102,8 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.path = "/exterior.html"; return super().do_GET()
         if p in ("/launch", "/launch/", "/outbound"):
             self.path = "/launch.html"; return super().do_GET()
+        if p in ("/pad", "/pad/", "/launchpad"):
+            self.path = "/pad.html"; return super().do_GET()
         if p == "/api/manifest":
             return self._json({"items": self._manifest(), "audioDir": AUDIO, "db": DB_PATH})
         if p == "/api/voices":
