@@ -18,17 +18,25 @@
       padding:10px 18px;font:600 13px ui-monospace,monospace;letter-spacing:1px;cursor:pointer}
   #hint{position:fixed;left:12px;bottom:10px;font:11px ui-monospace,monospace;color:#5a6b78;pointer-events:none}
   #cross{position:fixed;left:50%;top:50%;width:3px;height:3px;margin:-1.5px;background:#cdd6e0;border-radius:50%;opacity:.45;display:none;pointer-events:none}
+  #obj{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 12px ui-monospace,monospace;letter-spacing:2px;color:#E8A33D;text-shadow:0 0 8px #000;pointer-events:none;text-align:center;max-width:90vw}
+  #prompt{position:fixed;left:50%;top:58%;transform:translateX(-50%);font:600 12px ui-monospace,monospace;letter-spacing:2px;color:#7dffb0;text-shadow:0 0 8px #000;pointer-events:none;display:none}
+  #over{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,3,6,.66);pointer-events:none}
+  #over b{font:700 22px ui-monospace,monospace;letter-spacing:5px;color:#ff6a5a}
+  #over span{font:12px ui-monospace,monospace;letter-spacing:2px;color:#cdd6e0;margin-top:10px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="cross"></div>
+<div id="obj">REACH THE COMMS CONSOLE</div>
+<div id="prompt">[E] RESTORE THE SIGNAL</div>
+<div id="over"><b id="overTxt">TAKEN</b><span id="overSub">[R] try again</span></div>
 <div id="hint">SIGNAL LOST · look-dev v2 · low-poly / PS1 · sound on</div>
 <div id="ui"><div id="panel">
   <h1>SIGNAL&nbsp;LOST</h1>
-  <p>Polished pass — <b>sound is on</b>, head-bob, a screen, a fan, a scare.</p>
-  <p><b>Click</b> to look · <b>W A S D</b> move · <b>Shift</b> run · <b>F</b> flashlight · <b>Esc</b> release</p>
-  <p><small>Walk slowly to the far room. Listen. Don't rush the thing at the end.</small></p>
+  <p>Reach the <b>comms console</b> at the far end and restore the signal — that's the job.</p>
+  <p><b>Click</b> look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> light · <b>E</b> use · <b>R</b> retry</p>
+  <p><small>THE CHORUS stalks the dark. <b>Hold your light on it and it freezes</b> — look away and it comes. Slip past it to the console. But think hard before you answer the signal.</small></p>
   <button id="go">ENTER THE SHIP</button>
   <div style="margin-top:12px"><a href="/exterior" style="color:#9fd0ff;font:12px ui-monospace,monospace;text-decoration:none">▸ or see the ship from outside</a></div>
 </div></div>
@@ -148,7 +156,7 @@ for(let i=0;i<12;i++){ const z=-2-i*4;
   cyl(0.07,W-0.4,C.pipe,0.7,H-0.45,z+1,0,Math.PI/2); cyl(0.05,W-0.7,C.pipe,-0.65,H-0.62,z+1,0,Math.PI/2);
   const lit=(i%2===0);
   const panel=box(0.95,0.06,0.5,lit?C.amber.clone():C.cyan.clone(),0,H-0.42,z+2);
-  const pl=new THREE.PointLight(lit?0xE8A33D:0x9FD0FF, lit?5:1.6, lit?8:5.5, 1.5); pl.position.set(0,H-0.62,z+2); world.add(pl); lamps.push(pl);
+  const pl=new THREE.PointLight(lit?0xE8A33D:0x9FD0FF, lit?5:1.6, lit?8:5.5, 1.5); pl.position.set(0,H-0.62,z+2); pl.userData.base=pl.intensity; world.add(pl); lamps.push(pl);
   if(i===3||i===9) flick.push({panel,light:pl,base:pl.intensity,seed:Math.random()*9});
   if(i===7){ strobe={panel,light:pl,base:6}; pl.color.set(0xbfe0ff); }
 }
@@ -180,7 +188,7 @@ const screen=new THREE.Mesh(new THREE.PlaneGeometry(0.62,0.82),
 screen.position.set(-W/2+0.24,1.55,-16); screen.rotation.y=Math.PI/2; world.add(screen);
 box(0.78,1.05,0.12,C.pipe,-W/2+0.17,1.55,-16);
 const scrLight=new THREE.PointLight(0x66ffaa,1.5,3.2,2); scrLight.position.set(-W/2+0.45,1.55,-16); world.add(scrLight);
-const SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer'];
+let SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer'];
 let scrScroll=0, scrTimer=0;
 function drawScreen(){ sx.fillStyle='#021a0e'; sx.fillRect(0,0,256,160); sx.font='13px monospace'; sx.fillStyle='#7dffb0';
   for(let i=0;i<SCRL.length;i++){ const y=((i*22 - scrScroll)%176+176)%176; if(y<160) sx.fillText(SCRL[i],10,y); }
@@ -229,7 +237,7 @@ const mThroat=mp(new THREE.SphereGeometry(0.08,16,16),throatMat,0,1.7,0.22);
 mp(new THREE.CapsuleGeometry(0.06,1.25,4,10),mMat,-0.32,1.25,0.06,0.55); mp(new THREE.CapsuleGeometry(0.06,1.25,4,10),mMat,0.32,1.25,0.06,-0.55);
 mp(new THREE.CapsuleGeometry(0.085,1.05,4,10),mMat,-0.12,0.55,0); mp(new THREE.CapsuleGeometry(0.085,1.05,4,10),mMat,0.12,0.55,0);
 mob.position.set(0.5,0,-LEN-4.6); scene.add(mob);
-let mState='lurk', moved=false;
+let mActive=false, caught=false, restored=false, enraged=false, won=false;
 
 // ---------- audio (procedural) ----------
 let A=null;
@@ -250,7 +258,7 @@ function thump(){ if(!A)return; const {ctx,master}=A; const t=ctx.currentTime; c
 function sting(){ if(!A)return; const {ctx,master}=A; const t=ctx.currentTime; [220,233,330,494].forEach(fr=>{ const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=fr*(0.5+Math.random()*0.1); const g=ctx.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.22,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.7); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.75); }); burst(0.5,2200,0.7,0.28,'lowpass'); }
 // --- real ElevenLabs clips (from the Audio Forge catalog); fall back to synth if missing ---
 let CLIPS={}, vestaPlayed=false, stepAcc=0, stalkNode=null;
-const WANT=['amb-corridor','sfx-flashlight','sfx-step','crt-call','crt-shriek','crt-stalk','vox-vesta-1','vox-vesta-3'];
+const WANT=['amb-corridor','sfx-flashlight','sfx-step','crt-call','crt-shriek','crt-stalk','vox-vesta-1','vox-vesta-3','vox-chorus-1'];
 function playClip(id,gain=1,loop=false){ if(!A||!CLIPS[id])return null; const {ctx,master}=A; const s=ctx.createBufferSource(); s.buffer=CLIPS[id]; s.loop=loop; const g=ctx.createGain(); g.gain.value=gain; s.connect(g); g.connect(master); s.start(); return s; }
 function playClip3D(id,pos,gain=1,loop=false){ if(!A||!CLIPS[id])return null; const {ctx,master}=A; const s=ctx.createBufferSource(); s.buffer=CLIPS[id]; s.loop=loop;
   const pan=ctx.createPanner(); pan.panningModel='HRTF'; pan.distanceModel='inverse'; pan.refDistance=2.5; pan.maxDistance=45; pan.rolloffFactor=1.3;
@@ -275,8 +283,27 @@ const ui=document.getElementById('ui'),cross=document.getElementById('cross');
 document.getElementById('go').onclick=()=>{ initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); controls.lock(); };
 controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.display='block'; initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); });
 controls.addEventListener('unlock',()=>{ ui.style.display='flex'; cross.style.display='none'; });
-const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='KeyF'){flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();}});
+const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='KeyF'){flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
 addEventListener('keyup',e=>{keys[e.code]=false;});
+
+// ---------- objective / interaction ----------
+const objEl=document.getElementById('obj'), promptEl=document.getElementById('prompt'), overEl=document.getElementById('over'), overTxt=document.getElementById('overTxt'), overSub=document.getElementById('overSub');
+let lightFactor=1;
+const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
+const setObj=t=>{ objEl.textContent=t; };
+setObj('REACH THE COMMS CONSOLE · HOLD THE LIGHT ON IT');
+function tryInteract(){ if(restored||caught||won) return; if(camera.position.distanceTo(CONSOLE)<3.4) restore(); }
+function restore(){ restored=true; enraged=true; lightFactor=0.08; shake=0.8; if(!playClip('vox-chorus-1',1.0)) sting();
+  SCRL=['> SIGNAL ....... RESTORED','> CHANNEL OPEN','> ... hello?','> I AM THE RESCUE','> YOU CALLED FOR','> [ IT IS HERE ]']; scrScroll=0; drawScreen();
+  setObj('IT ANSWERED · GET BACK TO THE AIRLOCK'); promptEl.style.display='none';
+  mob.position.set(camera.position.x,0,camera.position.z-3.2); }                 // it surges in
+function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
+  mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6;
+  overTxt.textContent='THE CHORUS TOOK YOU'; overSub.textContent='[R] try again'; overEl.style.display='flex'; setObj(''); }
+function respawn(){ caught=false; won=false; restored=false; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0;
+  overEl.style.display='none'; promptEl.style.display='none'; setObj('REACH THE COMMS CONSOLE · HOLD THE LIGHT ON IT');
+  camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.set(1,1,1); mThroat.material.emissiveIntensity=1;
+  SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer']; scrScroll=0; drawScreen(); }
 
 // ---------- loop ----------
 const clock=new THREE.Clock(); const fwd=new THREE.Vector3(); const want=new THREE.Vector3();
@@ -284,7 +311,7 @@ let bob=0, shake=0, heart=0;
 function animate(){ requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05), t=clock.elapsedTime;
   const moving = controls.isLocked && (keys.KeyW||keys.KeyS||keys.KeyA||keys.KeyD);
-  if(controls.isLocked){ const s=(keys.ShiftLeft?5.4:3.0)*dt;
+  if(controls.isLocked && !caught && !won){ const s=(keys.ShiftLeft?5.4:3.0)*dt;
     if(keys.KeyW)controls.moveForward(s); if(keys.KeyS)controls.moveForward(-s); if(keys.KeyA)controls.moveRight(-s); if(keys.KeyD)controls.moveRight(s); }
   camera.position.x=Math.max(-W/2+0.4,Math.min(W/2-0.4,camera.position.x));
   camera.position.z=Math.max(-LEN-6,Math.min(-0.6,camera.position.z));
@@ -299,9 +326,10 @@ function animate(){ requestAnimationFrame(animate);
   camera.getWorldDirection(fwd); want.copy(camera.position).add(fwd);
   fTarget.position.lerp(want, 1-Math.pow(0.0008,dt));
 
-  for(const f of flick){ const n=Math.sin(t*20+f.seed)*0.5+0.5; const drop=(Math.sin(t*3.3+f.seed)>0.82)?0.12:1.0; const v=(0.35+0.65*n)*drop; f.light.intensity=f.base*v; f.panel.material.emissiveIntensity=2.6*v; }
-  if(strobe){ const on=(Math.sin(t*2.0)>0.6)&&(Math.random()>0.3); strobe.light.intensity=on?7:0; strobe.panel.material.emissiveIntensity=on?3.2:0.1; }
-  emer.intensity=0.5+0.5*Math.sin(t*2.2);
+  for(const l of lamps){ if(l.userData.base!==undefined) l.intensity=l.userData.base*lightFactor; }
+  for(const f of flick){ const n=Math.sin(t*20+f.seed)*0.5+0.5; const drop=(Math.sin(t*3.3+f.seed)>0.82)?0.12:1.0; const v=(0.35+0.65*n)*drop; f.light.intensity=f.base*v*lightFactor; f.panel.material.emissiveIntensity=2.6*v*lightFactor; }
+  if(strobe){ const on=(Math.sin(t*2.0)>0.6)&&(Math.random()>0.3); strobe.light.intensity=(on?7:0)*lightFactor; strobe.panel.material.emissiveIntensity=on?3.2:0.1; }
+  emer.intensity=(restored?2.6:0.5)*(0.55+0.45*Math.sin(t*(restored?9:2.2)));
   fan.rotation.y += dt*2.2;
   scrTimer-=dt; if(scrTimer<=0){ scrScroll+=22; drawScreen(); scrTimer=0.42; }
   scrLight.intensity = 1.5*(0.8+0.2*Math.sin(t*30));
@@ -311,18 +339,29 @@ function animate(){ requestAnimationFrame(animate);
   const da=dgeo.attributes.position; for(let i=0;i<DN;i++){ let y=da.array[i*3+1]-dt*0.06; if(y<0)y+=H; da.array[i*3+1]=y; } da.needsUpdate=true;
   const sa=steam.o.geometry.attributes.position; for(let i=0;i<steam.n;i++){ let y=sa.array[i*3+1]+dt*0.25; if(y>H)y=1.6; sa.array[i*3+1]=y; } sa.needsUpdate=true;
 
-  // monster behaviour
-  const d=camera.position.distanceTo(mob.position);
-  if(stalkNode){ if(mState!=='dead'){ setPanPos(stalkNode,mob.position); stalkNode.g.gain.value=Math.max(0,Math.min(0.75,1.15-d/13)); } else { stalkNode.g.gain.value=Math.max(0,stalkNode.g.gain.value-dt*0.5); } }
-  if(mState!=='dead'){
-    const dx=camera.position.x-mob.position.x, dz=camera.position.z-mob.position.z;
-    mob.rotation.y += (Math.atan2(dx,dz)-mob.rotation.y)*0.06 + Math.sin(t*3.4)*0.003;
+  // ---- THE CHORUS: stalks, freezes while you hold the light on it, advances when you look away ----
+  const dM=camera.position.distanceTo(mob.position);
+  if(stalkNode){ if(!caught){ setPanPos(stalkNode,mob.position); stalkNode.g.gain.value=Math.max(0,Math.min(0.8,1.2-dM/13)); } else { stalkNode.g.gain.value=Math.max(0,stalkNode.g.gain.value-dt*0.5); } }
+  if(!mActive && controls.isLocked && camera.position.z<-7) mActive=true;   // it wakes once you are inside
+  if(mActive && !caught && !won){
+    const ox=mob.position.x-camera.position.x, oz=mob.position.z-camera.position.z, ol=Math.hypot(ox,oz)||1;
+    camera.getWorldDirection(fwd);
+    const facing=fwd.x*(ox/ol)+fwd.z*(oz/ol);
+    const lit=flashOn && lightStun<=0 && facing>0.93 && dM<16;     // looking right at it, in the beam
+    const frozen=lit && !enraged;                                  // the light pins it — until the trap enrages it
+    const spd=frozen?0:(enraged?2.7:1.5);
+    mob.position.x += (-ox/ol)*spd*dt; mob.position.z += (-oz/ol)*spd*dt;
+    mob.position.x=Math.max(-W/2+0.35,Math.min(W/2-0.35,mob.position.x));
+    mob.position.z=Math.max(-LEN-6,Math.min(-0.6,mob.position.z));
+    mob.rotation.y += (Math.atan2(-ox,-oz)-mob.rotation.y)*0.12;
     mob.position.y=Math.sin(t*1.4)*0.03;
-    mThroat.material.emissiveIntensity=0.7+0.6*(Math.sin(t*4.5)*0.5+0.5);
-    if(d<14){ heart-=dt; const iv=THREE.MathUtils.lerp(0.42,1.05,Math.min(1,(d-4)/10)); if(heart<=0){ thump(); setTimeout(thump,165); heart=iv; } }
-    if(d<9 && !moved){ moved=true; lightStun=0.18; burst(0.3,300,4,0.12); mob.position.set(camera.position.x*0.5, 0, camera.position.z-4.6); playClip3D('crt-call', mob.position, 0.9); } // lights cut, it's closer
-    if(d<4.3){ mState='dead'; sting(); shake=1.0; mThroat.material.emissiveIntensity=5; mob.position.set(camera.position.x, 0, camera.position.z-1.6); playClip3D('crt-shriek', mob.position, 1.0); } // LUNGE
-  } else if(mob.visible){ mob.position.y-=dt*3.6; mob.scale.multiplyScalar(1-dt*0.5); if(mob.position.y<-2.6)mob.visible=false; }
+    mThroat.material.emissiveIntensity = frozen?0.12:(0.7+0.7*(Math.sin(t*5)*0.5+0.5));
+    if(dM<13){ heart-=dt; const iv=THREE.MathUtils.lerp(0.4,1.05,Math.min(1,(dM-3)/10)); if(heart<=0){ thump(); if(dM<7)setTimeout(thump,165); heart=iv; } }
+    if(dM<1.5) die();
+  }
+  // objective prompt + the escape
+  promptEl.style.display=(!restored && !caught && !won && camera.position.distanceTo(CONSOLE)<3.4)?'block':'none';
+  if(restored && !won && !caught && camera.position.z>-2.6){ won=true; overTxt.textContent='SIGNAL LOST'; overSub.textContent='you got out. for now.   [R]'; overEl.style.display='flex'; setObj(''); }
 
   // render with shake / sway offset (no drift)
   updateListener();
