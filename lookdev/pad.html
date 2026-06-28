@@ -277,7 +277,7 @@ function startAudio(){ if(padAudio)return; try{
     thunder(){ burst(ctx,B,{type:'lowpass',freq:70,q:0.9,gain:0.32,decay:1.6}); },
   };
   // auto-layer real generated clips if the Audio Forge catalog has them
-  new ClipBank(mix).load().then(b=>{ b.play('rain',{loop:true,gain:0.5}); b.play('ambience',{loop:true,gain:0.4}); });
+  new ClipBank(mix).load().then(b=>{ b.play('pad-rain',{loop:true,gain:0.5}); b.play('pad-ambience',{loop:true,gain:0.4}); });
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 

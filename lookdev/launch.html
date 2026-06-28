@@ -250,7 +250,7 @@ function startAudio(){ if(cabinAudio)return; try{
     creak(){ burst(ctx,B,{type:'lowpass',freq:90+Math.random()*60,q:1.5,gain:0.16,decay:1.2}); },
     stat(){ burst(ctx,B,{type:'bandpass',freq:1800,q:0.5,gain:0.07,decay:0.22}); },
   };
-  new ClipBank(mix).load().then(b=>{ b.play('comms',{loop:true,gain:0.3}); b.play('drone',{loop:true,gain:0.3}); });
+  new ClipBank(mix).load().then(b=>{ b.play('cabin-comms',{loop:true,gain:0.3}); b.play('cabin-drone',{loop:true,gain:0.3}); });
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 

@@ -46,7 +46,7 @@
 <body>
 <header>
   <h1>AUDIO&nbsp;FORGE</h1>
-  <div class="sub">SIGNAL LOST · ElevenLabs · voice lines use <b>v3 audio tags</b> like <code>[whispers]</code> <code>[nervously]</code> <code>[shaky breath]</code> for in-scene emotion · everything saved · <a href="/">← game</a> · <a href="/exterior">ship exterior</a></div>
+  <div class="sub">SIGNAL LOST · ElevenLabs · covers every scene &amp; situation · scenes auto-load clips by id (e.g. <code>pad-rain</code>, <code>cabin-drone</code>, <code>space-drone</code>, <code>amb-corridor</code>) · voice lines use <b>v3 audio tags</b> like <code>[whispers]</code> <code>[shaky breath]</code> · everything saved · <a href="/">game</a> · <a href="/launch">capsule</a> · <a href="/pad">pad</a> · <a href="/exterior">exterior</a></div>
   <div class="bar">
     <input class="key" id="key" type="password" placeholder="paste ElevenLabs API key (used server-side only)">
     <button id="connect">Connect</button>
@@ -78,42 +78,103 @@ const VOICE_DESIGN = [
  {id:'voice-captain', name:'Captain — distress log', desc:'A weary middle-aged male spaceship captain. Hoarse, exhausted, gravelly and low, trembling with controlled fear, speaking quietly into a failing recorder. English.', text:'[weary] If anyone receives this... [shaky breath] do not dock. [whispering] Do not answer it. [trembling] It learns your voice. [exhales] It is already using mine, and I do not know how long I have been speaking with it. [pleading] Please. Stay away from this ship.'},
  {id:'voice-crew', name:'Crew — panic', desc:'A young terrified crew member, breathless and shaking, whispering urgently, the voice cracking with panic and adrenaline. English.', text:'[panicked whisper] They are in the walls, they are in the vents. [gasps] Oh god, it is right behind me. [urgent whisper] Do not turn on your light, please do not turn on your light, it follows the light. [breathless] Just keep moving and stay quiet.'},
  {id:'voice-chorus', name:'THE CHORUS — the mimic', desc:'An eerie voice that is almost human but subtly wrong: hollow and cold, layered with a faint second voice underneath, mimicking human speech with unsettling dissonance and a wet undertone. Deeply disturbing. English.', text:'[hollow, distorted] I am here. [unsettling calm] I am the rescue you called for. [whispering] Restore the signal. Open the channel. [echoing] Let me speak to the others. [mimicking] I sound like your friend because I am your friend now. [softly] Come closer. Do not be afraid of me.'},
- {id:'voice-control', name:'Earth — mission control', desc:'A composed, slightly distant male mission-control operator heard over a crackly long-range radio. Professional, steady, a little tired. English.', text:'[steady, radio static] Recovery team, this is Earth control. [pause] We have lost your telemetry. [firmly] Confirm your status when able. [concerned] We are reading an unidentified transmission on your frequency. [emphatic] Do not, repeat, do not acknowledge it.'},
+ {id:'voice-control', name:'Earth — mission control', desc:'A clipped, tense male military mission-control officer over a crackling long-range radio. Hard, professional, grim and stressed, running a last-ditch operation. Curt, no reassurance, a little exhausted. English.', text:'[clipped, radio static] Capsule, this is Control. You are go for the derelict. [tense] Mission is contact and recovery. You put her comms back online, that is the whole job. [grim] We have lost three crews to that silence. [firm] Bring her voice back. [static] Control out.'},
 ];
 const CATALOG = [
- {c:'Ambience beds', items:[
+ {c:'Cold open · the launch pad', items:[
+  {id:'pad-rain', type:'sfx', dur:20, loop:true, label:'Pad rain (bed)', prompt:'Heavy cold rain drumming on a concrete launch pad and steel gantry, steady relentless downpour, water running off metal, loopable ambience, no music'},
+  {id:'pad-ambience', type:'sfx', dur:22, loop:true, label:'Pad night ambience (bed)', prompt:'Overcast night launch complex: gusting wind, distant industrial machinery, low generator hum, a far-off warning klaxon, oppressive and militarized, loopable, no music'},
+  {id:'pad-klaxon', type:'sfx', dur:5, loop:true, label:'Launch klaxon', prompt:'A slow repeating launch-warning klaxon echoing across a vast launch pad, ominous and metallic, loopable'},
+  {id:'pad-steam', type:'sfx', dur:2, label:'Umbilical steam vent', prompt:'High-pressure steam and cryogenic vapor venting from rocket umbilical lines on the pad, sharp hiss'},
+  {id:'pad-ignition', type:'sfx', dur:4, label:'Engine ignition', prompt:'Rocket main engines igniting: a deep concussive whoomph followed by a building crackling roar, immense power'},
+  {id:'pad-rumble', type:'sfx', dur:20, loop:true, label:'Engine roar (bed)', prompt:'Sustained heavy rocket engine roar at full thrust, thunderous low-end rumble with crackling overtones, loopable, no music'},
+  {id:'pad-liftoff', type:'sfx', dur:8, label:'Liftoff', prompt:'A massive rocket lifting off the pad: overwhelming roar and deep ground rumble, slowly Doppler-shifting as it climbs away'},
+  {id:'pad-separation', type:'sfx', dur:3, label:'Stage separation', prompt:'Booster stage separation high in flight: a sharp metallic bang and pyrotechnic crack, then thin rushing wind'},
+  {id:'pad-thunder', type:'sfx', dur:4, label:'Distant thunder', prompt:'Distant rolling thunder over a storm-lit launch site, low and grim'},
+ ]},
+ {c:'Cold open · capsule & transit', items:[
+  {id:'cabin-drone', type:'sfx', dur:22, loop:true, label:'Cabin power drone (bed)', prompt:'Inside a cramped space-capsule cockpit: a low life-support power drone, faint ticking electronics, quietly claustrophobic, loopable, no music'},
+  {id:'cabin-air', type:'sfx', dur:18, loop:true, label:'Cabin air handling (bed)', prompt:'Capsule air handling: soft circulated-air hiss and a steady regulator tick, loopable'},
+  {id:'cabin-comms', type:'sfx', dur:16, loop:true, label:'Comms static (bed)', prompt:'A radio comms bed: faint static, intermittent squelch and far-off garbled transmissions you cannot quite make out, loopable'},
+  {id:'cabin-creak', type:'sfx', dur:3, label:'Hull creak', prompt:'A spacecraft hull creaking and groaning under stress, deep metallic flex'},
+  {id:'cabin-breath', type:'sfx', dur:12, loop:true, label:'Suit breathing (bed)', prompt:'Tense slow astronaut breathing inside a sealed helmet, controlled but afraid, loopable'},
+  {id:'cabin-heartbeat', type:'sfx', dur:8, loop:true, label:'Heartbeat', prompt:'A slow heavy human heartbeat under rising tension, intimate, loopable'},
+  {id:'capsule-thruster', type:'sfx', dur:1.4, label:'RCS thruster puff', prompt:'A short reaction-control thruster puff in vacuum, sharp burst of gas'},
+  {id:'transit-carrier', type:'sfx', dur:18, loop:true, label:'Derelict carrier signal (bed)', prompt:'An eerie alien carrier signal drifting in from deep space: a cold slowly modulating tone with a faint voice-like undertone hidden inside it, unsettling, loopable'},
+ ]},
+ {c:'The derelict · exterior & docking', items:[
+  {id:'space-drone', type:'sfx', dur:24, loop:true, label:'Deep space void (bed)', prompt:'The vast cold emptiness beside a derelict spaceship: a deep sub-bass void drone with distant hull resonances, isolating and immense, loopable, no music'},
+  {id:'space-hull-groan', type:'sfx', dur:6, label:'Hull groan', prompt:'The enormous hull of a dead spaceship groaning and flexing in the cold, deep metal stress and pops'},
+  {id:'dock-clamp', type:'sfx', dur:2.5, label:'Docking clamps', prompt:'Heavy docking clamps engaging and locking onto a capsule: metallic clunks and a servo whine'},
+  {id:'dock-airlock', type:'sfx', dur:4, label:'Airlock cycle', prompt:'An airlock cycling: pressurization hiss, pumps spinning up, and a heavy seal thunk'},
+  {id:'dock-thruster', type:'sfx', dur:2, label:'Docking thrusters', prompt:'A capsule firing its final maneuvering thrusters to align with a docking port, short controlled bursts'},
+  {id:'beacon-blip', type:'sfx', dur:6, loop:true, label:'Distress beacon (bed)', prompt:'A slow lonely automated distress-beacon blip repeating in the dark, cold and patient, loopable'},
+ ]},
+ {c:'Interior · ambience beds', items:[
   {id:'amb-corridor', type:'sfx', dur:22, loop:true, label:'Corridor ambience', prompt:'Derelict cargo-hauler corridor: deep hull groans, distant metal creaks, low electrical hum, faint ventilation hiss, cold and oppressive, loopable ambience, no music'},
   {id:'amb-engine', type:'sfx', dur:22, loop:true, label:'Engine room drone', prompt:'Engine room: throbbing dying reactor, low sub-bass drone, intermittent mechanical clanks, unsettling, loopable, no music'},
   {id:'amb-vacuum', type:'sfx', dur:18, loop:true, label:'Vacuum near-silence', prompt:'The eerie near-silence of vacuum: faint suit breathing and a high lonely ringing tone, sparse, isolating, loopable'},
+  {id:'amb-medbay', type:'sfx', dur:20, loop:true, label:'Medbay ambience', prompt:'A derelict medbay: slow dripping fluid, a stuttering flatline monitor tone, a flickering-light electrical buzz, grim, loopable'},
+  {id:'amb-bridge', type:'sfx', dur:22, loop:true, label:'Command bridge ambience', prompt:'The dead command bridge: wind whistling through a hull breach, sparking consoles, a faint repeating automated voice too distant to understand, loopable'},
+  {id:'amb-saferoom', type:'sfx', dur:20, loop:true, label:'Safe room ambience', prompt:'A barricaded safe room: a muffled warm electrical hum, a calmer steady tone, distant threats muffled behind steel, loopable'},
  ]},
- {c:'Sound effects', items:[
+ {c:'Interior · sound effects', items:[
   {id:'sfx-flashlight', type:'sfx', dur:0.6, label:'Flashlight click', prompt:'A tactile flashlight switch click, single, dry, mechanical'},
   {id:'sfx-door', type:'sfx', dur:2.2, label:'Bulkhead door slam', prompt:'A heavy metal bulkhead door slamming shut, echoing in a steel corridor'},
   {id:'sfx-step', type:'sfx', dur:0.7, label:'Footstep on grating', prompt:'A single heavy footstep on a metal grating floor, hollow'},
+  {id:'sfx-step-run', type:'sfx', dur:0.6, label:'Running footstep', prompt:'A fast heavy running footstep on metal grating, urgent and hollow'},
   {id:'sfx-vent', type:'sfx', dur:6, loop:true, label:'Vent fan whir', prompt:'A worn ceiling ventilation fan whirring and slightly rattling, loopable'},
   {id:'sfx-klaxon', type:'sfx', dur:4, label:'Alarm klaxon', prompt:'A distant emergency alarm klaxon echoing through metal corridors, ominous, repeating'},
   {id:'sfx-steam', type:'sfx', dur:1.6, label:'Steam burst', prompt:'A sudden burst of pressurized steam hissing from a broken pipe'},
+  {id:'sfx-pickup', type:'sfx', dur:0.8, label:'Item pickup', prompt:'Picking up a sci-fi item: a soft electronic chime and a small mechanical latch'},
+  {id:'sfx-powerdown', type:'sfx', dur:3, label:'Power cut', prompt:'Ship power dying: a descending electrical whine and a heavy clunk as the lights cut out'},
+  {id:'sfx-whisper', type:'sfx', dur:4, label:'Vent whispers', prompt:'Faint disembodied whispers drifting through a ventilation duct, words just out of reach, deeply unsettling'},
+ ]},
+ {c:'Combat', items:[
   {id:'sfx-rifle', type:'sfx', dur:1, label:'Pulse rifle shot', prompt:'A sci-fi pulse rifle shot, punchy energy weapon discharge with a short tail'},
   {id:'sfx-reload', type:'sfx', dur:1.6, label:'Weapon reload', prompt:'A mechanical sci-fi weapon reload: magazine click and a rising charge whine'},
   {id:'sfx-gore', type:'sfx', dur:1.5, label:'Dismemberment', prompt:'Wet visceral flesh tearing and bone snapping, gory dismemberment squelch'},
-  {id:'sfx-ui', type:'sfx', dur:0.6, label:'UI confirm beep', prompt:'A soft retro sci-fi interface confirmation beep, single'},
+  {id:'sfx-melee', type:'sfx', dur:0.8, label:'Melee impact', prompt:'A heavy melee impact: a wet thud and a metal clang'},
+  {id:'sfx-hit', type:'sfx', dur:0.7, label:'Player hurt', prompt:'The player taking damage: a sharp pained human grunt and a low impact thud'},
+  {id:'sfx-shield', type:'sfx', dur:1, label:'Shield absorb', prompt:'An energy shield absorbing a hit, electric crackle and a fading shimmer'},
  ]},
  {c:'Creature — THE CHORUS', items:[
   {id:'crt-call', type:'sfx', dur:4, label:'Resonating throat-call', prompt:'An alien creature resonating throat-call: wet and guttural, mimicking a distorted human voice, faint echolocation clicks, deeply unsettling, NOT a roar'},
   {id:'crt-shriek', type:'sfx', dur:2.5, label:'Attack shriek', prompt:'A sudden piercing creature shriek layered with broken fragments of human speech, sharp violent attack'},
   {id:'crt-stalk', type:'sfx', dur:5, loop:true, label:'Stalking breath', prompt:'A creature stalking nearby: wet rattling breathing and low clicks, intimate and threatening, loopable'},
+  {id:'crt-lunge', type:'sfx', dur:1.5, label:'Lunge', prompt:'The creature lunging: a violent wet surge of motion and a layered inhuman scream'},
+  {id:'crt-mimic', type:'sfx', dur:4, label:'Mimic — calling for help', prompt:'A creature mimicking a human voice calling for help, almost convincing but hollow, subtly wrong and layered with a faint second voice'},
+  {id:'crt-skitter', type:'sfx', dur:3, label:'Duct skitter', prompt:'A many-limbed creature skittering fast through metal ducts and across panels, wet and frantic'},
  ]},
- {c:'Music stems', items:[
+ {c:'Music', items:[
+  {id:'mus-menu', type:'music', len:30000, label:'Title theme', prompt:'Title-screen theme for a co-op space-horror game: a slow cold ominous drone with a distant mournful melody, dread and loneliness, no drums'},
+  {id:'mus-launch', type:'music', len:35000, label:'Launch cinematic', prompt:'The cold-open launch cinematic: grim tense militaristic build with low pulses and dark strings, a last-ditch mission for humanity rising toward liftoff'},
+  {id:'mus-transit', type:'music', len:40000, label:'Transit to the derelict', prompt:'The quiet capsule ride to the derelict: sparse cold weightless ambient with a creeping unease and a faint wrong note, no drums'},
   {id:'mus-explore', type:'music', len:40000, label:'Exploration dread bed', prompt:'Slow dark ambient horror underscore for exploring a derelict spaceship: deep drones, sparse metallic textures, creeping dread, no drums'},
   {id:'mus-combat', type:'music', len:30000, label:'Combat tension', prompt:'Tense rising horror combat music: pulsing low percussion, dissonant strings, panic and momentum'},
   {id:'mus-stinger', type:'music', len:5000, label:'Jump-scare stinger', prompt:'A sharp sudden horror stinger: a dissonant orchestral hit for a jump scare, then silence'},
+  {id:'mus-safe', type:'music', len:25000, label:'Safe-room respite', prompt:'A brief safe-room respite: a fragile warm melancholy ambient pad, exhausted relief that never fully relaxes'},
   {id:'mus-climax', type:'music', len:35000, label:'COMMS-RESTORE climax', prompt:'A desperate, bittersweet orchestral swell as a long-lost signal finally reaches home, cinematic horror climax'},
+  {id:'mus-credits', type:'music', len:40000, label:'End credits', prompt:'End-credits music: a haunting bittersweet ambient piece that recontextualizes the whole mission as a tragedy, unresolved and grieving'},
  ]},
- {c:'Scripted lines (v3 audio tags · uses a voice above)', items:[
+ {c:'Interface', items:[
+  {id:'sfx-ui', type:'sfx', dur:0.6, label:'UI confirm beep', prompt:'A soft retro sci-fi interface confirmation beep, single'},
+  {id:'sfx-ui-hover', type:'sfx', dur:0.4, label:'UI hover tick', prompt:'A soft retro sci-fi UI hover tick, very short'},
+  {id:'sfx-ui-back', type:'sfx', dur:0.5, label:'UI back', prompt:'A low retro sci-fi UI back or cancel blip'},
+  {id:'sfx-ui-error', type:'sfx', dur:0.6, label:'UI error', prompt:'A harsh denied error buzzer, sci-fi interface, short'},
+ ]},
+ {c:'Scripted lines (v3 audio tags · pick the voice above)', items:[
+  {id:'vox-control-brief', type:'voice', label:'Earth Control — briefing', prompt:'[clipped, radio static] Capsule, this is Control. You are go for the derelict. [tense] Mission is contact and recovery. You put her comms back online, that is the whole job. [grim] Bring her voice back.'},
+  {id:'vox-control-count', type:'voice', label:'Earth Control — countdown', prompt:'[tense] Ignition sequence start. Five. Four. [static] Three. Two. [grim] Godspeed. One.'},
+  {id:'vox-control-wrong', type:'voice', label:'Earth Control — the wrong note', prompt:'[steady] Telemetry is nominal, you are looking good, looking good, looking... [a fainter second voice underneath, a half beat late] looking good. [static] Control out.'},
+  {id:'vox-crew-banter', type:'voice', label:'Crew — capsule banter', prompt:'[tired chuckle] So. Did anybody actually read the brief? [beat] No? [dry] Cool. Cool cool cool. [exhales] We are going to be fine.'},
   {id:'vox-vesta-1', type:'voice', label:'VESTA — the signal', prompt:'[calm] Correction. One signal active. [pause] It is not on our manifest.'},
   {id:'vox-vesta-2', type:'voice', label:'VESTA — breach', prompt:'[urgent] Warning. Hull breach detected. [pause] Decompression imminent. [firmly] Brace.'},
   {id:'vox-vesta-3', type:'voice', label:'VESTA — do not answer', prompt:'[whispering] Do not restore communications. [pause] Whatever asks you to... [slowly] do not answer it.'},
-  {id:'vox-distress', type:'voice', label:'Distress log', prompt:'[shaky breath] If anyone receives this... [scared] do not dock. [whispering] Do not answer it. [trembling] It learns your voice. [exhales] It is already using mine.'},
+  {id:'vox-distress', type:'voice', label:'Captain — distress log', prompt:'[shaky breath] If anyone receives this... [scared] do not dock. [whispering] Do not answer it. [trembling] It learns your voice. [exhales] It is already using mine.'},
+  {id:'vox-captain-log', type:'voice', label:'Captain — final log', prompt:'[weary] Captain log, final entry. [shaky breath] We restored the comms array like they asked. [whisper] God help me, we answered it. [trembling] It has our voices now. All of them.'},
+  {id:'vox-chorus-1', type:'voice', label:'THE CHORUS — the lure', prompt:'[hollow] I am the rescue you called for. [whisper] Restore the signal. Open the channel. [mimicking] I sound like your friend because I am your friend now.'},
+  {id:'vox-chorus-2', type:'voice', label:'THE CHORUS — come closer', prompt:'[wet, distorted] Come closer. [echoing] Let me speak to the others. [softly] Do not be afraid of me.'},
  ]},
 ];
 
