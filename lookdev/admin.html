@@ -41,12 +41,30 @@
   .pv{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;font-size:11px;color:var(--mut)}
   audio{height:30px;vertical-align:middle}
   .note{color:var(--mut);font-size:11px;margin:6px 0 0} a{color:var(--cyan)} code{color:var(--purple)}
+  .scenes{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .scenes a{font-size:11px;color:#cdd6e0;text-decoration:none;background:#0c1117;border:1px solid #2a3a48;border-radius:20px;padding:5px 12px;letter-spacing:1px}
+  .scenes a:hover{border-color:var(--amber);color:#fff} .scenes a .k{color:var(--mut);font-size:9px;margin-left:5px}
+  #search{flex:1;min-width:150px}
+  .catnav{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .catnav a{font-size:10px;color:var(--cyan);text-decoration:none;border:1px solid var(--line);border-radius:14px;padding:3px 9px}
+  .catnav a:hover{border-color:var(--cyan);background:#0c1117}
+  .cat .cnt{float:right;color:var(--mut);font-size:10px;letter-spacing:0;text-transform:none}
+  .item.hide,.cat.hide{display:none}
 </style>
 </head>
 <body>
 <header>
   <h1>AUDIO&nbsp;FORGE</h1>
-  <div class="sub">SIGNAL LOST · ElevenLabs · covers every scene &amp; situation · scenes auto-load clips by id (e.g. <code>pad-rain</code>, <code>cabin-drone</code>, <code>space-drone</code>, <code>amb-corridor</code>) · voice lines use <b>v3 audio tags</b> like <code>[whispers]</code> <code>[shaky breath]</code> · everything saved · <a href="/">game</a> · <a href="/launch">capsule</a> · <a href="/pad">pad</a> · <a href="/exterior">exterior</a></div>
+  <div class="sub">SIGNAL LOST · ElevenLabs · scenes auto-load clips by id (e.g. <code>pad-rain</code>, <code>cabin-drone</code>, <code>space-drone</code>) · voice lines use <b>v3 audio tags</b> like <code>[whispers]</code> · everything saved</div>
+  <div class="scenes" id="scenes">
+    <a href="/">▸ game<span class="k">/</span></a>
+    <a href="/lobby">▸ lobby<span class="k">/lobby</span></a>
+    <a href="/units">▸ crew<span class="k">/units</span></a>
+    <a href="/launch">▸ capsule<span class="k">/launch</span></a>
+    <a href="/pad">▸ launch pad<span class="k">/pad</span></a>
+    <a href="/dock">▸ docking<span class="k">/dock</span></a>
+    <a href="/exterior">▸ derelict<span class="k">/exterior</span></a>
+  </div>
   <div class="bar">
     <input class="key" id="key" type="password" placeholder="paste ElevenLabs API key (used server-side only)">
     <button id="connect">Connect</button>
@@ -62,10 +80,12 @@
       <option value="eleven_ttv_v3">design: ttv_v3 (audio tags)</option>
       <option value="eleven_multilingual_ttv_v2">design: multilingual_ttv_v2</option>
     </select>
+    <input id="search" placeholder="filter sounds / music / voices…">
     <button class="all" id="genall">Generate all missing</button>
     <span class="tot" id="tot">0 files · 0 KB</span>
   </div>
   <div class="note" id="connstat">Paste your key and hit Connect (loads your voices). Key goes only to your own server, never to a file.</div>
+  <div class="catnav" id="catnav"></div>
 </header>
 <main>
   <div id="vdlist"></div>
@@ -203,12 +223,18 @@ function renderVD(){
     if(prev.length){ el.querySelector('.previews').innerHTML=prev.map(m=>`<div class="pv"><b>${fmt(m.size)}</b><audio controls preload="none" src="/${m.file}?t=${Date.now()}"></audio> <span style="color:#54616d">(re-design to enable save)</span></div>`).join(''); }
   }
 }
+const slug=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+function buildCatNav(){ const nav=$('#catnav'); if(nav) nav.innerHTML=CATALOG.map(g=>`<a href="#cat-${slug(g.c)}">${g.c}</a>`).join(''); }
+function recount(){ for(const grp of CATALOG){ const h=document.getElementById('cat-'+slug(grp.c)); const c=h&&h.querySelector('.cnt'); if(c) c.textContent=grp.items.filter(it=>manifest[it.id]).length+'/'+grp.items.length; } }
 function render(){
   const list=$('#list'); list.innerHTML='';
   for(const grp of CATALOG){
-    const h=document.createElement('div'); h.className='cat'; h.textContent=grp.c; list.appendChild(h);
+    const h=document.createElement('div'); h.className='cat'; h.id='cat-'+slug(grp.c);
+    h.innerHTML=`${grp.c}<span class="cnt">${grp.items.filter(it=>manifest[it.id]).length}/${grp.items.length}</span>`;
+    list.appendChild(h);
     for(const it of grp.items){
       const el=document.createElement('div'); el.className='item'; el.dataset.id=it.id;
+      el.dataset.search=(it.label+' '+it.id+' '+it.type+' '+it.prompt).toLowerCase();
       const dur = it.type==='music' ? (it.len/1000) : (it.dur||4);
       const durCtl = it.type==='voice' ? '' :
         `<label class="stat">${it.type==='music'?'length':'duration'} <input class="dur" type="number" step="0.5" min="0.5" value="${dur}"> s</label>`;
@@ -221,7 +247,7 @@ function render(){
       if(manifest[it.id]) showResult(el, manifest[it.id]);
     }
   }
-  totals();
+  totals(); buildCatNav();
 }
 function showResult(el, m){
   const s=el.querySelector('.status'); s.textContent='✓ saved'; s.className='stat status ok';
@@ -241,7 +267,7 @@ async function gen(it, el){
   status.textContent='generating…'; status.className='stat status'; btn.disabled=true;
   try{ const j=await (await fetch('/api/generate',{method:'POST',headers:hdrs(),body:JSON.stringify({id:it.id,endpoint,payload,category:it.type})})).json();
     if(!j.ok){ status.textContent='✗ '+(j.error||('HTTP '+(j.status||'?'))); status.className='stat status err'; }
-    else { manifest[it.id]=j; showResult(el,j); totals(); }
+    else { manifest[it.id]=j; showResult(el,j); totals(); recount(); }
   }catch(e){ status.textContent='✗ '+e.message; status.className='stat status err'; }
   btn.disabled=false;
 }
@@ -311,6 +337,11 @@ $('#delvoice').onclick=async()=>{ const vid=voiceEl.value; if(!vid){ connstat.te
   }catch(e){ connstat.textContent='✗ '+e.message; } };
 keyEl.onchange=()=>localStorage.setItem('elKey',keyEl.value.trim());
 voiceEl.onchange=()=>localStorage.setItem('elVoice',voiceEl.value);
+$('#search').addEventListener('input',e=>{ const q=e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#list .item').forEach(el=> el.classList.toggle('hide', q && !(el.dataset.search||'').includes(q)) );
+  document.querySelectorAll('#list .cat').forEach(h=>{ let n=h.nextElementSibling,any=false;
+    while(n && !n.classList.contains('cat')){ if(n.classList.contains('item')&&!n.classList.contains('hide')) any=true; n=n.nextElementSibling; }
+    h.classList.toggle('hide', !!q && !any); }); });
 
 loadManifest();
 if(keyEl.value) $('#connect').click();
