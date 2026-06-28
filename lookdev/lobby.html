@@ -79,6 +79,11 @@ function resize(){const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false);
 function part(geo,m,parent,x,y,z,rx,ry,rz){const o=new THREE.Mesh(geo,m);o.position.set(x||0,y||0,z||0);if(rx||ry||rz)o.rotation.set(rx||0,ry||0,rz||0);o.castShadow=o.receiveShadow=true;(parent instanceof THREE.Object3D?parent:scene).add(o);return o;}
 const BOX=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+// diagonal amber/black hazard stripes — marks the airlock as an industrial door
+function makeHazardTex(){ const c=document.createElement('canvas'); c.width=192; c.height=64; const x=c.getContext('2d');
+  x.fillStyle='#c79234'; x.fillRect(0,0,192,64);
+  x.fillStyle='#16191f'; for(let i=-64;i<192;i+=40){ x.beginPath(); x.moveTo(i,0); x.lineTo(i+20,0); x.lineTo(i+20-64,64); x.lineTo(i-64,64); x.closePath(); x.fill(); }
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(2,1); return t; }
 
 // ==BUILD START==
 const lights=[];
@@ -109,50 +114,85 @@ part(new THREE.PlaneGeometry(8.4,2.9),M.glass,scene,7.78,2.6,0,0,-Math.PI/2,0);
   scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xcfe0ff,size:0.4,sizeAttenuation:true,transparent:true,opacity:0.9,fog:false}))); }
 const earth=part(new THREE.SphereGeometry(14,40,40),new THREE.MeshStandardMaterial({color:0x1d5fa0,emissive:0x0a2f55,emissiveIntensity:0.4,roughness:1}),scene,46,-6,-14);
 part(new THREE.SphereGeometry(15,40,40),new THREE.MeshBasicMaterial({color:0x5fa0e6,transparent:true,opacity:0.16,side:THREE.BackSide,fog:false}),scene,46,-6,-14);
-// boarding door
-part(BOX(3.6,4.2,0.2),M.trim,scene,0,2.0,-7.78);
-part(BOX(3.2,4.0,1.2),new THREE.MeshStandardMaterial({color:0x05080c,roughness:1}),scene,0,2.0,-8.5);
-const doorL=part(BOX(1.55,3.9,0.18),M.door,scene,-0.8,2.0,-7.74);
-const doorR=part(BOX(1.55,3.9,0.18),M.door,scene,0.8,2.0,-7.74);
-part(BOX(3.5,0.18,0.24),M.amber,scene,0,4.05,-7.7);
-for(const sx of [-1,1]) part(BOX(0.12,3.9,0.26),M.strip,scene,1.85*sx,2.0,-7.72);
-part(BOX(1.5,0.1,1.5),M.strip,scene,0,0.01,-5.6);                        // floor marker by the door
+// --- boarding airlock hatch (lower centre): unmistakably a door, slides open to board ---
+const hazTex=makeHazardTex();
+part(BOX(3.7,2.5,0.2),M.trim,scene,0,1.15,-7.86);                                   // hatch frame
+part(BOX(3.1,2.3,0.08),new THREE.MeshStandardMaterial({color:0x05080c,roughness:1}),scene,0,1.15,-7.83); // dark airlock interior seen when the doors part
+const doorMat=new THREE.MeshStandardMaterial({color:0x8b919b,roughness:0.42,metalness:0.65});
+const doorL=part(BOX(1.5,2.3,0.18),doorMat,scene,-0.8,1.15,-7.74);
+const doorR=part(BOX(1.5,2.3,0.18),doorMat,scene,0.8,1.15,-7.74);
+part(BOX(3.62,0.2,0.24),new THREE.MeshStandardMaterial({map:hazTex,emissive:0x1a1206,emissiveMap:hazTex,emissiveIntensity:0.45,roughness:0.8}),scene,0,2.42,-7.7); // hazard lintel
+for(const sx of [-1,1]) part(BOX(0.1,2.3,0.26),M.strip,scene,1.82*sx,1.15,-7.72);   // cyan jamb light strips
+part(BOX(1.5,0.1,1.5),M.strip,scene,0,0.01,-5.6);                                   // floor marker — stand here to board
 // dressing
 part(BOX(3.2,0.18,0.7),M.crate,scene,-4.5,0.55,3,0,0.2,0); part(BOX(0.18,0.5,0.7),M.trim,scene,-5.9,0.3,3.3); part(BOX(0.18,0.5,0.7),M.trim,scene,-3.1,0.3,2.7);
 for(let i=0;i<4;i++){ part(BOX(1.0,2.2,0.7),M.wall2,scene,-7.3,1.1,-3+i*1.3); part(BOX(0.84,0.05,0.5),M.strip,scene,-6.78,1.9,-3+i*1.3); }
 part(BOX(1.4,1.4,1.4),M.crate,scene,4.6,0.7,3.4); part(BOX(1.0,1.0,1.0),M.crate,scene,3.4,0.5,4.2,0,0.4,0);
-// --- mission briefing screen on the wall (for the crew to read) ---
-part(BOX(4.4,2.95,0.16),M.trim,scene,-4.6,2.5,-7.86);
-const briefC=document.createElement('canvas'); briefC.width=512; briefC.height=320; const bxx=briefC.getContext('2d');
+// --- CREW MANIFEST — secondary status panel (left wall) ---
+part(BOX(3.8,2.5,0.16),M.trim,scene,-4.8,2.5,-7.86);
+const crewC=document.createElement('canvas'); crewC.width=512; crewC.height=320; const cxx=crewC.getContext('2d');
+const crewTex=new THREE.CanvasTexture(crewC); crewTex.colorSpace=THREE.SRGBColorSpace;
+(function drawCrew(){ cxx.fillStyle='#06120c'; cxx.fillRect(0,0,512,320); cxx.strokeStyle='#1f5a36'; cxx.lineWidth=4; cxx.strokeRect(10,10,492,300);
+  cxx.textBaseline='alphabetic'; cxx.textAlign='left';
+  cxx.fillStyle='#E8A33D'; cxx.font='bold 21px monospace'; cxx.fillText('// CREW MANIFEST',26,44);
+  cxx.strokeStyle='#1f5a36'; cxx.lineWidth=2; cxx.beginPath(); cxx.moveTo(26,58); cxx.lineTo(486,58); cxx.stroke();
+  const crew=[['CMDR','ASSAD DAR · YOU','#e8884f'],['PILOT','REYES','#5aa6e8'],['ENGR','KORO','#6fce8a'],['MED','LINA','#c8a6f0']];
+  crew.forEach((m,i)=>{ const y=96+i*36;
+    cxx.fillStyle=m[2]; cxx.beginPath(); cxx.arc(40,y-6,7,0,7); cxx.fill();
+    cxx.fillStyle='#8fa39a'; cxx.font='15px monospace'; cxx.fillText(m[0],62,y);
+    cxx.fillStyle='#d6ece0'; cxx.font='17px monospace'; cxx.fillText(m[1],150,y);
+    cxx.fillStyle='#7dffb0'; cxx.font='15px monospace'; cxx.textAlign='right'; cxx.fillText('READY',486,y); cxx.textAlign='left'; });
+  cxx.strokeStyle='#1f5a36'; cxx.beginPath(); cxx.moveTo(26,256); cxx.lineTo(486,256); cxx.stroke();
+  cxx.fillStyle='#5a7d68'; cxx.font='15px monospace'; cxx.fillText('DEST   : derelict — sector 7',26,282);
+  cxx.fillStyle='#9fd0ff'; cxx.fillText('DEPART : awaiting host',26,304); crewTex.needsUpdate=true; })();
+const crewScreen=new THREE.Mesh(new THREE.PlaneGeometry(3.4,2.12),new THREE.MeshStandardMaterial({map:crewTex,emissive:0x66ffaa,emissiveMap:crewTex,emissiveIntensity:1.1,color:0x000000,roughness:1}));
+crewScreen.position.set(-4.8,2.5,-7.77); scene.add(crewScreen);
+const crewLight=new THREE.PointLight(0x66ffaa,0.8,5,2); crewLight.position.set(-4.8,2.5,-7.0); scene.add(crewLight);
+
+// --- MISSION BRIEFING — the big screen the crew reads (centre, above the airlock) ---
+part(BOX(5.0,1.95,0.16),M.trim,scene,0,3.45,-7.87);
+const briefC=document.createElement('canvas'); briefC.width=1024; briefC.height=384; const bxx=briefC.getContext('2d');
 const briefTex=new THREE.CanvasTexture(briefC); briefTex.colorSpace=THREE.SRGBColorSpace;
-function drawBrief(cur){ bxx.fillStyle='#06120c'; bxx.fillRect(0,0,512,320); bxx.strokeStyle='#1f5a36'; bxx.lineWidth=4; bxx.strokeRect(10,10,492,300);
-  bxx.fillStyle='#E8A33D'; bxx.font='bold 23px monospace'; bxx.fillText('// MISSION BRIEFING', 26, 46);
-  bxx.fillStyle='#7dffb0'; bxx.font='15px monospace';
-  ['TARGET   : derelict hauler — gone dark','OBJECTIVE: re-establish contact','           restore her comms array','           — that is the whole job','','STATUS   : three crews lost to the silence','CREW     : 4 / 4  ready','','> "bring her voice back."','              — EARTH CONTROL'].forEach((l,i)=>bxx.fillText(l,26,82+i*22));
-  bxx.fillStyle='#ff6a5a'; bxx.font='13px monospace'; bxx.fillText('! DO NOT ANSWER ANYTHING THAT ANSWERS BACK'+(cur?' _':''),26,306); briefTex.needsUpdate=true; }
+function drawBrief(cur){ bxx.fillStyle='#06120c'; bxx.fillRect(0,0,1024,384); bxx.strokeStyle='#1f5a36'; bxx.lineWidth=6; bxx.strokeRect(14,14,996,356);
+  bxx.textBaseline='alphabetic';
+  bxx.fillStyle='#E8A33D'; bxx.font='bold 34px monospace'; bxx.textAlign='left'; bxx.fillText('// MISSION BRIEFING',40,62);
+  bxx.fillStyle='#4f8f6e'; bxx.font='19px monospace'; bxx.textAlign='right'; bxx.fillText('SIGNAL LOST · DEPARTURE LOBBY',984,58); bxx.textAlign='left';
+  bxx.strokeStyle='#1f5a36'; bxx.lineWidth=2; bxx.beginPath(); bxx.moveTo(40,80); bxx.lineTo(984,80); bxx.stroke();
+  const lab=(t,x,y)=>{ bxx.fillStyle='#4f8f6e'; bxx.font='19px monospace'; bxx.fillText(t,x,y); };
+  const val=(t,x,y)=>{ bxx.fillStyle='#7dffb0'; bxx.font='19px monospace'; bxx.fillText(t,x,y); };
+  lab('TARGET',40,126);    val('derelict hauler, gone dark',210,126);
+  lab('OBJECTIVE',40,166); val('re-establish contact',210,166);
+  val('restore her comms array',210,198); val('— that is the whole job',210,230);
+  lab('STATUS',560,126);   val('three crews lost',688,126); val('to the silence',688,156);
+  lab('CREW',560,198);     val('4 / 4  ready',688,198);
+  bxx.fillStyle='#bfe9ff'; bxx.font='20px monospace'; bxx.fillText('> "bring her voice back."',560,252);
+  bxx.fillStyle='#4f8f6e'; bxx.font='17px monospace'; bxx.fillText('— EARTH CONTROL',590,278);
+  bxx.fillStyle='#9fd0ff'; bxx.font='19px monospace'; bxx.fillText('▼ AIRLOCK BELOW — walk through to board',40,312);
+  bxx.fillStyle='#ff6a5a'; bxx.font='bold 20px monospace'; bxx.fillText('! DO NOT ANSWER ANYTHING THAT ANSWERS BACK'+(cur?' _':''),40,350); briefTex.needsUpdate=true; }
 drawBrief(true);
-const brief=new THREE.Mesh(new THREE.PlaneGeometry(4.0,2.5),new THREE.MeshStandardMaterial({map:briefTex,emissive:0x66ffaa,emissiveMap:briefTex,emissiveIntensity:1.25,color:0x000000,roughness:1}));
-brief.position.set(-4.6,2.5,-7.77); scene.add(brief);
-const briefLight=new THREE.PointLight(0x66ffaa,1.1,5,2); briefLight.position.set(-4.6,2.5,-7.0); scene.add(briefLight);
+const brief=new THREE.Mesh(new THREE.PlaneGeometry(4.74,1.78),new THREE.MeshStandardMaterial({map:briefTex,emissive:0x66ffaa,emissiveMap:briefTex,emissiveIntensity:1.2,color:0x000000,roughness:1}));
+brief.position.set(0,3.45,-7.78); scene.add(brief);
+const briefLight=new THREE.PointLight(0x8fffc4,1.3,7,2); briefLight.position.set(0,3.2,-6.7); scene.add(briefLight);
 let briefT=0, briefBlink=true;
 
-// --- the hero portrait: ASSAD DAR, who answered the first signal (hangs opposite the briefing) ---
-const HPX=4.6, HPY=2.35, HPZ=-7.77;
+// --- the hero portrait: ASSAD DAR, who answered the first signal (right wall, with a readable plaque) ---
+const HPX=4.6, HPY=2.62, HPZ=-7.77;
 const heroCanvas=document.createElement('canvas'); heroCanvas.width=768; heroCanvas.height=1024;
 const heroCtx=heroCanvas.getContext('2d'); drawHeroPoster(heroCtx,768,1024,null);   // painted hero until a photo is uploaded in admin
 const heroTex=new THREE.CanvasTexture(heroCanvas); heroTex.colorSpace=THREE.SRGBColorSpace; heroTex.anisotropy=8;
-part(BOX(3.32,4.06,0.16),M.trim,scene,HPX,HPY,-7.86);                               // frame backing
-const heroPlane=new THREE.Mesh(new THREE.PlaneGeometry(2.85,3.8),new THREE.MeshStandardMaterial({map:heroTex,emissive:0xffffff,emissiveMap:heroTex,emissiveIntensity:0.42,color:0x000000,roughness:1}));
+part(BOX(2.66,3.42,0.16),M.trim,scene,HPX,HPY,-7.86);                               // frame backing (smaller portrait)
+const heroPlane=new THREE.Mesh(new THREE.PlaneGeometry(2.3,3.06),new THREE.MeshStandardMaterial({map:heroTex,emissive:0xffffff,emissiveMap:heroTex,emissiveIntensity:0.46,color:0x000000,roughness:1}));
 heroPlane.position.set(HPX,HPY,HPZ); scene.add(heroPlane);
-for(const sx of [-1,1]) part(BOX(0.1,4.0,0.12),M.amber,scene,HPX+1.52*sx,HPY,-7.74);  // gilt frame sides
-for(const sy of [-1,1]) part(BOX(3.14,0.1,0.12),M.amber,scene,HPX,HPY+1.97*sy,-7.74); // gilt frame top/bottom
-const placC=document.createElement('canvas'); placC.width=512; placC.height=100; drawPlacard(placC.getContext('2d'),512,100);   // engraved name plaque
+for(const sx of [-1,1]) part(BOX(0.09,3.28,0.12),M.amber,scene,HPX+1.22*sx,HPY,-7.74);  // gilt frame sides
+for(const sy of [-1,1]) part(BOX(2.52,0.09,0.12),M.amber,scene,HPX,HPY+1.61*sy,-7.74);  // gilt frame top/bottom
+const placC=document.createElement('canvas'); placC.width=640; placC.height=120; drawPlacard(placC.getContext('2d'),640,120);   // engraved name plaque (bigger + readable)
 const placTex=new THREE.CanvasTexture(placC); placTex.colorSpace=THREE.SRGBColorSpace; placTex.anisotropy=8;
-part(BOX(2.06,0.4,0.1),M.trim,scene,HPX,0.3,-7.8);
-const placard=new THREE.Mesh(new THREE.PlaneGeometry(1.92,0.34),new THREE.MeshStandardMaterial({map:placTex,emissive:0xffffff,emissiveMap:placTex,emissiveIntensity:0.3,roughness:0.6,metalness:0.4}));
-placard.position.set(HPX,0.3,-7.73); scene.add(placard);
-const heroLight=new THREE.SpotLight(0xffd9a0,3.0,9,0.62,0.55,1.2); heroLight.position.set(HPX,4.25,HPZ+2.3); heroLight.target.position.set(HPX,HPY,HPZ); scene.add(heroLight); scene.add(heroLight.target);
-const heroGlow=new THREE.PointLight(0xffcaa0,0.55,5,2); heroGlow.position.set(HPX,HPY+0.4,HPZ+1.1); scene.add(heroGlow);
+part(BOX(2.5,0.56,0.1),M.trim,scene,HPX,0.68,-7.8);                                  // plaque backing, clear of the portrait
+const placard=new THREE.Mesh(new THREE.PlaneGeometry(2.34,0.44),new THREE.MeshStandardMaterial({map:placTex,emissive:0xffffff,emissiveMap:placTex,emissiveIntensity:0.5,roughness:0.5,metalness:0.45}));
+placard.position.set(HPX,0.68,-7.73); scene.add(placard);
+const heroLight=new THREE.SpotLight(0xffd9a0,3.2,9,0.66,0.5,1.2); heroLight.position.set(HPX,4.3,HPZ+2.2); heroLight.target.position.set(HPX,HPY,HPZ); scene.add(heroLight); scene.add(heroLight.target);
+const heroGlow=new THREE.PointLight(0xffcaa0,0.5,5,2); heroGlow.position.set(HPX,HPY+0.3,HPZ+1.1); scene.add(heroGlow);
+const placLight=new THREE.PointLight(0xffe6b8,0.95,3.4,2); placLight.position.set(HPX,1.25,-6.95); scene.add(placLight);   // light the nameplate so it reads
 
 // YOU (controllable) + up to 3 AI crew waiting
 const player=makeAstronaut({accent:0xc8552f}); scene.add(player);

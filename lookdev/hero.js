@@ -26,19 +26,23 @@ export function drawHeroFramed(ctx, W, H, img){
   ctx.restore();
 }
 
-// The engraved brass nameplate for the 3D plaque under the portrait (wide aspect, e.g. 512x110).
+// The engraved brass nameplate for the 3D plaque under the portrait (wide aspect, e.g. 640x120).
+// Two clearly-readable lines: a large cream NAME and a high-contrast engraved TITLE caption.
 export function drawPlacard(ctx, W, H){
   ctx.save();
   let g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#caa256'); g.addColorStop(0.5, '#8a6a2e'); g.addColorStop(1, '#5a4420');
+  g.addColorStop(0, '#d8b66a'); g.addColorStop(0.5, '#9a7836'); g.addColorStop(1, '#6a5024');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = '#e8cf8a'; ctx.lineWidth = Math.max(2, H * 0.05); ctx.strokeRect(H * 0.08, H * 0.08, W - H * 0.16, H - H * 0.16);
+  ctx.strokeStyle = '#f0d99a'; ctx.lineWidth = Math.max(2, H * 0.045); ctx.strokeRect(H * 0.1, H * 0.1, W - H * 0.2, H - H * 0.2);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#1c130a'; ctx.font = `bold ${H * 0.4}px Georgia, "Times New Roman", serif`;
-  ctx.fillText(HERO_NAME, W / 2 + 1, H * 0.4 + 1);
-  ctx.fillStyle = '#fff0cf'; ctx.fillText(HERO_NAME, W / 2, H * 0.4);
-  ctx.fillStyle = '#2a1d0c'; ctx.font = `${H * 0.15}px ui-monospace, monospace`;
-  ctx.fillText(HERO_TITLE, W / 2, H * 0.78);
+  // NAME — large, engraved (dark relief + cream face)
+  ctx.font = `bold ${H * 0.36}px Georgia, "Times New Roman", serif`;
+  ctx.fillStyle = 'rgba(26,16,6,0.9)'; ctx.fillText(HERO_NAME, W / 2, H * 0.37 + H * 0.022);
+  ctx.fillStyle = '#fff3d6'; ctx.fillText(HERO_NAME, W / 2, H * 0.37);
+  // TITLE — readable engraved caption (dark cut + faint light highlight below)
+  ctx.font = `${H * 0.165}px ui-monospace, monospace`;
+  ctx.fillStyle = 'rgba(245,225,170,0.5)'; ctx.fillText(HERO_TITLE, W / 2, H * 0.73 + H * 0.014);
+  ctx.fillStyle = '#241606'; ctx.fillText(HERO_TITLE, W / 2, H * 0.73);
   ctx.restore();
 }
 
