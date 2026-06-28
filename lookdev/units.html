@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGNAL LOST — units</title>
+<style>
+  html,body{margin:0;height:100%;background:#06080d;overflow:hidden;cursor:grab}
+  body.look{cursor:grabbing}
+  #c{width:100vw;height:100vh;display:block}
+  #hud{position:fixed;left:14px;bottom:12px;font:11px ui-monospace,Menlo,monospace;color:#8a97a4;pointer-events:none}
+  #hud b{color:#E8A33D}
+  #nav{position:fixed;right:14px;top:12px;font:12px ui-monospace,monospace;display:flex;gap:8px}
+  #nav a{color:#9fd0ff;text-decoration:none;background:rgba(8,12,18,.7);border:1px solid #20303c;border-radius:6px;padding:6px 10px}
+  #title{position:fixed;left:14px;top:12px;font:600 13px ui-monospace,monospace;letter-spacing:3px;color:#E8A33D;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">SIGNAL&nbsp;LOST · UNITS</div>
+<div id="nav"><a href="/launch">▸ the capsule</a><a href="/">▸ aboard</a></div>
+<div id="hud"><b>drag</b> to orbit · <b>scroll</b> to zoom · the crew — standing (player avatars) &amp; seated (capsule)</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { makeAstronaut } from './units.js';
+
+const canvas=document.getElementById('c');
+const DPR=Math.min(window.devicePixelRatio||1,2);
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.18;
+
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x06080d);
+scene.fog=new THREE.FogExp2(0x06080d,0.018);
+const camera=new THREE.PerspectiveCamera(46,1,0.1,200); camera.position.set(3.4,2.0,4.8);
+
+const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
+composer.addPass(new RenderPass(scene,camera));
+const bloom=new UnrealBloomPass(new THREE.Vector2(1,1),0.45,0.55,0.78); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const Grade=new ShaderPass({
+ uniforms:{tDiffuse:{value:null},uTime:{value:0},uRes:{value:new THREE.Vector2(1,1)}},
+ vertexShader:`varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+ fragmentShader:`varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes;
+  float rnd(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5);}
+  void main(){vec2 uv=vUv,d=uv-0.5; float ca=0.0004+dot(d,d)*0.0018;
+   vec3 col; col.r=texture2D(tDiffuse,uv+d*ca).r; col.g=texture2D(tDiffuse,uv).g; col.b=texture2D(tDiffuse,uv-d*ca).b;
+   col+=(rnd(uv*uRes+uTime)-0.5)*0.01;
+   col*=mix(0.76,1.0,smoothstep(1.25,0.12,length(d))); gl_FragColor=vec4(max(col,0.0),1.0);} `
+});
+composer.addPass(Grade);
+function resize(){const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false); composer.setSize(w,h); Grade.uniforms.uRes.value.set(w*DPR,h*DPR); camera.aspect=w/h; camera.updateProjectionMatrix();}
+
+const controls=new OrbitControls(camera,canvas);
+controls.enableDamping=true; controls.dampingFactor=0.06; controls.target.set(0,1.05,0);
+controls.minDistance=2.2; controls.maxDistance=18; controls.maxPolarAngle=Math.PI*0.52;
+
+// ---- studio lighting ----
+scene.add(new THREE.AmbientLight(0x223040,0.5));
+scene.add(new THREE.HemisphereLight(0x4a5a70,0x12100e,0.6));
+const key=new THREE.DirectionalLight(0xfff0e0,2.3); key.position.set(5,7,5); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=1; key.shadow.camera.far=30;
+key.shadow.camera.left=-6; key.shadow.camera.right=6; key.shadow.camera.top=6; key.shadow.camera.bottom=-6; key.shadow.bias=-0.0004; scene.add(key);
+const fill=new THREE.DirectionalLight(0x8da0c4,0.7); fill.position.set(-6,3,-1); scene.add(fill);
+const rim=new THREE.DirectionalLight(0xbfd6ff,1.6); rim.position.set(-3,4,-6); scene.add(rim);
+
+// ---- ground ----
+function tex(draw,w=512,h=512){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
+const gridTex=tex(x=>{ x.fillStyle='#0b0e14'; x.fillRect(0,0,512,512); x.strokeStyle='#19222e'; x.lineWidth=2;
+  for(let i=0;i<=16;i++){ const p=i/16*512; x.beginPath();x.moveTo(p,0);x.lineTo(p,512);x.stroke(); x.beginPath();x.moveTo(0,p);x.lineTo(512,p);x.stroke(); } });
+const ground=new THREE.Mesh(new THREE.CircleGeometry(9,64),new THREE.MeshStandardMaterial({map:gridTex,roughness:0.85,metalness:0.1}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+
+// ---- the crew on a slow turntable ----
+const turntable=new THREE.Group(); scene.add(turntable);
+const TEAM=[0xc8552f,0x2f86c8,0x3fae5a,0xb58ad6];
+const standing=[];
+[-1.35,0,1.35].forEach((x,i)=>{ const a=makeAstronaut({accent:TEAM[i]}); a.position.set(x,0,0); a.rotation.y=-0.2+i*0.2; turntable.add(a); standing.push(a); });
+// a seated crew member on a crate (how they ride in the capsule)
+const crate=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.8,0.95),new THREE.MeshStandardMaterial({color:0x2c3138,roughness:0.8,metalness:0.3,map:gridTex}));
+crate.position.set(0,0.4,2.0); crate.castShadow=crate.receiveShadow=true; turntable.add(crate);
+const seated=makeAstronaut({accent:TEAM[3],seated:true}); seated.position.set(0,0.8,2.0); seated.rotation.y=Math.PI; turntable.add(seated);
+
+const clock=new THREE.Clock();
+function animate(){ requestAnimationFrame(animate); const t=clock.elapsedTime;
+  turntable.rotation.y=t*0.18;
+  // subtle helmet HUD shimmer
+  controls.update(); Grade.uniforms.uTime.value=t; composer.render();
+}
+addEventListener('pointerdown',()=>document.body.classList.add('look'));
+addEventListener('pointerup',()=>document.body.classList.remove('look'));
+addEventListener('resize',resize); resize(); animate();
+</script>
+</body>
+</html>
