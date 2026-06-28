@@ -1,0 +1,17 @@
+# Cloudflare Worker + Durable Object for SIGNAL LOST signaling (backlog T06).
+# Deploy:  pnpm --filter @sl/signaling deploy   (needs wrangler: `npx wrangler` or add it as a dev dep)
+# Secret:  npx wrangler secret put TURN_SECRET   (the HMAC key shared with the TURN server)
+name = "signal-lost-signaling"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+[durable_objects]
+bindings = [{ name = "SIGNALING_ROOM", class_name = "SignalingRoom" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["SignalingRoom"]
+
+[vars]
+# Public TURN host (the secret is set out-of-band via `wrangler secret put TURN_SECRET`).
+TURN_HOST = "turn.example.com"

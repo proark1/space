@@ -58,6 +58,12 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.0)(tsx@4.22.4)
 
+  apps/signaling:
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20260628.1
+        version: 4.20260628.1
+
   packages/audio-content:
     dependencies:
       '@sl/shared-types':
@@ -196,6 +202,9 @@ packages:
 
   '@chainsafe/netmask@2.0.0':
     resolution: {integrity: sha512-I3Z+6SWUoaljh3TBzCnCxjlUyN8tA+NAk5L6m9IxvCf1BENQTePzPMis97CoN/iMW1St3WN+AWCCRp+TTBRiDg==}
+
+  '@cloudflare/workers-types@4.20260628.1':
+    resolution: {integrity: sha512-fMy5zBnNl/PxGqDzSOQb1TdqyR1sRT1Z7T4F8/cqtxpZ1w8VkejWi0qUH7GZE0I2gJyapdP0oW4pNZfxUbekmw==}
 
   '@dnsquery/dns-packet@6.1.1':
     resolution: {integrity: sha512-WXTuFvL3G+74SchFAtz3FgIYVOe196ycvGsMgvSH/8Goptb1qpIQtIuM4SOK9G9lhMWYpHxnXyy544ZhluFOew==}
@@ -2385,6 +2394,8 @@ snapshots:
   '@chainsafe/netmask@2.0.0':
     dependencies:
       '@chainsafe/is-ip': 2.1.0
+
+  '@cloudflare/workers-types@4.20260628.1': {}
 
   '@dnsquery/dns-packet@6.1.1':
     dependencies:

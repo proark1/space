@@ -12,3 +12,5 @@ dangerouslyAllowAllBuilds: true
 verifyDepsBeforeRun: false
 allowBuilds:
   esbuild: set this to true or false
+minimumReleaseAgeExclude:
+  - '@cloudflare/workers-types@4.20260628.1'
