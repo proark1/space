@@ -15,7 +15,7 @@ describe('prefabs', () => {
     const e = addEntity(w);
     buildStalker(w, e);
     for (const c of [Transform, Stalker, AIState, NavAgent, Health, Limb, NetworkId, EnemyTag]) {
-      expect(hasComponent(w, c, e)).toBe(true);
+      expect(hasComponent(w, e, c)).toBe(true);
     }
     expect(Health.hp[e]).toBe(120);
     expect(Health.max[e]).toBe(120);
@@ -29,7 +29,7 @@ describe('prefabs', () => {
     const w = createGameWorld();
     const e = addEntity(w);
     buildPlayer(w, e);
-    expect(hasComponent(w, LocalPlayer, e)).toBe(true);
+    expect(hasComponent(w, e, LocalPlayer)).toBe(true);
     expect(PlayerState.health[e]).toBe(100);
     expect(PlayerState.ammoMag[e]).toBe(30);
     expect(PlayerState.status[e]).toBe(PlayerStatus.Alive);
@@ -40,7 +40,7 @@ describe('prefabs', () => {
     const w = createGameWorld();
     const e = addEntity(w);
     buildProjectile(w, e);
-    expect(hasComponent(w, Projectile, e)).toBe(true);
+    expect(hasComponent(w, e, Projectile)).toBe(true);
     expect(Projectile.damage[e]).toBe(0);
     expect(NetworkId.archetype[e]).toBe(EntityType.Projectile);
   });

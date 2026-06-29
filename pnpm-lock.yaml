@@ -58,6 +58,12 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.0)(tsx@4.22.4)
 
+  apps/lookdev:
+    devDependencies:
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.3(@types/node@22.20.0)(tsx@4.22.4)
+
   apps/signaling:
     devDependencies:
       '@cloudflare/workers-types':
@@ -79,8 +85,10 @@ importers:
         specifier: workspace:*
         version: link:../shared-types
       bitecs:
-        specifier: ^0.3.40
-        version: 0.3.40
+        specifier: ^0.4.0
+        version: 0.4.0
+
+  packages/engine: {}
 
   packages/netcode:
     dependencies:
@@ -91,7 +99,28 @@ importers:
         specifier: ^0.21.0
         version: 0.21.8(@multiformats/multiaddr@12.5.1)
 
+  packages/render: {}
+
   packages/shared-types: {}
+
+  packages/ui:
+    dependencies:
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      zustand:
+        specifier: ^5.0.2
+        version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.1
+        version: 18.3.7(@types/react@18.3.31)
 
   tools/asset-pipeline:
     dependencies:
@@ -1382,8 +1411,8 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  bitecs@0.3.40:
-    resolution: {integrity: sha512-wAylY4pNfX8IeIH5phtwt1lUNtHKrkoSNrArI7Ris2Y4nEQWFIVvXdgAuqprEg9bq8Wolmlj0gVfeG6MFmtI2Q==}
+  bitecs@0.4.0:
+    resolution: {integrity: sha512-ho6Zop/L79DRTnBAfakPpGPuX7y0+lAjX06CpaAW+5tnAc7BH3L3RlSrWAXAqwnQGDZ10GsoxaxyTTsddlun3g==}
 
   bl@6.1.6:
     resolution: {integrity: sha512-jLsPgN/YSvPUg9UX0Kd73CXpm2Psg9FxMeCSXnk3WBO3CMT10JMwijubhGfHCnFu6TPn1ei3b975dxv7K2pWVg==}
@@ -3650,7 +3679,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.40: {}
 
-  bitecs@0.3.40: {}
+  bitecs@0.4.0: {}
 
   bl@6.1.6:
     dependencies:
