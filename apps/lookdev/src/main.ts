@@ -1,11 +1,13 @@
 // SIGNAL LOST — M-LOOK harness entry.
-// Default scene is the greybox corridor (the look): a near-black hallway lit by the camera
-// flashlight, run through the PS1 post stack. ?scene=chaos switches to the Phase B perf probe
-// (`n` dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
+// Default scene is the WALKABLE slice: first-person WASD + mouse-look through the greybox corridor,
+// the player capsule driven by the Rapier KCC and the camera/flashlight riding its ECS Transform.
+// ?scene=corridor is the look-only auto-cam variant; ?scene=chaos is the Phase B perf probe (`n`
+// dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
 import { createRenderer, createPostStack } from '@sl/render';
 import { GameLoop } from '@sl/engine';
 import { createChaosScene } from './chaosScene';
 import { createCorridorScene } from './corridorScene';
+import { createWalkScene } from './walkScene';
 import type { HarnessScene } from './scene';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -18,10 +20,13 @@ async function main(): Promise<void> {
   const count = Math.max(1, Math.min(2000, Math.floor(Number(params.get('n')) || 300)));
 
   const renderer = await createRenderer({ canvas, forceBackend, tier });
+  const sceneParam = params.get('scene');
   const harness: HarnessScene =
-    params.get('scene') === 'chaos'
+    sceneParam === 'chaos'
       ? await createChaosScene(count)
-      : createCorridorScene(renderer.profile);
+      : sceneParam === 'corridor'
+        ? createCorridorScene(renderer.profile)
+        : await createWalkScene(renderer.profile, canvas);
   const post = createPostStack(renderer, harness.scene, harness.camera, renderer.profile);
 
   // Internal-res crunch — the dominant PS1 cue (the lookdev's own technique): render at a fraction
@@ -50,7 +55,8 @@ async function main(): Promise<void> {
   const updateHud = (): void => {
     if (!hud) return;
     const p = renderer.profile;
-    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${renderer.three.info.render.drawCalls} draws`;
+    const hint = harness.label === 'walk' ? ' · WASD move · click to look · Space jump' : '';
+    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${renderer.three.info.render.drawCalls} draws${hint}`;
   };
 
   const loop = new GameLoop({

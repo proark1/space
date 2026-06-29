@@ -1,6 +1,7 @@
 export * from './byte';
 export * from './quantize';
 export * from './codec';
+export * from './ecsSnapshot';
 export * from './wire/header';
 export * from './wire/snapshot';
 export * from './wire/input';

@@ -60,6 +60,9 @@ importers:
 
   apps/lookdev:
     dependencies:
+      '@sl/ecs':
+        specifier: workspace:*
+        version: link:../../packages/ecs
       '@sl/engine':
         specifier: workspace:*
         version: link:../../packages/engine
@@ -112,6 +115,9 @@ importers:
 
   packages/netcode:
     dependencies:
+      '@sl/ecs':
+        specifier: workspace:*
+        version: link:../ecs
       '@sl/shared-types':
         specifier: workspace:*
         version: link:../shared-types
@@ -121,6 +127,12 @@ importers:
 
   packages/render:
     dependencies:
+      '@sl/ecs':
+        specifier: workspace:*
+        version: link:../ecs
+      bitecs:
+        specifier: ^0.4.0
+        version: 0.4.0
       three:
         specifier: ^0.185.0
         version: 0.185.0

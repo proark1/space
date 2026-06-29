@@ -18,6 +18,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@sl/ecs": "workspace:*",
+    "bitecs": "^0.4.0",
     "three": "^0.185.0"
   },
   "devDependencies": {

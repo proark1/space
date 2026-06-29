@@ -13,6 +13,7 @@
   "dependencies": {
     "@sl/render": "workspace:*",
     "@sl/engine": "workspace:*",
+    "@sl/ecs": "workspace:*",
     "three": "^0.185.0"
   },
   "devDependencies": {

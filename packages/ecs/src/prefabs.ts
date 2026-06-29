@@ -1,4 +1,4 @@
-import { addComponent } from 'bitecs';
+import { addComponent, addEntity } from 'bitecs';
 import { EntityType } from '@sl/shared-types';
 import type { GameWorld } from './world';
 import {
@@ -103,6 +103,13 @@ export function buildPlayer(world: GameWorld, e: number): void {
   Flashlight.intensity[e] = 1;
   Flashlight.range[e] = 14;
   NetworkId.archetype[e] = EntityType.Player;
+}
+
+/** Create a fresh entity and build it into the local player (the non-pooled singleton). */
+export function spawnPlayer(world: GameWorld): number {
+  const e = addEntity(world);
+  buildPlayer(world, e);
+  return e;
 }
 
 // — reclaim: zero a recycled entity's fields on pool release —
