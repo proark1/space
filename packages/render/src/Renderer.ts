@@ -1,4 +1,5 @@
 import { WebGPURenderer } from 'three/webgpu';
+import { PCFSoftShadowMap } from 'three';
 import type { Camera, ColorRepresentation, Object3D } from 'three';
 import { detectBackend, type RenderBackend } from './capabilities';
 import { resolveRenderProfile, type QualityTier, type RenderProfile } from './RenderProfile';
@@ -46,6 +47,11 @@ export async function createRenderer(opts: CreateRendererOptions): Promise<SLRen
 
   const three = new WebGPURenderer({ canvas: opts.canvas, antialias: false, forceWebGL });
   await three.init();
+
+  // Soft shadows for the flashlight (the only realtime caster); the controller in createFlashlight
+  // gates re-renders, and the RenderProfile sets per-backend shadow-map resolution.
+  three.shadowMap.enabled = true;
+  three.shadowMap.type = PCFSoftShadowMap;
 
   // three can silently fall back to WebGL2 even when a WebGPU adapter was confirmed, so read the
   // concrete backend — the reported value (and therefore the DEGRADE profile) must reflect reality.

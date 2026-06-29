@@ -9,28 +9,15 @@ import {
   Vector3,
 } from 'three';
 import { PhysicsWorld, type PhysicsBox } from '@sl/engine';
-
-export interface ChaosScene {
-  readonly scene: Scene;
-  readonly camera: PerspectiveCamera;
-  readonly bodyCount: number;
-  /** Advance physics one fixed tick (driven by GameLoop.fixedUpdate). */
-  step(): void;
-  /** Write every body's transform into the InstancedMesh (driven once per render). */
-  syncInstances(): void;
-  resize(width: number, height: number): void;
-  /** Run `frames` step+sync cycles synchronously, timing CPU cost — the headless perf probe. */
-  benchmark(frames: number): { frames: number; avgStepMs: number; avgSyncMs: number };
-}
+import type { HarnessScene } from './scene';
 
 /**
  * M-LOOK chaos-stress harness scene (Phase B). Drops `count` dynamic Rapier boxes into a walled pen
  * and renders them as a single InstancedMesh (one draw call), syncing physics → instance matrices
- * each frame. This is the perf-headroom probe the low-poly pivot's GREEN bar (B3) hinges on: a
- * locked 60 fps on a mid GPU while hundreds of bodies tumble. `benchmark()` times CPU step+sync for
- * headless probing; the true GPU-bound fps needs a browser + the on-screen meter.
+ * each frame. The perf-headroom probe for the low-poly GREEN bar (B3): a locked 60 fps on a mid GPU
+ * while hundreds of bodies tumble.
  */
-export async function createChaosScene(count: number): Promise<ChaosScene> {
+export async function createChaosScene(count: number): Promise<HarnessScene> {
   const physics = await PhysicsWorld.create();
   physics.addGround();
   // A low pen so the pile stays in frame.
@@ -70,39 +57,26 @@ export async function createChaosScene(count: number): Promise<ChaosScene> {
   const q = new Quaternion();
   const s = new Vector3(1, 1, 1);
 
-  const syncInstances = (): void => {
-    for (let i = 0; i < count; i++) {
-      const body = boxes[i]!.body;
-      const t = body.translation();
-      const r = body.rotation();
-      m.compose(p.set(t.x, t.y, t.z), q.set(r.x, r.y, r.z, r.w), s);
-      mesh.setMatrixAt(i, m);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-  };
-
   return {
     scene,
     camera,
-    bodyCount: count,
-    step: () => physics.step(),
-    syncInstances,
-    resize: (width, height) => {
+    label: `chaos ${count}`,
+    fixedStep() {
+      physics.step();
+    },
+    frameUpdate() {
+      for (let i = 0; i < count; i++) {
+        const body = boxes[i]!.body;
+        const t = body.translation();
+        const r = body.rotation();
+        m.compose(p.set(t.x, t.y, t.z), q.set(r.x, r.y, r.z, r.w), s);
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    },
+    resize(width, height) {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
-    },
-    benchmark(frames) {
-      let stepMs = 0;
-      let syncMs = 0;
-      for (let f = 0; f < frames; f++) {
-        let t0 = performance.now();
-        physics.step();
-        stepMs += performance.now() - t0;
-        t0 = performance.now();
-        syncInstances();
-        syncMs += performance.now() - t0;
-      }
-      return { frames, avgStepMs: stepMs / frames, avgSyncMs: syncMs / frames };
     },
   };
 }

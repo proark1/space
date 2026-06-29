@@ -9,3 +9,5 @@ export { createRenderer } from './Renderer';
 export type { SLRenderer, CreateRendererOptions } from './Renderer';
 export { createPostStack } from './PostStack';
 export type { PostStack, PostUniformsBank } from './PostStack';
+export { createFlashlight } from './lighting/flashlight';
+export type { Flashlight } from './lighting/flashlight';
