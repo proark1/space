@@ -12,6 +12,9 @@ AUDIO_DIR = os.environ.get("AUDIO_DIR") or os.path.join(ROOT, "audio")
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
+GEMINI_BASE = "https://generativelanguage.googleapis.com"
+GEMINI_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image")
+GEMINI_SIZE = os.environ.get("GEMINI_IMAGE_SIZE", "2K")
 CTX = ssl.create_default_context()
 
 MEDIA_MIME = {
@@ -67,6 +70,10 @@ def key_of(headers):
     return headers.get("x-eleven-key") or os.environ.get("ELEVENLABS_API_KEY") or ""
 
 
+def gemini_key_of(headers):
+    return headers.get("x-gemini-key") or os.environ.get("GEMINI_API_KEY") or ""
+
+
 def read_json(handler):
     try:
         length = int(handler.headers.get("Content-Length", "0"))
@@ -112,6 +119,71 @@ def save_audio(asset_id, data, content_type):
         "size": size,
         "createdAt": created,
     }
+
+
+def image_extension(mime):
+    if "jpeg" in mime or "jpg" in mime:
+        return ".jpg"
+    if "webp" in mime:
+        return ".webp"
+    if "gif" in mime:
+        return ".gif"
+    return ".png"
+
+
+def save_image(asset_id, data, content_type):
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    ext = image_extension(content_type.lower())
+    filename = safe_asset_id(asset_id) + ext
+    path = os.path.join(AUDIO_DIR, filename)
+    with open(path, "wb") as image:
+        image.write(data)
+    size, created = stamp(path)
+    return {
+        "id": os.path.splitext(filename)[0],
+        "file": "audio/" + filename,
+        "kind": "image",
+        "mime": MEDIA_MIME.get(ext[1:], content_type or "image/png"),
+        "size": size,
+        "createdAt": created,
+    }
+
+
+def generate_gemini_image(prompt, key, aspect_ratio=None):
+    generation_config = {"responseModalities": ["IMAGE"]}
+    image_config = {}
+    if aspect_ratio:
+        image_config["aspectRatio"] = aspect_ratio
+    if GEMINI_SIZE:
+        image_config["imageSize"] = GEMINI_SIZE
+    if image_config:
+        generation_config["imageConfig"] = image_config
+
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": generation_config,
+    }
+    req = urllib.request.Request(
+        GEMINI_BASE + "/v1beta/models/" + GEMINI_MODEL + ":generateContent",
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, context=CTX, timeout=180) as response:
+        data = json.loads(response.read().decode())
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        feedback = (data.get("promptFeedback") or {}).get("blockReason")
+        raise RuntimeError("Gemini returned no image" + (": blocked (" + feedback + ")" if feedback else ""))
+
+    for part in ((candidates[0].get("content") or {}).get("parts") or []):
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            import base64
+
+            return base64.b64decode(inline["data"]), (inline.get("mimeType") or inline.get("mime_type") or "image/png")
+    raise RuntimeError("Gemini returned no image")
 
 
 def duration_seconds(value, fallback):
@@ -237,6 +309,33 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
+    def _generate_image(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+        key = gemini_key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "Paste a Gemini API key first."}, 200)
+
+        asset_id = str(body.get("id") or "image")
+        prompt = str(body.get("prompt") or "").strip()
+        aspect_ratio = str(body.get("ratio") or "").strip() or None
+        if not prompt:
+            return self._json({"ok": False, "error": "No image prompt was provided."}, 200)
+
+        try:
+            image, content_type = generate_gemini_image(prompt, key, aspect_ratio)
+            if len(image) > 16_000_000:
+                return self._json({"ok": False, "error": "Generated image is too large."}, 200)
+            saved = save_image(asset_id, image, content_type)
+            return self._json({"ok": True, **saved, "model": GEMINI_MODEL, "contentType": content_type})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "status": exc.code, "error": exc.read().decode()[:800]}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         request_path = unquote(parsed.path)
@@ -279,6 +378,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         if request_path == "/api/generate":
             return self._generate_audio()
+        if request_path == "/api/generate-image":
+            return self._generate_image()
 
         self.send_response(404)
         self.end_headers()

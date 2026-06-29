@@ -311,6 +311,12 @@ function generationHeaders(apiKey: string): HeadersInit {
   return headers;
 }
 
+function imageGenerationHeaders(apiKey: string): HeadersInit {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey.trim()) headers['x-gemini-key'] = apiKey.trim();
+  return headers;
+}
+
 function statusCount<T extends BaseAsset>(items: T[], status: AssetStatus): number {
   return items.filter((item) => item.status === status).length;
 }
@@ -337,6 +343,7 @@ export function AdminPage() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AssetStatus | 'all'>('all');
   const [apiKey, setApiKey] = useState(() => readStorage('sl-eleven-key'));
+  const [geminiKey, setGeminiKey] = useState(() => readStorage('sl-gemini-key'));
   const [voiceId, setVoiceId] = useState(() => readStorage('sl-eleven-voice'));
   const [modelId, setModelId] = useState(() => readStorage('sl-eleven-model', 'eleven_v3'));
   const [voices, setVoices] = useState<VoiceOption[]>([]);
@@ -427,9 +434,43 @@ export function AdminPage() {
     }
   };
 
+  const generateImage = async (asset: ImageAsset): Promise<void> => {
+    setBusyId(asset.id);
+    setToast(`${asset.preview ? 'Regenerating' : 'Generating'} ${asset.id}...`);
+    try {
+      const response = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: imageGenerationHeaders(geminiKey),
+        body: JSON.stringify({
+          id: asset.id,
+          prompt: asset.prompt,
+          ratio: asset.ratio,
+        }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`Image generation failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      const generated = normalizeManifestItems({ items: [payload] });
+      setManifest((items) => [...items.filter((item) => item.id !== asset.id), ...generated]);
+      setToast(`Generated ${asset.id}. File saved to ${stringValue(payload.file) ?? 'the asset directory'}.`);
+      void refreshManifest();
+    } catch (error) {
+      setToast(`Image generation failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const setStoredApiKey = (value: string): void => {
     setApiKey(value);
     writeStorage('sl-eleven-key', value.trim());
+  };
+
+  const setStoredGeminiKey = (value: string): void => {
+    setGeminiKey(value);
+    writeStorage('sl-gemini-key', value.trim());
   };
 
   const setStoredVoice = (value: string): void => {
@@ -443,10 +484,6 @@ export function AdminPage() {
   };
 
   const action = (asset: BaseAsset, verb: string): void => {
-    if (tab === 'image' && (verb === 'Generate' || verb === 'Regenerate')) {
-      setToast('Image generation is not connected in this admin yet. Audio generation uses the ElevenLabs key above.');
-      return;
-    }
     setToast(`${verb} queued for ${asset.id}. Server-side approvals will attach here next.`);
   };
 
@@ -495,6 +532,13 @@ export function AdminPage() {
           placeholder="ElevenLabs API key, or leave blank for server key"
           aria-label="ElevenLabs API key"
         />
+        <input
+          value={geminiKey}
+          onChange={(event) => setStoredGeminiKey(event.target.value)}
+          type="password"
+          placeholder="Gemini image API key, or leave blank for server key"
+          aria-label="Gemini API key"
+        />
         <button className="admin-export" onClick={() => void connectVoices()}>Connect voices</button>
         <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Voice for voice assets">
           <option value="">Voice for spoken rows</option>
@@ -506,7 +550,7 @@ export function AdminPage() {
           <option value="eleven_turbo_v2_5">Turbo v2.5</option>
           <option value="eleven_flash_v2_5">Flash v2.5</option>
         </select>
-        <span>Key is sent only to this server and saved in this browser.</span>
+        <span>Keys are sent only to this server and saved in this browser.</span>
       </section>
 
       <section className="admin-note" aria-live="polite">{toast}</section>
@@ -517,7 +561,7 @@ export function AdminPage() {
         )} />
       ) : (
         <AssetGroups groups={grouped(filteredImages)} render={(asset) => (
-          <ImageRow asset={asset} onAction={action} />
+          <ImageRow asset={asset} busy={busyId === asset.id} onGenerate={generateImage} onAction={action} />
         )} />
       )}
     </main>
@@ -573,7 +617,7 @@ function AudioRow(props: { asset: AudioAsset; busy: boolean; onGenerate: (asset:
   );
 }
 
-function ImageRow(props: { asset: ImageAsset; onAction: (asset: BaseAsset, verb: string) => void }) {
+function ImageRow(props: { asset: ImageAsset; busy: boolean; onGenerate: (asset: ImageAsset) => Promise<void>; onAction: (asset: BaseAsset, verb: string) => void }) {
   const { asset } = props;
   return (
     <article className="asset-row">
@@ -597,7 +641,7 @@ function ImageRow(props: { asset: ImageAsset; onAction: (asset: BaseAsset, verb:
         </div>
       </div>
       <div className="asset-actions">
-        <button onClick={() => props.onAction(asset, asset.preview ? 'Regenerate' : 'Generate')}>{asset.preview ? 'Regenerate' : 'Generate'}</button>
+        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Generating...' : asset.preview ? 'Regenerate' : 'Generate'}</button>
         <button onClick={() => props.onAction(asset, 'Upload')}>Upload</button>
         <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
       </div>

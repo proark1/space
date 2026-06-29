@@ -868,7 +868,7 @@ h1 {
 
 .admin-keybar {
   display: grid;
-  grid-template-columns: minmax(15rem, 1.15fr) auto minmax(12rem, 0.8fr) minmax(9rem, 0.55fr) minmax(14rem, 1fr);
+  grid-template-columns: minmax(14rem, 1fr) minmax(14rem, 1fr) auto minmax(12rem, 0.8fr) minmax(9rem, 0.55fr);
   gap: 0.75rem;
   align-items: center;
   margin: 0 0 1rem;
@@ -894,6 +894,7 @@ h1 {
 .admin-keybar span {
   display: flex;
   align-items: center;
+  grid-column: 1 / -1;
   padding: 0.55rem 0.75rem;
   color: var(--dim);
   font-size: 0.72rem;
