@@ -866,6 +866,40 @@ h1 {
   padding: 0 0.75rem;
 }
 
+.admin-keybar {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1.15fr) auto minmax(12rem, 0.8fr) minmax(9rem, 0.55fr) minmax(14rem, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0 0 1rem;
+}
+
+.admin-keybar input,
+.admin-keybar select,
+.admin-keybar span {
+  min-width: 0;
+  min-height: 2.55rem;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  border-radius: 8px;
+  background: rgba(8, 10, 12, 0.82);
+  color: var(--text);
+  font-weight: 850;
+}
+
+.admin-keybar input,
+.admin-keybar select {
+  padding: 0 0.75rem;
+}
+
+.admin-keybar span {
+  display: flex;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  color: var(--dim);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
 .admin-export {
   border-radius: 8px;
   padding: 0 0.9rem;
@@ -1075,9 +1109,15 @@ h1 {
   border-color: rgba(84, 242, 255, 0.7);
 }
 
+.asset-actions button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 @media (max-width: 980px) {
   .admin-header,
   .admin-toolbar,
+  .admin-keybar,
   .asset-row,
   .asset-row:has(.asset-thumb) {
     grid-template-columns: 1fr;

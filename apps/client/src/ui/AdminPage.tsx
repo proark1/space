@@ -39,6 +39,11 @@ interface ManifestItem {
   createdAt?: string;
 }
 
+interface VoiceOption {
+  voice_id: string;
+  name: string;
+}
+
 const AUDIO_ASSETS: AudioAsset[] = [
   { id: 'mus-menu', name: 'Title Theme', kind: 'music', group: 'Music', status: 'missing', use: 'landing', duration: '0:30', prompt: 'Slow cold ominous title drone with a distant mournful melody, dread and loneliness.' },
   { id: 'mus-launch', name: 'Launch Cinematic', kind: 'music', group: 'Music', status: 'missing', use: 'game', duration: '0:35', prompt: 'Grim militaristic build for the ground launch, low pulses and dark strings rising toward liftoff.' },
@@ -262,6 +267,50 @@ function formatDate(value: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function readStorage(key: string, fallback = ''): string {
+  try {
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // Storage can be blocked in private contexts; generation still works for this session.
+  }
+}
+
+function parseDurationSeconds(asset: AudioAsset): number {
+  if (asset.duration === 'loop') return 12;
+  if (asset.duration === 'line' || asset.duration === 'voice') return 5;
+  const parts = asset.duration.split(':').map((part) => Number(part));
+  const minutes = parts[0];
+  const seconds = parts[1];
+  if (typeof minutes === 'number' && typeof seconds === 'number' && Number.isFinite(minutes) && Number.isFinite(seconds)) return minutes * 60 + seconds;
+  return 4;
+}
+
+function normalizeVoiceOptions(payload: unknown): VoiceOption[] {
+  if (!isRecord(payload) || !Array.isArray(payload.voices)) return [];
+  return payload.voices
+    .filter(isRecord)
+    .map((voice) => ({
+      voice_id: stringValue(voice.voice_id) ?? '',
+      name: stringValue(voice.name) ?? '',
+    }))
+    .filter((voice) => voice.voice_id && voice.name);
+}
+
+function generationHeaders(apiKey: string): HeadersInit {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey.trim()) headers['x-eleven-key'] = apiKey.trim();
+  return headers;
+}
+
 function statusCount<T extends BaseAsset>(items: T[], status: AssetStatus): number {
   return items.filter((item) => item.status === status).length;
 }
@@ -287,6 +336,11 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>('audio');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AssetStatus | 'all'>('all');
+  const [apiKey, setApiKey] = useState(() => readStorage('sl-eleven-key'));
+  const [voiceId, setVoiceId] = useState(() => readStorage('sl-eleven-voice'));
+  const [modelId, setModelId] = useState(() => readStorage('sl-eleven-model', 'eleven_v3'));
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [manifest, setManifest] = useState<ManifestItem[]>([]);
   const [toast, setToast] = useState('Checking for existing asset files...');
 
@@ -316,8 +370,84 @@ export function AdminPage() {
   const filteredImages = useFilteredAssets(imageAssets, query, status);
   const filtered = tab === 'audio' ? filteredAudio : filteredImages;
 
+  const connectVoices = useCallback(async (): Promise<void> => {
+    setToast('Connecting to ElevenLabs...');
+    try {
+      const response = await fetch('/api/voices', {
+        cache: 'no-store',
+        headers: generationHeaders(apiKey),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`ElevenLabs connection failed: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      const nextVoices = normalizeVoiceOptions(payload);
+      setVoices(nextVoices);
+      if (!voiceId && nextVoices[0]) {
+        setVoiceId(nextVoices[0].voice_id);
+        writeStorage('sl-eleven-voice', nextVoices[0].voice_id);
+      }
+      setToast(`Connected to ElevenLabs. Loaded ${nextVoices.length} voice${nextVoices.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setToast(`ElevenLabs connection failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  }, [apiKey, voiceId]);
+
+  const generateAudio = async (asset: AudioAsset): Promise<void> => {
+    setBusyId(asset.id);
+    setToast(`${asset.file ? 'Regenerating' : 'Generating'} ${asset.id}...`);
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: generationHeaders(apiKey),
+        body: JSON.stringify({
+          id: asset.id,
+          kind: asset.kind,
+          prompt: asset.prompt,
+          durationSeconds: parseDurationSeconds(asset),
+          loop: asset.duration === 'loop',
+          voiceId,
+          modelId,
+        }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`Generation failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      const generated = normalizeManifestItems({ items: [payload] });
+      setManifest((items) => [...items.filter((item) => item.id !== asset.id), ...generated]);
+      setToast(`Generated ${asset.id}. File saved to ${stringValue(payload.file) ?? 'the asset directory'}.`);
+      void refreshManifest();
+    } catch (error) {
+      setToast(`Generation failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const setStoredApiKey = (value: string): void => {
+    setApiKey(value);
+    writeStorage('sl-eleven-key', value.trim());
+  };
+
+  const setStoredVoice = (value: string): void => {
+    setVoiceId(value);
+    writeStorage('sl-eleven-voice', value);
+  };
+
+  const setStoredModel = (value: string): void => {
+    setModelId(value);
+    writeStorage('sl-eleven-model', value);
+  };
+
   const action = (asset: BaseAsset, verb: string): void => {
-    setToast(`${verb} queued for ${asset.id}. Server-side generation will attach here next.`);
+    if (tab === 'image' && (verb === 'Generate' || verb === 'Regenerate')) {
+      setToast('Image generation is not connected in this admin yet. Audio generation uses the ElevenLabs key above.');
+      return;
+    }
+    setToast(`${verb} queued for ${asset.id}. Server-side approvals will attach here next.`);
   };
 
   return (
@@ -357,11 +487,33 @@ export function AdminPage() {
         <button className="admin-export" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
       </section>
 
+      <section className="admin-keybar" aria-label="Generation keys">
+        <input
+          value={apiKey}
+          onChange={(event) => setStoredApiKey(event.target.value)}
+          type="password"
+          placeholder="ElevenLabs API key, or leave blank for server key"
+          aria-label="ElevenLabs API key"
+        />
+        <button className="admin-export" onClick={() => void connectVoices()}>Connect voices</button>
+        <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Voice for voice assets">
+          <option value="">Voice for spoken rows</option>
+          {voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
+        </select>
+        <select value={modelId} onChange={(event) => setStoredModel(event.target.value)} aria-label="Text to speech model">
+          <option value="eleven_v3">TTS v3</option>
+          <option value="eleven_multilingual_v2">Multilingual v2</option>
+          <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+          <option value="eleven_flash_v2_5">Flash v2.5</option>
+        </select>
+        <span>Key is sent only to this server and saved in this browser.</span>
+      </section>
+
       <section className="admin-note" aria-live="polite">{toast}</section>
 
       {tab === 'audio' ? (
         <AssetGroups groups={grouped(filteredAudio)} render={(asset) => (
-          <AudioRow asset={asset} onAction={action} />
+          <AudioRow asset={asset} busy={busyId === asset.id} onGenerate={generateAudio} onAction={action} />
         )} />
       ) : (
         <AssetGroups groups={grouped(filteredImages)} render={(asset) => (
@@ -389,7 +541,7 @@ function AssetGroups<T extends BaseAsset>(props: { groups: Array<[string, T[]]>;
   );
 }
 
-function AudioRow(props: { asset: AudioAsset; onAction: (asset: BaseAsset, verb: string) => void }) {
+function AudioRow(props: { asset: AudioAsset; busy: boolean; onGenerate: (asset: AudioAsset) => Promise<void>; onAction: (asset: BaseAsset, verb: string) => void }) {
   const { asset } = props;
   return (
     <article className="asset-row">
@@ -414,7 +566,7 @@ function AudioRow(props: { asset: AudioAsset; onAction: (asset: BaseAsset, verb:
         {asset.file ? <audio controls src={asset.file} /> : <span>No clip</span>}
       </div>
       <div className="asset-actions">
-        <button onClick={() => props.onAction(asset, asset.file ? 'Regenerate' : 'Generate')}>{asset.file ? 'Regenerate' : 'Generate'}</button>
+        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Generating...' : asset.file ? 'Regenerate' : 'Generate'}</button>
         <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
       </div>
     </article>
