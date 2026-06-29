@@ -207,6 +207,23 @@ def save_image(asset_id, data, content_type):
     }
 
 
+def save_voice_preview(asset_id, data):
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    filename = safe_asset_id(asset_id) + ".mp3"
+    path = os.path.join(AUDIO_DIR, filename)
+    with open(path, "wb") as audio:
+        audio.write(data)
+    size, created = stamp(path)
+    return {
+        "id": os.path.splitext(filename)[0],
+        "file": "audio/" + filename,
+        "kind": "voice-preview",
+        "mime": "audio/mpeg",
+        "size": size,
+        "createdAt": created,
+    }
+
+
 def decode_image_data_url(data_url):
     if not data_url.startswith("data:") or ";base64," not in data_url:
         raise ValueError("Expected a base64 image data URL.")
@@ -426,6 +443,68 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
+    def _design_voice(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+        key = key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "Paste an ElevenLabs API key first."}, 200)
+
+        asset_id = str(body.get("id") or "voice")
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        if not str(payload.get("voice_description") or "").strip():
+            return self._json({"ok": False, "error": "No voice description was provided."}, 200)
+        if len(str(payload.get("text") or "")) < 100:
+            return self._json({"ok": False, "error": "Voice preview text must be at least 100 characters."}, 200)
+
+        try:
+            raw, _ = post_elevenlabs("/v1/text-to-voice/design", payload, key, "application/json")
+            data = json.loads(raw.decode())
+            previews = []
+            for index, preview in enumerate(data.get("previews", [])):
+                audio_b64 = preview.get("audio_base_64")
+                if not audio_b64:
+                    continue
+                saved = save_voice_preview(f"{asset_id}-preview-{index + 1}", base64.b64decode(audio_b64))
+                previews.append({
+                    **saved,
+                    "generated_voice_id": preview.get("generated_voice_id"),
+                    "duration": preview.get("duration_secs"),
+                })
+            return self._json({"ok": True, "id": safe_asset_id(asset_id), "previews": previews, "text": data.get("text", "")})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "status": exc.code, "error": http_error_message(exc)}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _save_voice(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+        key = key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "Paste an ElevenLabs API key first."}, 200)
+
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        if not str(payload.get("generated_voice_id") or "").strip():
+            return self._json({"ok": False, "error": "No generated voice preview was selected."}, 200)
+        if not str(payload.get("voice_name") or "").strip().startswith(SIGNAL_LOST_VOICE_PREFIX):
+            return self._json({"ok": False, "error": "Voice names must start with SL ·."}, 200)
+
+        try:
+            raw, _ = post_elevenlabs("/v1/text-to-voice", payload, key, "application/json")
+            data = json.loads(raw.decode())
+            return self._json({"ok": True, "voice_id": data.get("voice_id"), "name": data.get("name") or payload.get("voice_name")})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "status": exc.code, "error": http_error_message(exc)}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
     def _save_image_upload(self):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
@@ -498,6 +577,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._generate_audio()
         if request_path == "/api/generate-image":
             return self._generate_image()
+        if request_path == "/api/design":
+            return self._design_voice()
+        if request_path == "/api/save-voice":
+            return self._save_voice()
         if request_path == "/api/save-image":
             return self._save_image_upload()
 

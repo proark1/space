@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
 
 type AdminTab = 'audio' | 'image';
@@ -42,6 +42,14 @@ interface ManifestItem {
 interface VoiceOption {
   voice_id: string;
   name: string;
+}
+
+interface VoicePreview {
+  id: string;
+  file: string;
+  generatedVoiceId: string;
+  duration?: number;
+  size?: number;
 }
 
 const AUDIO_ASSETS: AudioAsset[] = [
@@ -377,6 +385,20 @@ function normalizeVoiceOptions(payload: unknown): VoiceOption[] {
     .filter((voice) => voice.voice_id && voice.name);
 }
 
+function normalizeVoicePreviews(payload: unknown): VoicePreview[] {
+  if (!isRecord(payload) || !Array.isArray(payload.previews)) return [];
+  return payload.previews
+    .filter(isRecord)
+    .map((preview) => ({
+      id: stringValue(preview.id) ?? '',
+      file: assetUrl(stringValue(preview.file) ?? ''),
+      generatedVoiceId: stringValue(preview.generated_voice_id) ?? stringValue(preview.generatedVoiceId) ?? '',
+      duration: numberValue(preview.duration),
+      size: numberValue(preview.size),
+    }))
+    .filter((preview) => preview.id && preview.file && preview.generatedVoiceId);
+}
+
 function normalizedVoiceName(value: string): string {
   return value.toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
 }
@@ -434,6 +456,11 @@ function resolveSignalLostVoice(asset: AudioAsset, voices: VoiceOption[], select
 
 function isVoiceDesignAsset(asset: AudioAsset): boolean {
   return asset.kind === 'voice' && asset.duration === 'voice';
+}
+
+function voiceDesignPreviewText(asset: AudioAsset): string {
+  const role = asset.voice ?? asset.name.replace(/\s*Voice Design$/i, '');
+  return `This is a SIGNAL LOST voice design preview for ${role}. ${asset.prompt} Say this with clear horror-game performance range: calm mission briefing, tense warning, quiet dread, and one final line that sounds like the ship is listening from the dark.`;
 }
 
 function generationHeaders(apiKey: string): HeadersInit {
@@ -631,6 +658,7 @@ export function AdminPage() {
   const [manifest, setManifest] = useState<ManifestItem[]>([]);
   const [imageSizeById, setImageSizeById] = useState<Record<string, number>>({});
   const [audioMessages, setAudioMessages] = useState<Record<string, string>>({});
+  const [voicePreviewsById, setVoicePreviewsById] = useState<Record<string, VoicePreview[]>>({});
   const [toast, setToast] = useState('Checking for existing asset files...');
 
   const setAudioMessage = useCallback((assetId: string, message: string): void => {
@@ -692,18 +720,119 @@ export function AdminPage() {
     }
   }, [apiKey, voiceId]);
 
+  const checkVoiceDesign = async (asset: AudioAsset): Promise<void> => {
+    setBusyId(asset.id);
+    setAudioMessage(asset.id, '');
+    setToast(`Checking ${asset.id}...`);
+    try {
+      const resolvedVoice = resolveSignalLostVoice(asset, voices, voiceId);
+      const message = resolvedVoice.error
+        ? `${resolvedVoice.error} Generate and save an SL voice from this row, then use the Spoken Text rows below to create clips.`
+        : `${resolvedVoice.voice?.name ?? expectedSignalLostVoiceName(asset.voice)} is connected. Use the Spoken Text rows below to create clips.`;
+      setAudioMessage(asset.id, message);
+      setToast(message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const generateVoiceDesign = async (asset: AudioAsset): Promise<void> => {
+    setBusyId(asset.id);
+    setAudioMessage(asset.id, '');
+    setVoicePreviewsById((previews) => ({ ...previews, [asset.id]: [] }));
+    setToast(`Designing SL voice previews for ${asset.id}...`);
+    try {
+      const response = await fetch('/api/design', {
+        method: 'POST',
+        headers: generationHeaders(apiKey),
+        body: JSON.stringify({
+          id: asset.id,
+          payload: {
+            voice_description: asset.prompt,
+            model_id: 'eleven_ttv_v3',
+            text: voiceDesignPreviewText(asset),
+            guidance_scale: 5,
+          },
+        }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        const message = `Voice design failed: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`;
+        setAudioMessage(asset.id, message);
+        setToast(`Voice design failed for ${asset.id}: ${message.replace(/^Voice design failed: /, '')}`);
+        return;
+      }
+      const previews = normalizeVoicePreviews(payload);
+      setVoicePreviewsById((current) => ({ ...current, [asset.id]: previews }));
+      const generated = normalizeManifestItems({ items: previews.map((preview) => ({ id: preview.id, file: preview.file, kind: 'voice-preview', size: preview.size })) });
+      setManifest((items) => [...items.filter((item) => !generated.some((next) => next.id === item.id)), ...generated]);
+      const message = previews.length
+        ? `Designed ${previews.length} voice previews for ${asset.id}. Pick one to save as ${expectedSignalLostVoiceName(asset.voice)}.`
+        : `Voice design completed for ${asset.id}, but no previews were returned.`;
+      setAudioMessage(asset.id, message);
+      setToast(message);
+      void refreshManifest();
+    } catch (error) {
+      const message = `Voice design failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+      setAudioMessage(asset.id, message);
+      setToast(`Voice design failed for ${asset.id}: ${message.replace(/^Voice design failed: /, '')}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const saveVoicePreview = async (asset: AudioAsset, preview: VoicePreview): Promise<void> => {
+    const pendingId = `${asset.id}:${preview.generatedVoiceId}`;
+    setBusyId(pendingId);
+    setAudioMessage(asset.id, '');
+    setToast(`Saving ${expectedSignalLostVoiceName(asset.voice)}...`);
+    try {
+      const response = await fetch('/api/save-voice', {
+        method: 'POST',
+        headers: generationHeaders(apiKey),
+        body: JSON.stringify({
+          payload: {
+            voice_name: expectedSignalLostVoiceName(asset.voice),
+            voice_description: asset.prompt,
+            generated_voice_id: preview.generatedVoiceId,
+          },
+        }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        const message = `Voice save failed: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`;
+        setAudioMessage(asset.id, message);
+        setToast(`Voice save failed for ${asset.id}: ${message.replace(/^Voice save failed: /, '')}`);
+        return;
+      }
+      const savedVoice = {
+        voice_id: stringValue(payload.voice_id) ?? '',
+        name: stringValue(payload.name) ?? expectedSignalLostVoiceName(asset.voice),
+      };
+      if (savedVoice.voice_id) {
+        setVoices((current) => [savedVoice, ...current.filter((voice) => voice.voice_id !== savedVoice.voice_id)]);
+        setStoredVoice(savedVoice.voice_id);
+      }
+      const message = `Saved ${savedVoice.name}. Spoken Text rows can now use this SL voice.`;
+      setAudioMessage(asset.id, message);
+      setToast(message);
+      void connectVoices();
+    } catch (error) {
+      const message = `Voice save failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+      setAudioMessage(asset.id, message);
+      setToast(`Voice save failed for ${asset.id}: ${message.replace(/^Voice save failed: /, '')}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const generateAudio = async (asset: AudioAsset): Promise<void> => {
     setBusyId(asset.id);
     setAudioMessage(asset.id, '');
     setToast(`${asset.file ? 'Regenerating' : 'Generating'} ${asset.id}...`);
     try {
       if (isVoiceDesignAsset(asset)) {
-        const resolvedVoice = resolveSignalLostVoice(asset, voices, voiceId);
-        const message = resolvedVoice.error
-          ? `${resolvedVoice.error} This row checks the saved SL voice only; generate clips from the Spoken Text rows below.`
-          : `${resolvedVoice.voice?.name ?? expectedSignalLostVoiceName(asset.voice)} is connected. Generate clips from the Spoken Text rows that use ${asset.voice ?? 'this role'}.`;
-        setAudioMessage(asset.id, message);
-        setToast(message);
+        await generateVoiceDesign(asset);
         return;
       }
 
@@ -900,7 +1029,17 @@ export function AdminPage() {
 
       {tab === 'audio' ? (
         <AssetGroups groups={grouped(filteredAudio)} render={(asset) => (
-          <AudioRow asset={asset} busy={busyId === asset.id} message={audioMessages[asset.id]} onGenerate={generateAudio} onAction={action} />
+          <AudioRow
+            asset={asset}
+            busy={busyId === asset.id || Boolean(busyId?.startsWith(`${asset.id}:`))}
+            busyId={busyId}
+            message={audioMessages[asset.id]}
+            previews={voicePreviewsById[asset.id] ?? []}
+            onGenerate={generateAudio}
+            onCheckVoice={checkVoiceDesign}
+            onSaveVoicePreview={saveVoicePreview}
+            onAction={action}
+          />
         )} />
       ) : (
         <AssetGroups groups={grouped(filteredImages)} render={(asset) => (
@@ -930,17 +1069,29 @@ function AssetGroups<T extends BaseAsset>(props: { groups: Array<[string, T[]]>;
             <h2>{group}</h2>
             <span>{items.length} assets</span>
           </div>
-          <div className="asset-list">{items.map(props.render)}</div>
+          <div className="asset-list">
+            {items.map((asset) => <Fragment key={asset.id}>{props.render(asset)}</Fragment>)}
+          </div>
         </section>
       ))}
     </section>
   );
 }
 
-function AudioRow(props: { asset: AudioAsset; busy: boolean; message?: string; onGenerate: (asset: AudioAsset) => Promise<void>; onAction: (asset: BaseAsset, verb: string) => void }) {
+function AudioRow(props: {
+  asset: AudioAsset;
+  busy: boolean;
+  busyId: string | null;
+  message?: string;
+  previews: VoicePreview[];
+  onGenerate: (asset: AudioAsset) => Promise<void>;
+  onCheckVoice: (asset: AudioAsset) => Promise<void>;
+  onSaveVoicePreview: (asset: AudioAsset, preview: VoicePreview) => Promise<void>;
+  onAction: (asset: BaseAsset, verb: string) => void;
+}) {
   const { asset } = props;
   const isVoiceDesign = isVoiceDesignAsset(asset);
-  const generateLabel = props.busy ? (isVoiceDesign ? 'Checking...' : 'Generating...') : isVoiceDesign ? 'Check SL voice' : asset.file ? 'Regenerate' : 'Generate';
+  const generateLabel = props.busy ? (isVoiceDesign ? 'Designing...' : 'Generating...') : isVoiceDesign ? 'Generate SL voice' : asset.file ? 'Regenerate' : 'Generate';
   return (
     <article className="asset-row">
       <div className="asset-row__main">
@@ -960,12 +1111,29 @@ function AudioRow(props: { asset: AudioAsset; busy: boolean; message?: string; o
           {asset.createdAt ? <span>{formatDate(asset.createdAt)}</span> : null}
         </div>
         {props.message ? <div className="asset-row__message" role="status">{props.message}</div> : null}
+        {isVoiceDesign && props.previews.length ? (
+          <div className="voice-preview-list" aria-label={`${asset.name} voice previews`}>
+            {props.previews.map((preview, index) => {
+              const previewBusy = props.busyId === `${asset.id}:${preview.generatedVoiceId}`;
+              return (
+                <div className="voice-preview" key={preview.generatedVoiceId}>
+                  <span>Preview {index + 1}</span>
+                  <audio controls src={preview.file} />
+                  <button disabled={previewBusy} onClick={() => void props.onSaveVoicePreview(asset, preview)}>
+                    {previewBusy ? 'Saving...' : 'Save as SL voice'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
       <div className="asset-preview asset-preview--audio">
         {asset.file ? <audio controls src={asset.file} /> : <span>{isVoiceDesign ? 'Saved SL voice' : 'No clip'}</span>}
       </div>
       <div className="asset-actions">
         <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{generateLabel}</button>
+        {isVoiceDesign ? <button disabled={props.busy} onClick={() => void props.onCheckVoice(asset)}>Check SL voice</button> : null}
         <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
       </div>
     </article>

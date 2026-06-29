@@ -1080,6 +1080,45 @@ h1 {
   width: 100%;
 }
 
+.voice-preview-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.voice-preview {
+  display: grid;
+  grid-template-columns: auto minmax(12rem, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  border: 1px solid rgba(84, 242, 255, 0.14);
+  border-radius: 8px;
+  padding: 0.48rem;
+  background: rgba(8, 10, 12, 0.7);
+}
+
+.voice-preview span {
+  color: var(--dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.voice-preview audio {
+  width: 100%;
+}
+
+.voice-preview button {
+  min-height: 2.1rem;
+  border: 1px solid rgba(110, 255, 156, 0.3);
+  border-radius: 8px;
+  background: rgba(8, 10, 12, 0.84);
+  color: var(--green);
+  cursor: pointer;
+  font-weight: 900;
+}
+
 .asset-thumb {
   position: relative;
   min-height: 5.5rem;
@@ -1193,6 +1232,10 @@ h1 {
   .asset-actions button,
   .asset-size-control {
     flex: 1;
+  }
+
+  .voice-preview {
+    grid-template-columns: 1fr;
   }
 }
 
