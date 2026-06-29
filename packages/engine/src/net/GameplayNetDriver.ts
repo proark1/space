@@ -69,7 +69,9 @@ export class GameplayNetDriver {
 
   private readonly inputSend = new InputSendBuffer();
   private readonly inputReceivers = new Map<string, InputReceiver>();
+  private readonly peerPlayers = new Map<string, number>();
   private snapshotTick = 0;
+  private nextPeerNetId = 1000;
 
   constructor(
     readonly session: Session,
@@ -83,10 +85,10 @@ export class GameplayNetDriver {
     if (this.session.isHost) {
       if (msgType !== MsgType.Input || !this.opts.hostGame) return;
       const receiver = this.receiverFor(peerId);
+      const player = this.playerForPeer(peerId);
       const cmds = receiver.apply(new Uint8Array(data));
       for (const cmd of cmds) {
-        this.opts.hostGame.setInput(inputFromButtons(cmd));
-        this.opts.hostGame.stepFixed(cmd.dtMs / 1000, cmd.clientTick);
+        this.opts.hostGame.stepControlledPlayer(player, inputFromButtons(cmd), cmd.dtMs / 1000, cmd.clientTick);
       }
       this.opts.onHostInput?.(peerId, cmds);
       this.broadcastHostSnapshot();
@@ -136,6 +138,17 @@ export class GameplayNetDriver {
       this.inputReceivers.set(peerId, receiver);
     }
     return receiver;
+  }
+
+  private playerForPeer(peerId: string): number {
+    const existing = this.peerPlayers.get(peerId);
+    if (existing !== undefined) return existing;
+    const game = this.opts.hostGame;
+    if (!game) throw new Error('hostGame is required for host-side peer players');
+    const offset = this.peerPlayers.size + 1;
+    const player = game.addNetworkPlayer(this.nextPeerNetId++, { x: offset * 0.8, y: 1, z: 12 });
+    this.peerPlayers.set(peerId, player.eid);
+    return player.eid;
   }
 }
 

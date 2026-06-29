@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Transform, getGameWorldMeta } from '@sl/ecs';
+import { NetworkId, Transform, getGameWorldMeta, queryRemotePlayers } from '@sl/ecs';
 import { Game } from './Game';
 
 describe('Game', () => {
@@ -64,6 +64,21 @@ describe('Game', () => {
     expect(ticks).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(Transform.z[game.playerEid]).toBeLessThan(startZ);
     expect(game.isRunning).toBe(false);
+    game.dispose();
+  });
+
+  it('can step an additional network-controlled player', async () => {
+    const game = await Game.create({ role: 'host' });
+    const remote = game.addNetworkPlayer(9001, { x: 1, y: 1, z: 12 });
+    const localStartZ = Transform.z[game.playerEid];
+    const remoteStartZ = Transform.z[remote.eid];
+
+    for (let i = 0; i < 10; i++) game.stepControlledPlayer(remote.eid, { moveX: 0, moveZ: 1, yaw: 0 }, 1 / 60);
+
+    expect(NetworkId.id[remote.eid]).toBe(9001);
+    expect([...queryRemotePlayers(game.world)]).toContain(remote.eid);
+    expect(Transform.z[game.playerEid]).toBe(localStartZ);
+    expect(Transform.z[remote.eid]).toBeLessThan(remoteStartZ);
     game.dispose();
   });
 });

@@ -66,6 +66,9 @@ importers:
       '@sl/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@sl/netcode':
+        specifier: workspace:*
+        version: link:../../packages/netcode
       '@sl/render':
         specifier: workspace:*
         version: link:../../packages/render

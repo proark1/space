@@ -4,15 +4,41 @@
 // ?scene=corridor is the look-only auto-cam variant; ?scene=chaos is the Phase B perf probe (`n`
 // dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
 import { createRenderer, createPostStack } from '@sl/render';
-import { GameLoop } from '@sl/engine';
+import { createGameplaySession, GameLoop, type GameplayNetDriver } from '@sl/engine';
+import { buildIceServers, Buttons, generateRoomCode, isValidRoomCode } from '@sl/netcode';
 import { useHudStore } from '@sl/ui';
 import { createChaosScene } from './chaosScene';
 import { createCorridorScene } from './corridorScene';
 import { createWalkScene } from './walkScene';
 import type { HarnessScene } from './scene';
+import type { WalkSceneHandle } from './walkScene';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const hud = document.getElementById('hud');
+const netPanel = document.getElementById('net');
+
+function envString(name: string): string | undefined {
+  const env = import.meta.env as Record<string, string | undefined>;
+  return env[name];
+}
+
+function turnUrls(): string[] | undefined {
+  const raw = envString('VITE_TURN_URLS');
+  return raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+}
+
+function buttonsFromMove(move: { x: number; z: number }): number {
+  let buttons = 0;
+  if (move.z > 0) buttons |= Buttons.Fwd;
+  if (move.z < 0) buttons |= Buttons.Back;
+  if (move.x < 0) buttons |= Buttons.Left;
+  if (move.x > 0) buttons |= Buttons.Right;
+  return buttons;
+}
+
+function isWalkScene(scene: HarnessScene): scene is WalkSceneHandle {
+  return 'game' in scene && 'controls' in scene && 'setRemoteWorld' in scene;
+}
 
 async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -29,6 +55,10 @@ async function main(): Promise<void> {
         ? createCorridorScene(renderer.profile)
         : await createWalkScene(renderer.profile, canvas);
   const post = createPostStack(renderer, harness.scene, harness.camera, renderer.profile);
+  let netDriver: GameplayNetDriver | undefined;
+  let netMode: 'offline' | 'host' | 'client' = 'offline';
+  let netPeers = 0;
+  let netState = 'offline';
 
   // Internal-res crunch — the dominant PS1 cue (the lookdev's own technique): render at a fraction
   // and let CSS upscale with nearest (#scene { image-rendering: pixelated }). pixelRatio 1 so the
@@ -62,12 +92,107 @@ async function main(): Promise<void> {
       harness.label === 'walk'
         ? ` · hp ${store.health} · bat ${store.battery} · ammo ${store.ammoMag}/${store.ammoReserve} · ${store.status ?? 'idle'} · WASD move · click to look · Space jump`
         : '';
-    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${drawCalls} draws${hint}`;
+    const net = netMode === 'offline' ? '' : ` · net ${netMode}:${netState}/${netPeers}`;
+    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${drawCalls} draws${net}${hint}`;
   };
+
+  const setNetPanelStatus = (message: string): void => {
+    const status = document.getElementById('netStatus');
+    if (status) status.textContent = message;
+    updateHud();
+  };
+
+  const startNet = (mode: 'host' | 'client', code: string): void => {
+    if (!isWalkScene(harness)) {
+      setNetPanelStatus('walk scene required');
+      return;
+    }
+    if (netDriver) netDriver.leave();
+    netMode = mode;
+    netState = 'signaling';
+    netPeers = 0;
+    const iceServers = buildIceServers({
+      turnUrls: turnUrls(),
+      turnHost: envString('VITE_TURN_HOST'),
+      turnUsername: envString('VITE_TURN_USERNAME'),
+      turnCredential: envString('VITE_TURN_CREDENTIAL'),
+    });
+    netDriver = createGameplaySession({
+      code,
+      isHost: mode === 'host',
+      iceServers,
+      hostGame: mode === 'host' ? harness.game : undefined,
+      events: {
+        onState: (state) => {
+          netState = state;
+          setNetPanelStatus(`${mode} ${code} · ${state} · peers ${netPeers}`);
+        },
+        onPeers: (peers) => {
+          netPeers = peers.length;
+          setNetPanelStatus(`${mode} ${code} · ${netState} · peers ${netPeers}`);
+        },
+        onHostLost: () => setNetPanelStatus('host lost'),
+        onLog: (msg) => console.info(`[net] ${msg}`),
+      },
+    });
+    harness.setRemoteWorld(mode === 'host' ? harness.game.world : netDriver.clientWorld);
+    setNetPanelStatus(`${mode} ${code} · ${netState} · peers ${netPeers}`);
+  };
+
+  if (netPanel && isWalkScene(harness)) {
+    const paramsCode = params.get('code')?.trim().toUpperCase();
+    const initialCode = paramsCode && isValidRoomCode(paramsCode) ? paramsCode : generateRoomCode();
+    netPanel.innerHTML = `
+      <button id="netHost" type="button">Host</button>
+      <input id="netCode" value="${initialCode}" maxlength="6" spellcheck="false" />
+      <button id="netJoin" type="button">Join</button>
+      <button id="netLeave" type="button">Leave</button>
+      <span id="netStatus">offline</span>
+    `;
+    const codeInput = document.getElementById('netCode') as HTMLInputElement | null;
+    document.getElementById('netHost')?.addEventListener('click', () => {
+      const code = generateRoomCode();
+      if (codeInput) codeInput.value = code;
+      startNet('host', code);
+    });
+    document.getElementById('netJoin')?.addEventListener('click', () => {
+      const code = codeInput?.value.trim().toUpperCase() ?? '';
+      if (!isValidRoomCode(code)) {
+        setNetPanelStatus('invalid code');
+        return;
+      }
+      startNet('client', code);
+    });
+    document.getElementById('netLeave')?.addEventListener('click', () => {
+      netDriver?.leave();
+      netDriver = undefined;
+      netMode = 'offline';
+      netState = 'offline';
+      netPeers = 0;
+      harness.setRemoteWorld(undefined);
+      setNetPanelStatus('offline');
+    });
+    if (params.get('host') === '1') startNet('host', initialCode);
+    else if (params.get('join') === '1' && paramsCode) startNet('client', initialCode);
+  } else if (netPanel) {
+    netPanel.style.display = 'none';
+  }
 
   const loop = new GameLoop({
     fixedHz: 60,
-    fixedUpdate: (dt) => harness.fixedStep(dt),
+    fixedUpdate: (dt) => {
+      if (netDriver && netMode === 'client' && isWalkScene(harness)) {
+        const move = harness.controls.moveVector();
+        netDriver.sendClientInput({
+          buttons: buttonsFromMove(move),
+          yaw: harness.controls.yaw,
+          pitch: harness.controls.pitch,
+          dtMs: Math.round(dt * 1000),
+        });
+      }
+      harness.fixedStep(dt);
+      netDriver?.tick();
+    },
     render: () => {
       const now = performance.now();
       const dt = Math.min((now - lastT) / 1000, 0.1);
@@ -97,6 +222,7 @@ async function main(): Promise<void> {
     backend: renderer.backend,
     profile: renderer.profile,
     hudState: () => useHudStore.getState(),
+    netDriver: () => netDriver,
   };
 }
 

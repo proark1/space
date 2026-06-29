@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Transform } from '@sl/ecs';
+import { queryRemotePlayers, Transform } from '@sl/ecs';
 import { Buttons, type Session } from '@sl/netcode';
 import { Game } from '../Game';
 import { GameplayNetDriver } from './GameplayNetDriver';
@@ -47,10 +47,13 @@ describe('GameplayNetDriver', () => {
     const startZ = Transform.z[hostGame.playerEid] ?? 0;
     for (let i = 0; i < 12; i++) clientDriver.sendClientInput({ buttons: Buttons.Fwd, yaw: 0, dtMs: 16 });
 
-    expect(Transform.z[hostGame.playerEid]).toBeLessThan(startZ);
-    expect(clientDriver.netIdToEid.size).toBe(1);
-    const clientEid = [...clientDriver.netIdToEid.values()][0]!;
-    expect(Transform.z[clientEid]).toBeCloseTo(Transform.z[hostGame.playerEid] ?? 0, 4);
+    expect(Transform.z[hostGame.playerEid]).toBe(startZ);
+    const hostPeerEid = [...queryRemotePlayers(hostGame.world)][0]!;
+    expect(Transform.z[hostPeerEid]).toBeLessThan(12);
+    expect(clientDriver.netIdToEid.size).toBeGreaterThanOrEqual(2);
+    const peerNetId = [...clientDriver.netIdToEid.keys()].find((id) => id >= 1000)!;
+    const clientPeerEid = clientDriver.netIdToEid.get(peerNetId)!;
+    expect(Transform.z[clientPeerEid]).toBeCloseTo(Transform.z[hostPeerEid] ?? 0, 4);
     hostGame.dispose();
   });
 });

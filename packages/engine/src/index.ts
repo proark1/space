@@ -1,7 +1,7 @@
 // @sl/engine — orchestration: fixed-timestep GameLoop (T21), host physics (T23: PhysicsWorld + KCC
 // + ECS sync), the top-level game machine (T32), and the Game composition root.
 export { Game } from './Game';
-export type { GameOptions } from './Game';
+export type { ControlledPlayer, GameOptions } from './Game';
 export { GameLoop } from './GameLoop';
 export type { GameLoopOptions } from './GameLoop';
 export { createGameMachine, GameFlowMachine } from './fsm/gameMachine';

@@ -15,6 +15,7 @@
     "@sl/engine": "workspace:*",
     "@sl/ecs": "workspace:*",
     "@sl/ui": "workspace:*",
+    "@sl/netcode": "workspace:*",
     "three": "^0.185.0"
   },
   "devDependencies": {

@@ -29,11 +29,46 @@
         pointer-events: none;
         text-shadow: 0 1px 2px #000;
       }
+      #net {
+        position: fixed;
+        right: 14px;
+        top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px;
+        background: rgba(3, 6, 10, 0.72);
+        border: 1px solid rgba(91, 122, 147, 0.35);
+        font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #8fb4c9;
+      }
+      #net button,
+      #net input {
+        height: 26px;
+        border: 1px solid rgba(91, 122, 147, 0.45);
+        background: #081018;
+        color: #c1d8e5;
+        font: inherit;
+      }
+      #net button {
+        padding: 0 9px;
+        cursor: pointer;
+      }
+      #net input {
+        width: 66px;
+        padding: 0 6px;
+        text-transform: uppercase;
+      }
+      #netStatus {
+        min-width: 150px;
+        color: #5b7a93;
+      }
     </style>
   </head>
   <body>
     <canvas id="scene"></canvas>
     <div id="hud">SIGNAL LOST — booting renderer…</div>
+    <div id="net"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

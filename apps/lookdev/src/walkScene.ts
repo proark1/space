@@ -1,6 +1,6 @@
-import { Scene, PerspectiveCamera, Euler } from 'three';
+import { Scene, PerspectiveCamera, Euler, Mesh, MeshStandardMaterial, CapsuleGeometry } from 'three';
 import { Game } from '@sl/engine';
-import { Health, PlayerState, Transform } from '@sl/ecs';
+import { Health, PlayerState, Transform, queryRemotePlayers, type GameWorld } from '@sl/ecs';
 import { createFlashlight } from '@sl/render';
 import type { RenderProfile } from '@sl/render';
 import { hudSync } from '@sl/ui';
@@ -17,6 +17,7 @@ export interface WalkSceneHandle extends HarnessScene {
   readonly controls: FirstPersonControls;
   /** The local player's current world position, read from the ECS Transform. */
   playerPosition(): { x: number; y: number; z: number };
+  setRemoteWorld(world: GameWorld | undefined): void;
   readonly grounded: boolean;
 }
 
@@ -55,6 +56,11 @@ export async function createWalkScene(
   const camera = new PerspectiveCamera(70, 1, 0.1, 60);
   const flashlight = createFlashlight(profile);
   flashlight.addToScene(scene);
+  const remoteMat = new MeshStandardMaterial({ color: 0x4db7ff, emissive: 0x0b2435, roughness: 0.75 });
+  const remoteGeo = new CapsuleGeometry(0.33, 0.9, 5, 8);
+  const remoteMeshes = new Map<number, Mesh>();
+  let remoteWorld: GameWorld | undefined;
+  let objective = 'reach the aft bulkhead';
 
   const euler = new Euler(0, 0, 0, 'YXZ');
   // `!` — typed-array reads are `number | undefined` under noUncheckedIndexedAccess; the eid is valid.
@@ -63,6 +69,32 @@ export async function createWalkScene(
     euler.set(controls.pitch, controls.yaw, 0);
     camera.quaternion.setFromEuler(euler);
     flashlight.update(camera);
+  };
+  const syncRemoteMarkers = (): void => {
+    if (!remoteWorld) {
+      for (const mesh of remoteMeshes.values()) scene.remove(mesh);
+      remoteMeshes.clear();
+      return;
+    }
+
+    const seen = new Set<number>();
+    for (const eid of queryRemotePlayers(remoteWorld)) {
+      seen.add(eid);
+      let mesh = remoteMeshes.get(eid);
+      if (!mesh) {
+        mesh = new Mesh(remoteGeo, remoteMat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        remoteMeshes.set(eid, mesh);
+        scene.add(mesh);
+      }
+      mesh.position.set(Transform.x[eid] ?? 0, (Transform.y[eid] ?? 1) + 0.15, Transform.z[eid] ?? 0);
+    }
+    for (const [eid, mesh] of remoteMeshes) {
+      if (seen.has(eid)) continue;
+      scene.remove(mesh);
+      remoteMeshes.delete(eid);
+    }
   };
   placeCamera();
 
@@ -78,28 +110,38 @@ export async function createWalkScene(
     playerPosition() {
       return { x: Transform.x[playerEid]!, y: Transform.y[playerEid]!, z: Transform.z[playerEid]! };
     },
+    setRemoteWorld(world) {
+      remoteWorld = world;
+      syncRemoteMarkers();
+    },
     fixedStep(dt) {
       const mv = controls.moveVector();
       game.setInput({ moveX: mv.x, moveZ: mv.z, yaw: controls.yaw, jump: controls.consumeJump() });
       game.stepFixed(dt);
+      const z = Transform.z[playerEid] ?? spawn.z;
+      objective = z < -13 ? 'restore aft uplink' : 'reach the aft bulkhead';
       hudSync({
         health: Math.round(Health.hp[playerEid] ?? PlayerState.health[playerEid] ?? 100),
         battery: Math.round(PlayerState.battery[playerEid] ?? 100),
         resolve: Math.round(PlayerState.resolve[playerEid] ?? 100),
         ammoMag: PlayerState.ammoMag[playerEid] ?? 0,
         ammoReserve: PlayerState.ammoReserve[playerEid] ?? 0,
-        objective: 'reach the aft bulkhead',
+        objective,
         status: game.playerController.isGrounded ? 'grounded' : 'airborne',
       });
     },
     frameUpdate() {
       placeCamera();
+      syncRemoteMarkers();
     },
     resize(width, height) {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     },
     dispose() {
+      for (const mesh of remoteMeshes.values()) scene.remove(mesh);
+      remoteGeo.dispose();
+      remoteMat.dispose();
       game.dispose();
     },
   };

@@ -1,6 +1,8 @@
 import {
   createGameWorld,
+  NetworkId,
   spawnPlayer,
+  spawnRemotePlayer,
   Transform,
   type GameWorld,
   type GameWorldRole,
@@ -26,6 +28,12 @@ export interface GameOptions {
 
 const ZERO_INPUT: MoveInput = { moveX: 0, moveZ: 0, yaw: 0 };
 
+export interface ControlledPlayer {
+  readonly eid: number;
+  readonly character: PhysicsCharacter;
+  readonly controller: PlayerController;
+}
+
 /**
  * The M1 composition root: one ECS world, one host-style Rapier world, one local player capsule,
  * one fixed-step loop, and the top-level flow machine. It is intentionally renderer-agnostic: the
@@ -43,6 +51,7 @@ export class Game {
   private input: MoveInput = ZERO_INPUT;
   private disposed = false;
   private externalTick = 0;
+  private readonly controlledPlayers = new Map<number, ControlledPlayer>();
 
   private constructor(
     physics: PhysicsWorld,
@@ -56,6 +65,11 @@ export class Game {
     this.playerEid = playerEid;
     this.world = world;
     this.playerController = new PlayerController();
+    this.controlledPlayers.set(playerEid, {
+      eid: playerEid,
+      character: playerCharacter,
+      controller: this.playerController,
+    });
     this.loop = new GameLoop({
       fixedHz: opts.fixedHz ?? 60,
       fixedUpdate: (dt, tick) => this.fixedStep(dt, tick),
@@ -105,6 +119,35 @@ export class Game {
     this.input = input;
   }
 
+  addNetworkPlayer(netId: number, position: Vec3): ControlledPlayer {
+    const existing = [...this.controlledPlayers.values()].find((player) => NetworkId.id[player.eid] === netId);
+    if (existing) return existing;
+
+    const eid = spawnRemotePlayer(this.world);
+    const character = this.physics.addCharacter(position);
+    const controller = new PlayerController();
+    NetworkId.id[eid] = netId;
+    Transform.x[eid] = position.x;
+    Transform.y[eid] = position.y;
+    Transform.z[eid] = position.z;
+    syncBodyToTransform(eid, character.body);
+
+    const player = { eid, character, controller };
+    this.controlledPlayers.set(eid, player);
+    return player;
+  }
+
+  stepControlledPlayer(eid: number, input: MoveInput, dt: number, tick?: number): void {
+    const player = this.controlledPlayers.get(eid);
+    if (!player) throw new Error(`controlled player ${eid} is not registered`);
+    player.controller.applyInput(this.physics, player.character, input, dt);
+    this.physics.step();
+    for (const controlled of this.controlledPlayers.values()) {
+      syncBodyToTransform(controlled.eid, controlled.character.body);
+    }
+    this.opts.onFixedStep?.(dt, tick ?? this.loop.currentTick, this);
+  }
+
   /** Deterministic test/in-process driver; browser runtime normally uses `loop.start()`. */
   advance(frameDt: number): number {
     return this.loop.advance(frameDt);
@@ -124,9 +167,6 @@ export class Game {
   }
 
   private fixedStep(dt: number, tick: number): void {
-    this.playerController.applyInput(this.physics, this.playerCharacter, this.input, dt);
-    this.physics.step();
-    syncBodyToTransform(this.playerEid, this.playerCharacter.body);
-    this.opts.onFixedStep?.(dt, tick, this);
+    this.stepControlledPlayer(this.playerEid, this.input, dt, tick);
   }
 }
