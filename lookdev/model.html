@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGNAL LOST — 3D Unit Viewer</title>
+<style>
+  html,body{margin:0;height:100%;background:#c9cdd2;overflow:hidden;cursor:grab;font-family:ui-monospace,Menlo,monospace}
+  body.look{cursor:grabbing}
+  #c{width:100vw;height:100vh;display:block}
+  #title{position:fixed;left:16px;top:14px;font-weight:700;font-size:13px;letter-spacing:3px;color:#2a2f35;pointer-events:none}
+  #title small{display:block;font-weight:500;letter-spacing:1px;color:#5a626b;margin-top:3px;font-size:11px}
+  #spec{position:fixed;left:16px;bottom:14px;font-size:11px;line-height:1.55;color:#3a4047;
+        background:rgba(255,255,255,.5);border:1px solid rgba(40,46,54,.18);border-radius:7px;padding:9px 12px;backdrop-filter:blur(2px)}
+  #spec b{color:#b03426}
+  #hud{position:fixed;right:16px;bottom:14px;font-size:11px;color:#3a4047;pointer-events:none;text-align:right}
+  #panel{position:fixed;right:16px;top:14px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:60vw}
+  #panel button,#panel a{color:#26323d;text-decoration:none;background:rgba(255,255,255,.62);border:1px solid rgba(40,46,54,.22);
+        border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit;font-size:11px}
+  #panel button.on{background:#26323d;color:#fff} #panel button:hover,#panel a:hover{border-color:#b03426}
+  #msg{position:fixed;inset:0;display:none;place-items:center;text-align:center;color:#2a2f35;font-size:14px;padding:20px}
+  #msg .box{background:rgba(255,255,255,.7);border:1px solid rgba(40,46,54,.2);border-radius:10px;padding:22px 26px;max-width:520px}
+  #msg a{color:#b03426}
+  #bar{position:fixed;left:0;right:0;top:0;height:3px;background:transparent}
+  #barf{height:100%;width:0;background:linear-gradient(90deg,#E8A33D,#b03426);transition:width .2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">SIGNAL&nbsp;LOST · 3D&nbsp;UNIT<small id="sub">loading…</small></div>
+<div id="spec">—</div>
+<div id="hud"><b>drag</b> orbit · <b>scroll</b> zoom</div>
+<div id="panel">
+  <button id="bSpin" class="on">spin</button>
+  <button id="bWire">wireframe</button>
+  <button id="bGrid">floor</button>
+  <span id="anims" style="display:flex;gap:6px"></span>
+  <a href="/admin">▸ forge</a>
+</div>
+<div id="msg"><div class="box" id="msgbox"></div></div>
+<div id="bar"><div id="barf"></div></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+const q = new URLSearchParams(location.search);
+const id = q.get('id');
+const rigged = q.get('rig') === '1' || q.get('rig') === 'true';
+// explicit ?src= wins; otherwise build the volume path from ?id= (+ _rigged when ?rig=1)
+const src = q.get('src') || (id ? ('/u/' + id + (rigged ? '_rigged' : '') + '.glb') : null);
+
+const canvas = document.getElementById('c');
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(DPR); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// clean grey studio (matches /units-alpha)
+const scene = new THREE.Scene();
+const bgC = document.createElement('canvas'); bgC.width = bgC.height = 64;
+{ const x = bgC.getContext('2d'); const g = x.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0, '#e2e5e8'); g.addColorStop(0.6, '#cdd1d6'); g.addColorStop(1, '#aeb4bb');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); }
+scene.background = new THREE.CanvasTexture(bgC);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 200); camera.position.set(1.9, 1.55, 3.2);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.06; controls.target.set(0, 0.95, 0);
+controls.minDistance = 1.2; controls.maxDistance = 14; controls.maxPolarAngle = Math.PI * 0.52;
+
+// studio lighting: warm key, cool fill, crisp rim (same recipe as units-alpha)
+scene.add(new THREE.AmbientLight(0xdfe4ea, 0.55));
+scene.add(new THREE.HemisphereLight(0xeef2f6, 0x6a6f74, 0.7));
+const key = new THREE.DirectionalLight(0xfff3e2, 2.3); key.position.set(3.5, 5.5, 3.2); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.camera.near = 1; key.shadow.camera.far = 22;
+key.shadow.camera.left = -4; key.shadow.camera.right = 4; key.shadow.camera.top = 4; key.shadow.camera.bottom = -4;
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; scene.add(key);
+const fill = new THREE.DirectionalLight(0xbcd0e6, 0.6); fill.position.set(-4.5, 2.5, 1.5); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 1.4); rim.position.set(-2, 3.5, -5); scene.add(rim);
+
+// floor + amber dais
+const floorC = document.createElement('canvas'); floorC.width = floorC.height = 256;
+{ const x = floorC.getContext('2d'); const g = x.createRadialGradient(128,128,10,128,128,150);
+  g.addColorStop(0,'#d7dade'); g.addColorStop(1,'#b3b8be'); x.fillStyle=g; x.fillRect(0,0,256,256); }
+const floorTex = new THREE.CanvasTexture(floorC); floorTex.colorSpace = THREE.SRGBColorSpace;
+const ground = new THREE.Group(); scene.add(ground);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 48),
+  new THREE.MeshStandardMaterial({ map: floorTex, color: 0xcfd3d8, roughness: 0.96, metalness: 0.0 }));
+floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; ground.add(floor);
+const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.02, 0.06, 48),
+  new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.7, metalness: 0.2 }));
+dais.position.y = 0.03; dais.receiveShadow = true; ground.add(dais);
+const daisRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.015, 8, 64),
+  new THREE.MeshStandardMaterial({ color: 0xE8A33D, emissive: 0xE8A33D, emissiveIntensity: 0.5, roughness: 0.4 }));
+daisRing.rotation.x = -Math.PI/2; daisRing.position.y = 0.065; ground.add(daisRing);
+
+// post: gentle bloom + vignette
+const composer = new EffectComposer(renderer); composer.setPixelRatio(DPR);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.7, 0.9));
+composer.addPass(new OutputPass());
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader: `varying vec2 vUv; uniform sampler2D tDiffuse;
+   void main(){ vec2 d=vUv-0.5; vec3 c=texture2D(tDiffuse,vUv).rgb;
+    c*=mix(0.86,1.0,smoothstep(1.1,0.18,length(d))); gl_FragColor=vec4(c,1.0); }`
+}));
+function resize(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false); composer.setSize(w,h);
+  camera.aspect=w/h; camera.updateProjectionMatrix(); }
+
+const turntable = new THREE.Group(); scene.add(turntable);
+let spin = true, mixer = null, model = null, wire = false;
+const $ = s => document.querySelector(s);
+function showMsg(html){ const b=$('#msgbox'); if(b) b.innerHTML = html; document.getElementById('msg').style.display='grid'; }
+function setSub(t){ document.getElementById('sub').textContent = t; }
+
+function frameModel(root){
+  const pivot = new THREE.Group(); pivot.add(root); turntable.add(pivot);
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+  const h = size.y || 1, s = 1.7 / h;                     // normalize to ~1.7m so framing + lighting are consistent
+  root.position.set(-center.x, -box.min.y, -center.z);    // base on the dais, centered x/z
+  pivot.scale.setScalar(s);
+  controls.target.set(0, 0.9, 0);
+  const radius = Math.max(size.x, size.z) * s;
+  camera.position.set(radius * 0.9 + 0.8, 1.45, radius * 1.1 + 1.9); controls.update();
+}
+function countTris(root){ let t=0; root.traverse(o=>{ if(o.isMesh && o.geometry){ const g=o.geometry;
+  t += g.index ? g.index.count/3 : (g.attributes.position ? g.attributes.position.count/3 : 0); } }); return Math.round(t); }
+
+if (!src){
+  setSub('no unit specified');
+  showMsg('No unit specified. Open this from the <a href="/admin">Unit Forge</a> via “View 3D”, or pass <code>?id=unit-crew</code>.');
+} else {
+  setSub('loading ' + src.split('/').pop());
+  new GLTFLoader().load(src, gltf => {
+    document.getElementById('bar').style.display='none';
+    model = gltf.scene;
+    model.traverse(o => { if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; if (o.material) o.material.side = THREE.FrontSide; } });
+    frameModel(model);
+    const tris = countTris(model);
+    const clips = gltf.animations || [];
+    setSub((rigged ? 'rigged · ' : '') + (id || ''));
+    document.getElementById('spec').innerHTML =
+      `Unit: <b>${id || '—'}</b><br>Triangles: ${tris.toLocaleString()}<br>Rig: ${clips.length ? ('yes · '+clips.length+' clip'+(clips.length>1?'s':'')) : (rigged?'yes (no clips)':'static mesh')}`;
+    if (clips.length){
+      mixer = new THREE.AnimationMixer(model);
+      let cur = mixer.clipAction(clips[0]); cur.play();
+      const wrap = document.getElementById('anims');
+      clips.forEach((cl, i) => { const b = document.createElement('button'); b.textContent = cl.name || ('clip '+(i+1));
+        if (i===0) b.classList.add('on');
+        b.onclick = () => { mixer.stopAllAction(); mixer.clipAction(cl).reset().play();
+          wrap.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); };
+        wrap.appendChild(b); });
+    }
+  },
+  xhr => { if (xhr.total){ document.getElementById('barf').style.width = (xhr.loaded/xhr.total*100)+'%'; } },
+  err => { document.getElementById('bar').style.display='none'; setSub('load failed');
+    console.error(err);
+    showMsg('Could not load <code>'+src+'</code>.<br><br>This unit may not have a '+(rigged?'<b>rigged</b> ':'')+'model yet — build it in the <a href="/admin">Unit Forge</a> first.'); });
+}
+
+// controls
+$('#bSpin').onclick = e => { spin = !spin; e.target.classList.toggle('on', spin); };
+$('#bGrid').onclick = e => { ground.visible = !ground.visible; e.target.classList.toggle('on', ground.visible); };
+$('#bGrid').classList.add('on');
+$('#bWire').onclick = e => { wire = !wire; e.target.classList.toggle('on', wire);
+  if (model) model.traverse(o => { if (o.isMesh && o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.wireframe=wire); } }); };
+
+addEventListener('pointerdown', ()=>document.body.classList.add('look'));
+addEventListener('pointerup', ()=>document.body.classList.remove('look'));
+addEventListener('resize', resize); resize();
+
+const clock = new THREE.Clock();
+function animate(){ requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  if (spin) turntable.rotation.y += dt * 0.4;
+  if (mixer) mixer.update(dt);
+  controls.update(); composer.render();
+  globalThis.__viewerReady = true;
+}
+animate();
+</script>
+<script src="./nav.js?v=2"></script>
+</body>
+</html>

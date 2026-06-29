@@ -1,6 +1,9 @@
 # generated audio (Audio Forge output) — regenerate from prompts, don't commit
 lookdev/audio/
 
+# generated 3D units (Unit Forge output: front/back views + Tripo .glb models) — on the volume in prod
+lookdev/units_data/
+
 # secrets
 .env
 .env.*

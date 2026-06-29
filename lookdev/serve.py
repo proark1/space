@@ -1,4 +1,4 @@
-import os, json, ssl, base64, sqlite3, threading, datetime, http.server, urllib.request, urllib.error
+import os, json, ssl, base64, sqlite3, threading, datetime, http.server, urllib.request, urllib.error, urllib.parse
 
 ROOT  = os.path.dirname(os.path.abspath(__file__))
 # AUDIO_DIR points at a persistent Railway volume (e.g. /data/audio); defaults to ./audio locally
@@ -13,7 +13,12 @@ GMODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image")  # Nano Bana
 GASPECT = os.environ.get("GEMINI_ASPECT", "3:4")               # portrait, fits the lobby frame
 GSIZE   = os.environ.get("GEMINI_IMAGE_SIZE", "2K")            # 1K | 2K | 4K  (set "" to let the model default)
 SL_VOICE_PREFIX = "SL ·"
+TRIPO  = "https://api.tripo3d.ai/v2/openapi"                    # Tripo3D — image/multiview -> textured, auto-rigged 3D
+# UNITS_DIR holds per-unit front/back source images + generated .glb models; point at the Railway
+# volume (e.g. /data/units) in prod just like AUDIO_DIR; defaults to ./units locally.
+UNITS = os.environ.get("UNITS_DIR") or os.path.join(ROOT, "units_data")
 os.makedirs(AUDIO, exist_ok=True)
+os.makedirs(UNITS, exist_ok=True)
 os.chdir(ROOT)
 CTX = ssl.create_default_context()
 MIME = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg"}
@@ -132,6 +137,116 @@ def gemini_image(prompt, img_b64, mime, key):
             return base64.b64decode(inl["data"]), (inl.get("mimeType") or inl.get("mime_type") or "image/png")
     raise RuntimeError("Gemini returned no image (finishReason=%s)" % cands[0].get("finishReason"))
 
+# ---- Tripo3D: front/back images -> textured, optionally auto-rigged 3D model --------------------
+def tkey_of(h):  # Tripo key — header (pasted in admin) or server env, never a file
+    return h.headers.get("x-tripo-key") or os.environ.get("TRIPO_API_KEY") or ""
+
+def _multipart(field, filename, ctype, data):
+    b = "----slUnitForge"; nl = "\r\n"; out = b""
+    out += ("--" + b + nl).encode()
+    out += ('Content-Disposition: form-data; name="%s"; filename="%s"%s' % (field, filename, nl)).encode()
+    out += ("Content-Type: %s%s%s" % (ctype, nl, nl)).encode()
+    out += data + nl.encode() + ("--" + b + "--" + nl).encode()
+    return out, "multipart/form-data; boundary=" + b
+
+def _tripo(method, path, key, *, data=None, ctype=None, timeout=120):
+    req = urllib.request.Request(TRIPO + path, data=data, method=method,
+        headers={"Authorization": "Bearer " + key})
+    if ctype: req.add_header("Content-Type", ctype)
+    with urllib.request.urlopen(req, context=CTX, timeout=timeout) as r:
+        env = json.loads(r.read().decode())
+    if env.get("code") != 0:  # Tripo wraps everything in {code, data, message, suggestion}
+        raise RuntimeError("Tripo %s: %s" % (env.get("code"), env.get("message") or env))
+    return env.get("data") or {}
+
+def tripo_upload(data, mime, key):  # free; returns an image_token usable as a file_token
+    ext = (mime.split("/")[-1] or "png").replace("jpeg", "jpg")
+    body, ct = _multipart("file", "view." + ext, mime or "image/png", data)
+    return _tripo("POST", "/upload/sts", key, data=body, ctype=ct).get("image_token"), ext
+
+def tripo_balance(key):
+    return _tripo("GET", "/user/balance", key, timeout=30)
+
+def tripo_model_task(tokens, key, *, texture=True, pbr=True):
+    """tokens = list of (file_token, ext) in [front, left, back, right] order; None for a missing view.
+    One view -> image_to_model; two+ -> multiview_to_model (costs credits)."""
+    present = [t for t in tokens if t]
+    if not present:
+        raise ValueError("need at least a front-view image")
+    if len(present) == 1:
+        tok, ext = present[0]
+        payload = {"type": "image_to_model", "file": {"type": ext, "file_token": tok},
+                   "texture": texture, "pbr": pbr}
+    else:
+        # multiview wants a fixed [front, left, back, right] order; {} marks a skipped view
+        files = []
+        for t in tokens:
+            files.append({"type": t[1], "file_token": t[0]} if t else {})
+        payload = {"type": "multiview_to_model", "files": files, "texture": texture, "pbr": pbr}
+    return _tripo("POST", "/task", key, data=json.dumps(payload).encode(),
+                  ctype="application/json").get("task_id")
+
+def tripo_rig_task(model_task_id, key, out_format="glb"):
+    payload = {"type": "animate_rig", "original_model_task_id": model_task_id, "out_format": out_format}
+    return _tripo("POST", "/task", key, data=json.dumps(payload).encode(),
+                  ctype="application/json").get("task_id")
+
+def tripo_task(task_id, key):
+    return _tripo("GET", "/task/" + task_id, key, timeout=30)
+
+def _as_url(v):  # Tripo output fields are sometimes a bare URL, sometimes {"url":...,"type":...}
+    if isinstance(v, dict): return v.get("url") or ""
+    return v or ""
+
+def tripo_glb_url(task):  # prefer the textured PBR mesh, fall back to base / rigged model
+    out = task.get("output") or {}
+    for k in ("pbr_model", "rigged_model", "model", "base_model"):
+        u = _as_url(out.get(k))
+        if u: return u
+    return ""
+
+def download(url, timeout=300):
+    with urllib.request.urlopen(urllib.request.Request(url), context=CTX, timeout=timeout) as r:
+        return r.read()
+
+UNIT_MIME = {"glb": "model/gltf-binary", "gltf": "model/gltf+json", "png": "image/png",
+             "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "img": None}
+def safe_id(s):  # unit ids become filenames — keep them filesystem-safe
+    return "".join(c for c in (s or "") if c.isalnum() or c in "-_")[:48] or "unit"
+def unit_file(name):
+    return os.path.join(UNITS, os.path.basename(name))
+def unit_meta_path(uid):
+    return unit_file(safe_id(uid) + ".json")
+def load_unit(uid):  # per-unit sidecar = source of truth for views, task ids, status
+    fp = unit_meta_path(uid)
+    if os.path.isfile(fp):
+        try: return json.load(open(fp))
+        except Exception: pass
+    return {"id": safe_id(uid)}
+def save_unit(meta):
+    with open(unit_meta_path(meta["id"]), "w") as f:
+        json.dump(meta, f)
+
+# Front/back/side orthographic character-sheet prompts fed to Gemini before Tripo turns them into a mesh.
+# Tripo multiview order is [front, left, back, right]; the "side" view goes in the LEFT slot, so it is a left profile.
+UNIT_VIEW_PROMPT = {
+    "front": ("Orthographic FRONT view full-body character/creature sheet of: {d}. The ENTIRE figure from "
+              "head to toe is in frame, standing straight facing the camera in a neutral A-pose, arms slightly "
+              "away from the body, legs apart. Plain flat neutral mid-grey studio background, even soft lighting, "
+              "NO cast shadows, no ground plane, no props, no text, no watermark. Orthographic projection (no "
+              "perspective distortion), centered, clean readable silhouette. A single subject only."),
+    "back":  ("Orthographic BACK view full-body sheet of the EXACT SAME character/creature shown in the attached "
+              "reference image — identical outfit, colors, materials, proportions and gear — now seen directly "
+              "from BEHIND. The entire figure head to toe is in frame, standing straight in the same A-pose. Plain "
+              "flat neutral mid-grey studio background, even soft lighting, NO cast shadows, no props, no text. "
+              "Orthographic projection, centered. A single subject only."),
+    "side":  ("Orthographic SIDE PROFILE view (a clean 90° view of the LEFT side) full-body sheet of the EXACT SAME "
+              "character/creature shown in the attached reference image — identical outfit, colors, materials, "
+              "proportions and gear — seen from directly beside it. The entire figure head to toe is in frame, "
+              "standing straight in the same A-pose. Plain flat neutral mid-grey studio background, even soft "
+              "lighting, NO cast shadows, no props, no text. Orthographic projection, centered. A single subject only."),
+}
+
 def kind_of(endpoint):
     if "sound-generation" in endpoint: return "sfx"
     if "music" in endpoint: return "music"
@@ -200,6 +315,70 @@ class H(http.server.SimpleHTTPRequestHandler):
                     out[iid] = {"id": iid, "file": "audio/" + fn, "size": size, "createdAt": created}
         return list(out.values())
 
+    def _units_manifest(self):
+        items = []
+        for fn in sorted(os.listdir(UNITS)):
+            if not fn.endswith(".json"):
+                continue
+            try:
+                m = json.load(open(os.path.join(UNITS, fn)))
+            except Exception:
+                continue
+            uid = m.get("id") or os.path.splitext(fn)[0]
+            def url_if(suffix):  # cache-bust on mtime so regenerated views/models refresh in the UI
+                fp = unit_file(uid + suffix)
+                return ("/u/" + uid + suffix + "?t=" + str(int(os.stat(fp).st_mtime))) if os.path.isfile(fp) else None
+            m["frontUrl"]  = url_if("_front.img")
+            m["backUrl"]   = url_if("_back.img")
+            m["sideUrl"]   = url_if("_side.img")
+            m["glbUrl"]    = url_if(".glb")
+            m["riggedUrl"] = url_if("_rigged.glb")
+            items.append(m)
+        return items
+
+    def _unit_status(self):
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        task_id = (q.get("task_id") or [""])[0]
+        uid = safe_id((q.get("id") or [""])[0])
+        kind = (q.get("kind") or ["model"])[0]   # "model" | "rig"
+        if not task_id:
+            return self._json({"ok": False, "error": "no task_id"}, 200)
+        k = tkey_of(self)
+        if not k:
+            return self._json({"ok": False, "error": "no tripo key"}, 200)
+        try:
+            t = tripo_task(task_id, k)
+        except urllib.error.HTTPError as e:
+            return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (e.code, e.read().decode()[:300])}, 200)
+        except Exception as e:
+            return self._json({"ok": False, "error": str(e)}, 200)
+        status = t.get("status"); progress = t.get("progress")
+        out = {"ok": True, "status": status, "progress": progress,
+               "rendered": _as_url((t.get("output") or {}).get("rendered_image"))}
+        if status == "success":
+            glb = tripo_glb_url(t)
+            suffix = "_rigged.glb" if kind == "rig" else ".glb"
+            if glb:
+                try:
+                    data = download(glb)
+                    with open(unit_file(uid + suffix), "wb") as f:
+                        f.write(data)
+                    size, created = stamp(unit_file(uid + suffix))
+                    out["glb"] = "/u/" + uid + suffix + "?t=" + str(int(os.stat(unit_file(uid + suffix)).st_mtime))
+                    out["size"] = size
+                    record(uid + ":" + kind, "unit-" + kind, "unit", None, task_id,
+                           "units/" + uid + suffix, size, created)
+                except Exception as e:
+                    out["ok"] = False; out["error"] = "model done but download failed: " + str(e)
+            m = load_unit(uid)
+            m[kind + "_status"] = "success"; m[kind + "_task"] = task_id
+            if out.get("glb"): m[kind + "_glb"] = out["glb"]
+            save_unit(m)
+        elif status in ("failed", "banned", "expired", "cancelled", "unknown"):
+            m = load_unit(uid); m[kind + "_status"] = status; save_unit(m)
+            out["error"] = "task %s" % status
+        return self._json(out)
+
     def do_GET(self):
         p = self.path.split("?")[0]
         if p in ("/game", "/game/"):
@@ -216,6 +395,8 @@ class H(http.server.SimpleHTTPRequestHandler):
             self.path = "/units.html"; return super().do_GET()
         if p in ("/units-alpha", "/units-alpha/", "/unit-alpha", "/alpha"):
             self.path = "/units_alpha.html"; return super().do_GET()
+        if p in ("/model", "/model/", "/viewer", "/forge3d"):
+            self.path = "/model.html"; return super().do_GET()
         if p in ("/lobby", "/lobby/", "/waiting", "/play", "/start", "/intro"):
             self.path = "/lobby.html"; return super().do_GET()
         if p in ("/dock", "/dock/", "/docking"):
@@ -231,6 +412,29 @@ class H(http.server.SimpleHTTPRequestHandler):
                                "updatedAt": stamp(HERO)[1] if ex else None})
         if p == "/api/manifest":
             return self._json({"items": self._manifest(), "audioDir": AUDIO, "db": DB_PATH})
+        if p == "/api/units":
+            return self._json({"items": self._units_manifest(), "dir": UNITS})
+        if p == "/api/tripo-balance":
+            k = tkey_of(self)
+            if not k: return self._json({"ok": False, "error": "no tripo key"}, 200)
+            try:
+                d = tripo_balance(k)
+                return self._json({"ok": True, "balance": d.get("balance"), "frozen": d.get("frozen")})
+            except urllib.error.HTTPError as e:
+                return self._json({"ok": False, "status": e.code, "error": e.read().decode()[:400]}, 200)
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 200)
+        if p == "/api/unit-status":
+            return self._unit_status()
+        if p.startswith("/u/"):  # per-unit source images (.img) + generated models (.glb), from the volume
+            name = os.path.basename(p[len("/u/"):])
+            fp = unit_file(name)
+            if os.path.isfile(fp):
+                ext = name.rsplit(".", 1)[-1].lower()
+                ct = UNIT_MIME.get(ext, "application/octet-stream")
+                data = open(fp, "rb").read()
+                return self._serve_bytes(data, ct if ct else img_mime(data))
+            self.send_response(404); self.end_headers(); return
         if p == "/api/voices":
             k = key_of(self)
             if not k: return self._json({"ok": False, "error": "no api key"}, 200)
@@ -253,7 +457,8 @@ class H(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         p = self.path.split("?")[0]
         if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice",
-                     "/api/hero-upload", "/api/hero-generate"):
+                     "/api/hero-upload", "/api/hero-generate",
+                     "/api/unit-image", "/api/unit-model", "/api/unit-rig", "/api/unit-delete"):
             self.send_response(404); self.end_headers(); return
         try:
             ln = int(self.headers.get("Content-Length", "0"))
@@ -299,6 +504,108 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self._json({"ok": True, "file": "/hero", "size": size, "updatedAt": updated})
             except Exception as e:
                 return self._json({"ok": False, "error": str(e)}, 200)
+
+        if p == "/api/unit-image":  # front/back view for a unit — Gemini-generated or uploaded; stored on the volume
+            uid = safe_id(body.get("id"))
+            view = body.get("view")
+            if view not in ("front", "back", "side"):
+                return self._json({"ok": False, "error": "view must be 'front', 'back' or 'side'"}, 200)
+            meta = load_unit(uid)
+            if body.get("name"): meta["name"] = body["name"]
+            desc = (body.get("prompt") or meta.get("prompt") or meta.get("name") or "").strip()
+            if body.get("prompt"): meta["prompt"] = body["prompt"]
+            try:
+                du = body.get("dataUrl", "") or ""
+                if du:  # uploaded image -> store as-is
+                    mime = "image/png"
+                    if du.startswith("data:") and ";base64," in du:
+                        mime = du[5:du.index(";base64,")]; du = du.split(",", 1)[1]
+                    elif "," in du:
+                        du = du.split(",", 1)[1]
+                    raw = base64.b64decode(du)
+                    if not raw: return self._json({"ok": False, "error": "empty image"}, 200)
+                    if len(raw) > 12_000_000: return self._json({"ok": False, "error": "image too large (max 12 MB)"}, 200)
+                    omime = mime
+                else:  # generate with Gemini (Nano Banana) from a character-sheet prompt
+                    gk = gkey_of(self)
+                    if not gk:
+                        return self._json({"ok": False, "error": "No Gemini key — paste one in the Forge or set GEMINI_API_KEY, or upload an image."}, 200)
+                    if not desc:
+                        return self._json({"ok": False, "error": "describe the unit first (prompt is empty)"}, 200)
+                    prompt = UNIT_VIEW_PROMPT[view].format(d=desc)
+                    ref_b64, ref_mime = None, None
+                    if view in ("back", "side"):  # condition back/side on the generated front for consistency
+                        fp = unit_file(uid + "_front.img")
+                        if os.path.isfile(fp):
+                            fb = open(fp, "rb").read(); ref_b64 = base64.b64encode(fb).decode(); ref_mime = img_mime(fb)
+                    raw, omime = gemini_image(prompt, ref_b64, ref_mime, gk)
+                    if len(raw) > 16_000_000: return self._json({"ok": False, "error": "generated image too large"}, 200)
+                with open(unit_file(uid + "_" + view + ".img"), "wb") as f:
+                    f.write(raw)
+                size, updated = stamp(unit_file(uid + "_" + view + ".img"))
+                meta[view + "_at"] = updated; save_unit(meta)
+                record(uid + ":" + view, "unit-image", view, desc, None,
+                       "units/" + uid + "_" + view + ".img", size, updated)
+                return self._json({"ok": True, "view": view, "size": size, "updatedAt": updated,
+                                   "url": "/u/" + uid + "_" + view + ".img?t=" + str(int(os.stat(unit_file(uid + '_' + view + '.img')).st_mtime)),
+                                   "dataUrl": "data:" + (omime or "image/png") + ";base64," + base64.b64encode(raw).decode()})
+            except urllib.error.HTTPError as e:
+                return self._json({"ok": False, "error": "Gemini HTTP %s: %s" % (e.code, e.read().decode()[:400])}, 200)
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 200)
+
+        if p == "/api/unit-model":  # upload the unit's 3 views to Tripo and start a multiview -> mesh task
+            uid = safe_id(body.get("id"))
+            tk = tkey_of(self)
+            if not tk:
+                return self._json({"ok": False, "error": "No Tripo key — paste one in the Forge or set TRIPO_API_KEY."}, 200)
+            views = {v: unit_file(uid + "_" + v + ".img") for v in ("front", "back", "side")}
+            missing = [v for v, fp in views.items() if not os.path.isfile(fp)]
+            if missing:  # all 3 views are required
+                return self._json({"ok": False, "error": "all 3 views required — still missing: " + ", ".join(missing)}, 200)
+            try:
+                def up(fp):
+                    d = open(fp, "rb").read(); return tripo_upload(d, img_mime(d), tk)
+                # Tripo multiview order = [front, left, back, right]; the side view goes in the LEFT slot
+                tokens = [up(views["front"]), up(views["side"]), up(views["back"]), None]
+                task_id = tripo_model_task(tokens, tk,
+                                           texture=body.get("texture", True), pbr=body.get("pbr", True))
+                meta = load_unit(uid)
+                if body.get("name"): meta["name"] = body["name"]
+                meta["model_task"] = task_id; meta["model_status"] = "running"
+                meta.pop("rig_task", None); meta.pop("rig_status", None)  # stale rig no longer applies
+                save_unit(meta)
+                return self._json({"ok": True, "task_id": task_id})
+            except urllib.error.HTTPError as e:
+                return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (e.code, e.read().decode()[:400])}, 200)
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 200)
+
+        if p == "/api/unit-rig":  # auto-rig a finished model (humanoid/biped) -> rigged glb
+            uid = safe_id(body.get("id"))
+            tk = tkey_of(self)
+            if not tk:
+                return self._json({"ok": False, "error": "No Tripo key."}, 200)
+            meta = load_unit(uid)
+            model_task = meta.get("model_task")
+            if not model_task or meta.get("model_status") != "success":
+                return self._json({"ok": False, "error": "build the 3D model first (and let it finish)"}, 200)
+            try:
+                task_id = tripo_rig_task(model_task, tk)
+                meta["rig_task"] = task_id; meta["rig_status"] = "running"; save_unit(meta)
+                return self._json({"ok": True, "task_id": task_id})
+            except urllib.error.HTTPError as e:
+                return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (e.code, e.read().decode()[:400])}, 200)
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 200)
+
+        if p == "/api/unit-delete":  # remove a unit's images + models + sidecar
+            uid = safe_id(body.get("id"))
+            for suf in ("_front.img", "_back.img", "_side.img", ".glb", "_rigged.glb", ".json"):
+                try: os.remove(unit_file(uid + suf))
+                except OSError: pass
+            return self._json({"ok": True, "id": uid})
+
         k = key_of(self)
         if not k:
             return self._json({"ok": False, "error": "No API key — paste your ElevenLabs key at the top."}, 200)
