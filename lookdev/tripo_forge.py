@@ -49,6 +49,10 @@ def img_mime(data):  # sniff image type from magic bytes
     return "application/octet-stream"
 
 
+def is_glb(data):  # binary glTF starts with the "glTF" magic
+    return data[:4] == b"glTF"
+
+
 # ---- Tripo API ---------------------------------------------------------------
 def _multipart(field, filename, ctype, data):
     b = "----slUnitForge"; nl = "\r\n"; out = b""

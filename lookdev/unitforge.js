@@ -75,6 +75,10 @@ function render(){
             <button class="ubuild">▸ Build 3D model</button>
             <label class="stat"><input type="checkbox" class="urig" ${u.rig?'checked':''}> auto-rig after</label>
           </div>
+          <div class="row" style="gap:8px;margin-top:8px">
+            <label class="upbtn" title="upload a ready .glb (skips Tripo)" style="border:1px solid #2a3a48;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:600">⤓ Upload .glb<input type="file" accept=".glb,model/gltf-binary" class="uglb" hidden></label>
+            <span class="stat" style="color:var(--mut)">or drop in a ready/animated model — no Tripo needed</span>
+          </div>
           <div class="row" style="gap:10px;margin-top:8px">
             <button class="urigbtn" ${hasModel?'':'disabled'}>⛺ Auto-rig now</button>
             <a class="uview" href="/model?id=${u.id}${u.riggedUrl?'&rig=1':''}" target="_blank" style="${hasModel?'':'display:none'}">View 3D ↗</a>
@@ -161,6 +165,20 @@ async function buildModel(u, el){
   }catch(e){ ustat(el,'✗ '+e.message,'err'); ubar(el,null); }
   btn.disabled=false;
 }
+function fileToDataUrl(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onerror=rej; r.onload=()=>res(r.result); r.readAsDataURL(file); }); }
+async function uploadGlb(u, file, el){
+  if (!/\.glb$/i.test(file.name)){ ustat(el,'⚠ pick a .glb file (binary glTF)','err'); return; }
+  ustat(el, `uploading ${file.name} (${fmt2(file.size)})…`, '');
+  try{
+    const dataUrl = await fileToDataUrl(file);
+    const j = await (await fetch('/api/unit-glb',{method:'POST',headers:uhdrs(),
+      body:JSON.stringify({id:u.id, name:u.name, dataUrl})})).json();
+    if (!j.ok){ ustat(el,'✗ '+(j.error||'upload failed'),'err'); return; }
+    u.glbUrl=j.glb; ustat(el, `✓ GLB uploaded — ${fmt2(j.size)} · ready for the game`,'ok');
+    el.classList.add('done'); bumpCount();
+    const v=el.querySelector('.uview'); v.href='/model?id='+u.id; v.style.display='';
+  }catch(e){ ustat(el,'✗ '+e.message,'err'); }
+}
 async function rigModel(u, el){
   if (!TK.value.trim()){ ustat(el,'⚠ paste your Tripo key first','err'); return; }
   const btn=el.querySelector('.urigbtn'); btn.disabled=true; ubar(el,3); ustat(el,'submitting rig…','');
@@ -186,6 +204,7 @@ function wire(el, u){
   el.querySelectorAll('.vgen').forEach(b=> b.onclick=()=>genView(u, b.dataset.view, el));
   el.querySelectorAll('.vup').forEach(inp=> inp.onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) uploadView(u, inp.dataset.view, f, el); });
   el.querySelector('.ubuild').onclick=()=>buildModel(u, el);
+  el.querySelector('.uglb').onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) uploadGlb(u, f, el); };
   el.querySelector('.urigbtn').onclick=()=>rigModel(u, el);
   el.querySelector('.udel').onclick=e=>{ e.preventDefault(); deleteUnit(u, el); };
   el.querySelector('.uprompt').addEventListener('input', e=>{ u.prompt=e.target.value; });

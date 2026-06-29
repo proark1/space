@@ -936,6 +936,40 @@ class Handler(SimpleHTTPRequestHandler):
                 pass
         return self._json({"ok": True, "id": uid})
 
+    def _unit_glb(self):  # upload a ready .glb directly (skip Tripo) — used as the unit's model
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        uid = tf.safe_id(body.get("id"))
+        data_url = body.get("dataUrl", "") or ""
+        if "," in data_url:
+            data_url = data_url.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(data_url)
+        except Exception:
+            raw = b""
+        if not raw:
+            return self._json({"ok": False, "error": "empty file"}, 200)
+        if len(raw) > 80_000_000:
+            return self._json({"ok": False, "error": "GLB too large (max 80 MB)"}, 200)
+        if not tf.is_glb(raw):
+            return self._json({"ok": False, "error": "not a .glb file (must be binary glTF)"}, 200)
+        rigged = bool(body.get("rigged"))
+        suffix = "_rigged.glb" if rigged else ".glb"
+        os.makedirs(UNITS_DIR, exist_ok=True)
+        path = tf.unit_file(UNITS_DIR, uid + suffix)
+        with open(path, "wb") as handle:
+            handle.write(raw)
+        meta = tf.load_unit(UNITS_DIR, uid)
+        if body.get("name"):
+            meta["name"] = body["name"]
+        meta["model_status"] = "uploaded"
+        tf.save_unit(UNITS_DIR, meta)
+        size, _ = stamp(path)
+        return self._json({"ok": True, "size": size, "rigged": rigged,
+                           "glb": "/u/" + uid + suffix + "?t=" + str(int(os.stat(path).st_mtime))})
+
     def do_POST(self):
         parsed = urlparse(self.path)
         request_path = unquote(parsed.path)
@@ -960,6 +994,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._unit_rig()
         if request_path == "/api/unit-delete":
             return self._unit_delete()
+        if request_path == "/api/unit-glb":
+            return self._unit_glb()
 
         self.send_response(404)
         self.end_headers()

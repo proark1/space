@@ -458,7 +458,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p not in ("/api/generate", "/api/design", "/api/save-voice", "/api/delete-voice",
                      "/api/hero-upload", "/api/hero-generate",
-                     "/api/unit-image", "/api/unit-model", "/api/unit-rig", "/api/unit-delete"):
+                     "/api/unit-image", "/api/unit-model", "/api/unit-rig", "/api/unit-delete", "/api/unit-glb"):
             self.send_response(404); self.end_headers(); return
         try:
             ln = int(self.headers.get("Content-Length", "0"))
@@ -598,6 +598,25 @@ class H(http.server.SimpleHTTPRequestHandler):
                 return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (e.code, e.read().decode()[:400])}, 200)
             except Exception as e:
                 return self._json({"ok": False, "error": str(e)}, 200)
+
+        if p == "/api/unit-glb":  # upload a ready .glb directly (skip Tripo) — used as the unit's model
+            uid = safe_id(body.get("id"))
+            du = body.get("dataUrl", "") or ""
+            if "," in du: du = du.split(",", 1)[1]
+            try: raw = base64.b64decode(du)
+            except Exception: raw = b""
+            if not raw: return self._json({"ok": False, "error": "empty file"}, 200)
+            if len(raw) > 80_000_000: return self._json({"ok": False, "error": "GLB too large (max 80 MB)"}, 200)
+            if raw[:4] != b"glTF": return self._json({"ok": False, "error": "not a .glb file (must be binary glTF)"}, 200)
+            rigged = bool(body.get("rigged"))
+            suffix = "_rigged.glb" if rigged else ".glb"
+            with open(unit_file(uid + suffix), "wb") as f: f.write(raw)
+            meta = load_unit(uid)
+            if body.get("name"): meta["name"] = body["name"]
+            meta["model_status"] = "uploaded"; save_unit(meta)
+            size, _ = stamp(unit_file(uid + suffix))
+            return self._json({"ok": True, "size": size, "rigged": rigged,
+                "glb": "/u/" + uid + suffix + "?t=" + str(int(os.stat(unit_file(uid + suffix)).st_mtime))})
 
         if p == "/api/unit-delete":  # remove a unit's images + models + sidecar
             uid = safe_id(body.get("id"))
