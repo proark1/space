@@ -73,6 +73,66 @@ const AUDIO_ASSETS: AudioAsset[] = [
   { id: 'vox-chorus-lure', name: 'CHORUS Lure', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'The Chorus', prompt: '[hollow] I am the rescue you called for. Restore the signal. Open the channel.' },
 ];
 
+const EXTRA_AUDIO_ASSETS: AudioAsset[] = [
+  { id: 'pad-ambience', name: 'Pad Night Ambience', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Overcast night launch complex with gusting wind, distant industrial machinery, low generator hum, and a far-off warning klaxon.' },
+  { id: 'pad-klaxon', name: 'Launch Klaxon', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Slow repeating launch-warning klaxon echoing across a vast metallic launch pad.' },
+  { id: 'pad-steam', name: 'Umbilical Steam Vent', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'High-pressure steam and cryogenic vapor venting sharply from rocket umbilical lines.' },
+  { id: 'pad-rumble', name: 'Engine Roar Bed', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Sustained heavy rocket engine roar at full thrust, thunderous low-end rumble with crackling overtones.' },
+  { id: 'pad-liftoff', name: 'Liftoff', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: '0:08', prompt: 'Massive rocket lifting off the pad with overwhelming roar, deep ground rumble, and slow Doppler shift.' },
+  { id: 'pad-separation', name: 'Stage Separation', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: '0:03', prompt: 'Booster stage separation high in flight: sharp metallic bang, pyrotechnic crack, then thin rushing wind.' },
+  { id: 'pad-thunder', name: 'Distant Thunder', kind: 'sound', group: 'Launch SFX', status: 'missing', use: 'game', duration: '0:04', prompt: 'Distant rolling thunder over a storm-lit launch site, low and grim.' },
+  { id: 'cabin-air', name: 'Cabin Air Handling', kind: 'sound', group: 'Capsule SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Capsule air handling: soft circulated-air hiss and steady regulator tick, loopable.' },
+  { id: 'cabin-comms', name: 'Comms Static Bed', kind: 'sound', group: 'Capsule SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Radio comms bed with faint static, intermittent squelch, and far-off garbled transmissions.' },
+  { id: 'cabin-creak', name: 'Hull Creak', kind: 'sound', group: 'Capsule SFX', status: 'missing', use: 'game', duration: '0:03', prompt: 'Spacecraft hull creaking and groaning under stress, deep metallic flex.' },
+  { id: 'cabin-breath', name: 'Suit Breathing Bed', kind: 'sound', group: 'Capsule SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Tense slow astronaut breathing inside a sealed helmet, controlled but afraid.' },
+  { id: 'cabin-heartbeat', name: 'Heartbeat', kind: 'sound', group: 'Capsule SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Slow heavy human heartbeat under rising tension, intimate and loopable.' },
+  { id: 'capsule-thruster', name: 'RCS Thruster Puff', kind: 'sound', group: 'Capsule SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Short reaction-control thruster puff in vacuum, sharp burst of gas.' },
+  { id: 'space-drone', name: 'Deep Space Void Bed', kind: 'sound', group: 'Docking SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Cold emptiness beside a derelict ship: sub-bass void drone with distant hull resonances.' },
+  { id: 'space-hull-groan', name: 'Derelict Hull Groan', kind: 'sound', group: 'Docking SFX', status: 'missing', use: 'game', duration: '0:06', prompt: 'Enormous dead spaceship hull groaning and flexing in the cold, deep metal stress and pops.' },
+  { id: 'dock-airlock', name: 'Airlock Cycle', kind: 'sound', group: 'Docking SFX', status: 'missing', use: 'game', duration: '0:04', prompt: 'Airlock cycling with pressurization hiss, pumps spinning up, and a heavy seal thunk.' },
+  { id: 'dock-thruster', name: 'Docking Thrusters', kind: 'sound', group: 'Docking SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Capsule firing final maneuvering thrusters to align with a docking port, short controlled bursts.' },
+  { id: 'beacon-blip', name: 'Distress Beacon Bed', kind: 'sound', group: 'Docking SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Slow lonely automated distress-beacon blip repeating in the dark, cold and patient.' },
+  { id: 'amb-engine', name: 'Engine Room Drone', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Engine room ambience: throbbing dying reactor, low sub-bass drone, intermittent mechanical clanks.' },
+  { id: 'amb-vacuum', name: 'Vacuum Near-Silence', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Eerie near-silence of vacuum with faint suit breathing and a high lonely ringing tone.' },
+  { id: 'amb-medbay', name: 'Medbay Ambience', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Derelict medbay ambience: slow dripping fluid, stuttering flatline monitor tone, flickering electrical buzz.' },
+  { id: 'amb-bridge', name: 'Command Bridge Ambience', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Dead command bridge with hull-breach wind, sparking consoles, and distant automated voice.' },
+  { id: 'amb-saferoom', name: 'Safe Room Ambience', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Barricaded safe room with warmer electrical hum, calmer steady tone, distant threats muffled by steel.' },
+  { id: 'sfx-step', name: 'Footstep On Grating', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Single heavy footstep on a metal grating floor, hollow and close.' },
+  { id: 'sfx-step-run', name: 'Running Footstep', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Fast heavy running footstep on metal grating, urgent and hollow.' },
+  { id: 'sfx-vent', name: 'Vent Fan Whir', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Worn ceiling ventilation fan whirring and slightly rattling, loopable.' },
+  { id: 'sfx-klaxon', name: 'Alarm Klaxon', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:04', prompt: 'Distant emergency alarm klaxon echoing through metal corridors, ominous and repeating.' },
+  { id: 'sfx-steam', name: 'Steam Burst', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Sudden burst of pressurized steam hissing from a broken pipe.' },
+  { id: 'sfx-pickup', name: 'Item Pickup', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Picking up a sci-fi item: soft electronic chime and a small mechanical latch.' },
+  { id: 'sfx-powerdown', name: 'Power Cut', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:03', prompt: 'Ship power dying: descending electrical whine and heavy clunk as the lights cut out.' },
+  { id: 'sfx-whisper', name: 'Vent Whispers', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:04', prompt: 'Faint disembodied whispers drifting through a ventilation duct, words just out of reach.' },
+  { id: 'sfx-rifle', name: 'Pulse Rifle Shot', kind: 'sound', group: 'Combat SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Sci-fi pulse rifle shot, punchy energy weapon discharge with a short tail.' },
+  { id: 'sfx-reload', name: 'Weapon Reload', kind: 'sound', group: 'Combat SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Mechanical sci-fi weapon reload: magazine click and rising charge whine.' },
+  { id: 'sfx-gore', name: 'Dismemberment', kind: 'sound', group: 'Combat SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Wet visceral flesh tearing and bone snapping, gory dismemberment squelch.' },
+  { id: 'sfx-melee', name: 'Melee Impact', kind: 'sound', group: 'Combat SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Heavy melee impact with wet thud and metal clang.' },
+  { id: 'sfx-hit', name: 'Player Hurt', kind: 'sound', group: 'Combat SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Player taking damage: sharp pained human grunt and low impact thud.' },
+  { id: 'sfx-shield', name: 'Shield Absorb', kind: 'sound', group: 'Combat SFX', status: 'missing', use: 'game', duration: '0:01', prompt: 'Energy shield absorbing a hit, electric crackle and fading shimmer.' },
+  { id: 'crt-stalk', name: 'CHORUS Stalking Breath', kind: 'sound', group: 'Creature SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Creature stalking nearby: wet rattling breathing and low clicks, intimate and threatening.' },
+  { id: 'crt-lunge', name: 'CHORUS Lunge', kind: 'sound', group: 'Creature SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Creature lunging with violent wet surge of motion and layered inhuman scream.' },
+  { id: 'crt-mimic', name: 'CHORUS Mimic Help Call', kind: 'sound', group: 'Creature SFX', status: 'missing', use: 'game', duration: '0:04', prompt: 'Creature mimicking a human voice calling for help, almost convincing but hollow and subtly wrong.' },
+  { id: 'crt-skitter', name: 'CHORUS Duct Skitter', kind: 'sound', group: 'Creature SFX', status: 'missing', use: 'game', duration: '0:03', prompt: 'Many-limbed creature skittering fast through metal ducts and across panels, wet and frantic.' },
+  { id: 'mus-credits', name: 'End Credits', kind: 'music', group: 'Music', status: 'missing', use: 'game', duration: '0:40', prompt: 'Haunting bittersweet ambient end-credits piece that reframes the mission as a tragedy, unresolved and grieving.' },
+  { id: 'sfx-ui', name: 'UI Confirm Beep', kind: 'sound', group: 'Interface SFX', status: 'missing', use: 'shared', duration: '0:01', prompt: 'Soft retro sci-fi interface confirmation beep, single.' },
+  { id: 'sfx-ui-hover', name: 'UI Hover Tick', kind: 'sound', group: 'Interface SFX', status: 'missing', use: 'shared', duration: '0:01', prompt: 'Very short soft retro sci-fi UI hover tick.' },
+  { id: 'sfx-ui-back', name: 'UI Back Blip', kind: 'sound', group: 'Interface SFX', status: 'missing', use: 'shared', duration: '0:01', prompt: 'Low retro sci-fi UI back or cancel blip.' },
+  { id: 'sfx-ui-error', name: 'UI Error Buzzer', kind: 'sound', group: 'Interface SFX', status: 'missing', use: 'shared', duration: '0:01', prompt: 'Harsh denied error buzzer, short sci-fi interface failure.' },
+  { id: 'voice-captain', name: 'Captain Voice Design', kind: 'voice', group: 'Voices', status: 'missing', use: 'game', duration: 'voice', voice: 'Captain', prompt: 'Weary middle-aged spaceship captain, hoarse and exhausted, gravelly and low, trembling with controlled fear.' },
+  { id: 'voice-crew', name: 'Crew Panic Voice Design', kind: 'voice', group: 'Voices', status: 'missing', use: 'game', duration: 'voice', voice: 'Crew', prompt: 'Young terrified crew member, breathless and shaking, whispering urgently with a cracking voice.' },
+  { id: 'vox-control-count', name: 'Earth Control Countdown', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'Earth Control', prompt: '[tense] Ignition sequence start. Five. Four. [static] Three. Two. [grim] Godspeed. One.' },
+  { id: 'vox-control-wrong', name: 'Earth Control Wrong Note', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'Earth Control', prompt: '[steady] Telemetry is nominal, you are looking good, looking good, looking... [a fainter second voice underneath, a half beat late] looking good. [static] Control out.' },
+  { id: 'vox-crew-banter', name: 'Crew Capsule Banter', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'Crew', prompt: '[tired chuckle] So. Did anybody actually read the brief? [beat] No? [dry] Cool. Cool cool cool. [exhales] We are going to be fine.' },
+  { id: 'vox-vesta-1', name: 'VESTA The Signal', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'VESTA', prompt: '[calm] Correction. One signal active. [pause] It is not on our manifest.' },
+  { id: 'vox-vesta-2', name: 'VESTA Hull Breach', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'VESTA', prompt: '[urgent] Warning. Hull breach detected. [pause] Decompression imminent. [firmly] Brace.' },
+  { id: 'vox-vesta-3', name: 'VESTA Do Not Answer', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'VESTA', prompt: '[whispering] Do not restore communications. [pause] Whatever asks you to... [slowly] do not answer it.' },
+  { id: 'vox-captain-log', name: 'Captain Final Log', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'Captain', prompt: '[weary] Captain log, final entry. [shaky breath] We restored the comms array like they asked. [whisper] God help me, we answered it. [trembling] It has our voices now. All of them.' },
+  { id: 'vox-chorus-1', name: 'CHORUS The Lure', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'The Chorus', prompt: '[hollow] I am the rescue you called for. [whisper] Restore the signal. Open the channel. [mimicking] I sound like your friend because I am your friend now.' },
+  { id: 'vox-chorus-2', name: 'CHORUS Come Closer', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'The Chorus', prompt: '[wet, distorted] Come closer. [echoing] Let me speak to the others. [softly] Do not be afraid of me.' },
+];
+
 const IMAGE_ASSETS: ImageAsset[] = [
   { id: 'landing-hero', name: 'Landing Page Hero', kind: 'landing', group: 'Landing Page', status: 'approved', use: 'landing', ratio: '21:9', preview: heroImage, file: 'apps/client/src/assets/signal-lost-hero.png', prompt: 'Four salvage astronauts sprint through a derelict corridor while The Chorus emerges behind them.' },
   { id: 'landing-social-card', name: 'Social Share Card', kind: 'landing', group: 'Landing Page', status: 'missing', use: 'landing', ratio: '1.91:1', prompt: 'Readable SIGNAL LOST social card using the hero key art, no tiny text, strong monster silhouette.' },
@@ -89,6 +149,10 @@ const IMAGE_ASSETS: ImageAsset[] = [
   { id: 'room-code-thumb', name: 'Room Code Panel Thumbnail', kind: 'ui', group: 'Interface', status: 'missing', use: 'shared', ratio: '16:9', prompt: 'Diegetic capsule lobby room-code display, green CRT numerals, dark metal frame.' },
   { id: 'crew-portrait-set', name: 'Crew Portrait Set', kind: 'character', group: 'Characters', status: 'missing', use: 'game', ratio: '1:1', prompt: 'Four underpaid salvage contractors in low-poly suits, readable helmet colors, funny-scary tone.' },
 ];
+
+const BASE_AUDIO_IDS = new Set(AUDIO_ASSETS.map((asset) => asset.id));
+const ALL_AUDIO_ASSETS = [...AUDIO_ASSETS, ...EXTRA_AUDIO_ASSETS.filter((asset) => !BASE_AUDIO_IDS.has(asset.id))];
+const IMAGE_SIZE_OPTIONS = [256, 512, 768, 1024, 1600, 2048];
 
 const STATUS_LABEL: Record<AssetStatus, string> = {
   approved: 'approved',
@@ -380,6 +444,155 @@ function imageGenerationHeaders(apiKey: string): HeadersInit {
   return headers;
 }
 
+function imageSource(asset: ImageAsset): string | undefined {
+  return asset.preview ?? asset.file;
+}
+
+function isIconAsset(asset: ImageAsset): boolean {
+  const text = `${asset.kind} ${asset.id} ${asset.name}`.toLowerCase();
+  return asset.kind === 'item' || /(^|[-_\s])icon([-_\s]|$)/.test(text);
+}
+
+function imagePrompt(asset: ImageAsset): string {
+  if (!isIconAsset(asset)) return asset.prompt;
+  return `${asset.prompt} Isolated single game item icon centered on a pure white background. No text, no scene, no UI frame. Crisp cutout-ready edges with the whole object visible.`;
+}
+
+function defaultImageSize(asset: ImageAsset): number {
+  if (isIconAsset(asset)) return 512;
+  if (asset.kind === 'ui') return 1024;
+  if (asset.ratio === '21:9') return 2048;
+  return 1600;
+}
+
+function loadProcessImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not load the image for processing.'));
+    image.src = src;
+  });
+}
+
+function drawingContext(canvas: HTMLCanvasElement, willReadFrequently = false): CanvasRenderingContext2D {
+  const context = canvas.getContext('2d', { willReadFrequently });
+  if (!context) throw new Error('This browser could not create an image canvas.');
+  return context;
+}
+
+function isWhiteBackgroundPixel(data: Uint8ClampedArray, offset: number): boolean {
+  const red = data[offset] ?? 0;
+  const green = data[offset + 1] ?? 0;
+  const blue = data[offset + 2] ?? 0;
+  const alpha = data[offset + 3] ?? 0;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  return alpha < 8 || (min > 216 && max - min < 46) || (red > 238 && green > 238 && blue > 238);
+}
+
+function trimTransparentCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const context = drawingContext(canvas, true);
+  const { width, height } = canvas;
+  const imageData = context.getImageData(0, 0, width, height);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = imageData.data[(y * width + x) * 4 + 3] ?? 0;
+      if (alpha <= 12) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return canvas;
+
+  const padding = Math.min(24, Math.max(8, Math.round(Math.max(width, height) * 0.025)));
+  const sx = Math.max(0, minX - padding);
+  const sy = Math.max(0, minY - padding);
+  const sw = Math.min(width - sx, maxX - minX + 1 + padding * 2);
+  const sh = Math.min(height - sy, maxY - minY + 1 + padding * 2);
+  const output = document.createElement('canvas');
+  output.width = sw;
+  output.height = sh;
+  drawingContext(output).drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return output;
+}
+
+function cutOutWhiteBackground(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const context = drawingContext(canvas, true);
+  const { width, height } = canvas;
+  const imageData = context.getImageData(0, 0, width, height);
+  const visited = new Uint8Array(width * height);
+  const stack: number[] = [];
+
+  const queue = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const pixel = y * width + x;
+    if (visited[pixel]) return;
+    const offset = pixel * 4;
+    if (!isWhiteBackgroundPixel(imageData.data, offset)) return;
+    visited[pixel] = 1;
+    stack.push(pixel);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    queue(x, 0);
+    queue(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    queue(0, y);
+    queue(width - 1, y);
+  }
+
+  while (stack.length) {
+    const pixel = stack.pop();
+    if (typeof pixel !== 'number') continue;
+    const offset = pixel * 4;
+    imageData.data[offset + 3] = 0;
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    queue(x + 1, y);
+    queue(x - 1, y);
+    queue(x, y + 1);
+    queue(x, y - 1);
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return trimTransparentCanvas(canvas);
+}
+
+async function processImageAsset(asset: ImageAsset, maxEdge: number, cutout: boolean): Promise<string> {
+  const src = imageSource(asset);
+  if (!src) throw new Error('Generate or upload this image before saving it.');
+  const image = await loadProcessImage(src);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) throw new Error('The image has no readable dimensions.');
+  const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = drawingContext(canvas, cutout);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  if (!cutout && !isIconAsset(asset)) {
+    context.fillStyle = '#050607';
+    context.fillRect(0, 0, width, height);
+  }
+  context.drawImage(image, 0, 0, width, height);
+  const output = cutout ? cutOutWhiteBackground(canvas) : canvas;
+  return output.toDataURL(cutout || isIconAsset(asset) ? 'image/png' : 'image/jpeg', 0.86);
+}
+
 function statusCount<T extends BaseAsset>(items: T[], status: AssetStatus): number {
   return items.filter((item) => item.status === status).length;
 }
@@ -412,6 +625,7 @@ export function AdminPage() {
   const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [manifest, setManifest] = useState<ManifestItem[]>([]);
+  const [imageSizeById, setImageSizeById] = useState<Record<string, number>>({});
   const [toast, setToast] = useState('Checking for existing asset files...');
 
   const refreshManifest = useCallback(async (): Promise<void> => {
@@ -433,7 +647,7 @@ export function AdminPage() {
     void refreshManifest();
   }, [refreshManifest]);
 
-  const audioAssets = useMemo(() => mergeAudioAssets(AUDIO_ASSETS, manifest), [manifest]);
+  const audioAssets = useMemo(() => mergeAudioAssets(ALL_AUDIO_ASSETS, manifest), [manifest]);
   const imageAssets = useMemo(() => mergeImageAssets(IMAGE_ASSETS, manifest), [manifest]);
   const assets: BaseAsset[] = tab === 'audio' ? audioAssets : imageAssets;
   const filteredAudio = useFilteredAssets(audioAssets, query, status);
@@ -512,7 +726,7 @@ export function AdminPage() {
         headers: imageGenerationHeaders(geminiKey),
         body: JSON.stringify({
           id: asset.id,
-          prompt: asset.prompt,
+          prompt: imagePrompt(asset),
           ratio: asset.ratio,
         }),
       });
@@ -527,6 +741,33 @@ export function AdminPage() {
       void refreshManifest();
     } catch (error) {
       setToast(`Image generation failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const saveImage = async (asset: ImageAsset, cutout: boolean): Promise<void> => {
+    const maxEdge = imageSizeById[asset.id] ?? defaultImageSize(asset);
+    setBusyId(asset.id);
+    setToast(`${cutout ? 'Cutting out and saving' : 'Resizing and saving'} ${asset.id} at ${maxEdge}px max edge...`);
+    try {
+      const dataUrl = await processImageAsset(asset, maxEdge, cutout);
+      const response = await fetch('/api/save-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: asset.id, dataUrl }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`Image save failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      const saved = normalizeManifestItems({ items: [payload] });
+      setManifest((items) => [...items.filter((item) => item.id !== asset.id), ...saved]);
+      setToast(`Saved ${asset.id}. File saved to ${stringValue(payload.file) ?? 'the asset directory'}.`);
+      void refreshManifest();
+    } catch (error) {
+      setToast(`Image save failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
     } finally {
       setBusyId(null);
     }
@@ -630,7 +871,16 @@ export function AdminPage() {
         )} />
       ) : (
         <AssetGroups groups={grouped(filteredImages)} render={(asset) => (
-          <ImageRow asset={asset} busy={busyId === asset.id} onGenerate={generateImage} onAction={action} />
+          <ImageRow
+            asset={asset}
+            busy={busyId === asset.id}
+            imageSize={imageSizeById[asset.id] ?? defaultImageSize(asset)}
+            onSizeChange={(value) => setImageSizeById((sizes) => ({ ...sizes, [asset.id]: value }))}
+            onGenerate={generateImage}
+            onSave={(item) => saveImage(item, false)}
+            onCutout={(item) => saveImage(item, true)}
+            onAction={action}
+          />
         )} />
       )}
     </main>
@@ -686,11 +936,21 @@ function AudioRow(props: { asset: AudioAsset; busy: boolean; onGenerate: (asset:
   );
 }
 
-function ImageRow(props: { asset: ImageAsset; busy: boolean; onGenerate: (asset: ImageAsset) => Promise<void>; onAction: (asset: BaseAsset, verb: string) => void }) {
+function ImageRow(props: {
+  asset: ImageAsset;
+  busy: boolean;
+  imageSize: number;
+  onSizeChange: (value: number) => void;
+  onGenerate: (asset: ImageAsset) => Promise<void>;
+  onSave: (asset: ImageAsset) => Promise<void>;
+  onCutout: (asset: ImageAsset) => Promise<void>;
+  onAction: (asset: BaseAsset, verb: string) => void;
+}) {
   const { asset } = props;
+  const hasImage = Boolean(imageSource(asset));
   return (
     <article className="asset-row">
-      <div className="asset-thumb" aria-label={`${asset.name} preview`}>
+      <div className={`asset-thumb ${isIconAsset(asset) ? 'asset-thumb--icon' : ''}`} aria-label={`${asset.name} preview`}>
         {asset.preview ? <img src={asset.preview} alt="" /> : <span>{asset.ratio}</span>}
       </div>
       <div className="asset-row__main">
@@ -710,7 +970,15 @@ function ImageRow(props: { asset: ImageAsset; busy: boolean; onGenerate: (asset:
         </div>
       </div>
       <div className="asset-actions">
-        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Generating...' : asset.preview ? 'Regenerate' : 'Generate'}</button>
+        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Working...' : asset.preview ? 'Regenerate' : 'Generate'}</button>
+        <label className="asset-size-control">
+          <span>Max</span>
+          <select value={props.imageSize} onChange={(event) => props.onSizeChange(Number(event.target.value))} aria-label={`Maximum saved size for ${asset.name}`}>
+            {IMAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}px</option>)}
+          </select>
+        </label>
+        <button disabled={props.busy || !hasImage} onClick={() => void props.onSave(asset)}>Save</button>
+        <button disabled={props.busy || !hasImage} onClick={() => void props.onCutout(asset)}>Cut out</button>
         <button onClick={() => props.onAction(asset, 'Upload')}>Upload</button>
         <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
       </div>

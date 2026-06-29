@@ -1,3 +1,4 @@
+import base64
 import datetime
 import json
 import os
@@ -206,6 +207,24 @@ def save_image(asset_id, data, content_type):
     }
 
 
+def decode_image_data_url(data_url):
+    if not data_url.startswith("data:") or ";base64," not in data_url:
+        raise ValueError("Expected a base64 image data URL.")
+    header, encoded = data_url.split(",", 1)
+    content_type = header[5:].split(";", 1)[0].lower()
+    if content_type not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+        raise ValueError("Only PNG, JPEG, WebP, or GIF images can be saved.")
+    if len(encoded) > 24_000_000:
+        raise ValueError("Image upload is too large.")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ValueError("Image data is not valid base64.") from exc
+    if len(data) > 16_000_000:
+        raise ValueError("Image upload is too large.")
+    return data, content_type
+
+
 def generate_gemini_image(prompt, key, aspect_ratio=None):
     generation_config = {"responseModalities": ["IMAGE"]}
     image_config = {}
@@ -407,6 +426,28 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
+    def _save_image_upload(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            content_length = 0
+        if content_length > 25_000_000:
+            return self._json({"ok": False, "error": "Image upload is too large."}, 200)
+
+        try:
+            body = read_json(self)
+            asset_id = str(body.get("id") or "image")
+            data_url = str(body.get("dataUrl") or "")
+            image, content_type = decode_image_data_url(data_url)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+        try:
+            saved = save_image(asset_id, image, content_type)
+            return self._json({"ok": True, **saved, "contentType": content_type})
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         request_path = unquote(parsed.path)
@@ -457,6 +498,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._generate_audio()
         if request_path == "/api/generate-image":
             return self._generate_image()
+        if request_path == "/api/save-image":
+            return self._save_image_upload()
 
         self.send_response(404)
         self.end_headers()
