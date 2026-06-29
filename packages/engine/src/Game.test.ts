@@ -81,4 +81,18 @@ describe('Game', () => {
     expect(Transform.z[remote.eid]).toBeLessThan(remoteStartZ);
     game.dispose();
   });
+
+  it('can reconcile a controlled player pose and replay pending inputs', async () => {
+    const game = await Game.create({ role: 'client', initialPlayerPosition: { x: 0, y: 1, z: 12 } });
+
+    game.reconcileControlledPlayer(
+      game.playerEid,
+      { x: 2, y: 1, z: 8, yaw: 0 },
+      [{ input: { moveX: 0, moveZ: 1, yaw: 0 }, dt: 1 / 60 }],
+    );
+
+    expect(Transform.x[game.playerEid]).toBeCloseTo(2, 4);
+    expect(Transform.z[game.playerEid]).toBeLessThan(8);
+    game.dispose();
+  });
 });

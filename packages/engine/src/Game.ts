@@ -34,6 +34,23 @@ export interface ControlledPlayer {
   readonly controller: PlayerController;
 }
 
+export interface ControlledPlayerPose extends Vec3 {
+  readonly yaw?: number;
+}
+
+export interface ControlledPlayerReplayStep {
+  readonly input: MoveInput;
+  readonly dt: number;
+}
+
+function writeYawQuat(eid: number, yaw: number): void {
+  const half = yaw / 2;
+  Transform.qx[eid] = 0;
+  Transform.qy[eid] = Math.sin(half);
+  Transform.qz[eid] = 0;
+  Transform.qw[eid] = Math.cos(half);
+}
+
 /**
  * The M1 composition root: one ECS world, one host-style Rapier world, one local player capsule,
  * one fixed-step loop, and the top-level flow machine. It is intentionally renderer-agnostic: the
@@ -119,7 +136,7 @@ export class Game {
     this.input = input;
   }
 
-  addNetworkPlayer(netId: number, position: Vec3): ControlledPlayer {
+  addNetworkPlayer(netId: number, position: Vec3, ownerSlot = 0): ControlledPlayer {
     const existing = [...this.controlledPlayers.values()].find((player) => NetworkId.id[player.eid] === netId);
     if (existing) return existing;
 
@@ -127,6 +144,7 @@ export class Game {
     const character = this.physics.addCharacter(position);
     const controller = new PlayerController();
     NetworkId.id[eid] = netId;
+    NetworkId.ownerPeer[eid] = ownerSlot;
     Transform.x[eid] = position.x;
     Transform.y[eid] = position.y;
     Transform.z[eid] = position.z;
@@ -137,14 +155,46 @@ export class Game {
     return player;
   }
 
+  setControlledPlayerPose(eid: number, pose: ControlledPlayerPose): void {
+    const player = this.controlledPlayers.get(eid);
+    if (!player) throw new Error(`controlled player ${eid} is not registered`);
+    const translation = { x: pose.x, y: pose.y, z: pose.z };
+    player.character.body.setTranslation(translation, true);
+    player.character.body.setNextKinematicTranslation(translation);
+    player.controller.reset();
+    syncBodyToTransform(eid, player.character.body);
+    if (pose.yaw !== undefined) writeYawQuat(eid, pose.yaw);
+  }
+
+  controlledPlayerPosition(eid: number): Vec3 {
+    const player = this.controlledPlayers.get(eid);
+    if (!player) throw new Error(`controlled player ${eid} is not registered`);
+    const t = player.character.body.translation();
+    return { x: t.x, y: t.y, z: t.z };
+  }
+
+  reconcileControlledPlayer(
+    eid: number,
+    authoritative: ControlledPlayerPose,
+    replay: readonly ControlledPlayerReplayStep[] = [],
+  ): void {
+    this.setControlledPlayerPose(eid, authoritative);
+    const player = this.controlledPlayers.get(eid)!;
+    for (const step of replay) {
+      player.controller.applyInput(this.physics, player.character, step.input, step.dt);
+      this.physics.step();
+      this.syncControlledTransforms();
+      writeYawQuat(eid, step.input.yaw);
+    }
+  }
+
   stepControlledPlayer(eid: number, input: MoveInput, dt: number, tick?: number): void {
     const player = this.controlledPlayers.get(eid);
     if (!player) throw new Error(`controlled player ${eid} is not registered`);
     player.controller.applyInput(this.physics, player.character, input, dt);
     this.physics.step();
-    for (const controlled of this.controlledPlayers.values()) {
-      syncBodyToTransform(controlled.eid, controlled.character.body);
-    }
+    this.syncControlledTransforms();
+    writeYawQuat(eid, input.yaw);
     this.opts.onFixedStep?.(dt, tick ?? this.loop.currentTick, this);
   }
 
@@ -168,5 +218,11 @@ export class Game {
 
   private fixedStep(dt: number, tick: number): void {
     this.stepControlledPlayer(this.playerEid, this.input, dt, tick);
+  }
+
+  private syncControlledTransforms(): void {
+    for (const controlled of this.controlledPlayers.values()) {
+      syncBodyToTransform(controlled.eid, controlled.character.body);
+    }
   }
 }

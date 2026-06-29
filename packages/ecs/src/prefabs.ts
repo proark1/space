@@ -101,7 +101,16 @@ function buildPlayerBase(world: GameWorld, e: number): void {
   Flashlight.on[e] = 1;
   Flashlight.intensity[e] = 1;
   Flashlight.range[e] = 14;
+  NetworkId.id[e] = 0;
+  NetworkId.ownerPeer[e] = 0;
   NetworkId.archetype[e] = EntityType.Player;
+  PlayerInput.seq[e] = 0;
+  PlayerInput.moveX[e] = 0;
+  PlayerInput.moveZ[e] = 0;
+  PlayerInput.yaw[e] = 0;
+  PlayerInput.pitch[e] = 0;
+  PlayerInput.buttons[e] = 0;
+  PlayerInput.dt[e] = 0;
 }
 
 export function buildPlayer(world: GameWorld, e: number): void {

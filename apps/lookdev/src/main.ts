@@ -121,7 +121,9 @@ async function main(): Promise<void> {
       code,
       isHost: mode === 'host',
       iceServers,
+      signalingUrl: envString('VITE_SIGNALING_URL'),
       hostGame: mode === 'host' ? harness.game : undefined,
+      localGame: mode === 'client' ? harness.game : undefined,
       events: {
         onState: (state) => {
           netState = state;
@@ -196,6 +198,7 @@ async function main(): Promise<void> {
     render: () => {
       const now = performance.now();
       const dt = Math.min((now - lastT) / 1000, 0.1);
+      if (netDriver && netMode === 'client') netDriver.sampleRemoteEntities(now);
       harness.frameUpdate(dt);
       post.render();
       acc += now - lastT;

@@ -58,7 +58,13 @@ export const useNet = create<NetState>()((set, get) => {
 
   const begin = (isHost: boolean, code: string, firstLog: string): void => {
     stop();
-    const session = createSession({ code, isHost, iceServers: iceServers(), events: events() });
+    const session = createSession({
+      code,
+      isHost,
+      iceServers: iceServers(),
+      signalingUrl: import.meta.env.VITE_SIGNALING_URL,
+      events: events(),
+    });
     set({
       code,
       isHost,

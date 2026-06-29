@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_TURN_HOST?: string;
   readonly VITE_TURN_USERNAME?: string;
   readonly VITE_TURN_CREDENTIAL?: string;
+  /** Optional Cloudflare signaling Worker base URL. Omit to use Trystero public relays. */
+  readonly VITE_SIGNALING_URL?: string;
 }
 
 interface ImportMeta {

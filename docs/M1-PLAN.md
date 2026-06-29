@@ -1,6 +1,9 @@
 # SIGNAL LOST — M1 (Render Production) Implementation Plan
 
-> **Status:** PLAN ONLY — authored 2026-06-29 after the user chose "Start M1 — the real engine." No packages scaffolded, no engine code written yet.
+> **Status:** PARTIALLY IMPLEMENTED — originally authored 2026-06-29 as a plan-only doc. Since then,
+> `packages/render`, `packages/engine`, `packages/ui`, and `apps/lookdev` have been scaffolded with
+> tested M0/early-M1 infrastructure. See [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) for the
+> current done/partial/open split.
 > **Reads with:** [00-BUILD-BACKLOG.md](specs/00-BUILD-BACKLOG.md) (T21–T44), [01-scaffold-architecture.md](specs/01-scaffold-architecture.md) (package layout), [06-rendering-mood.md](specs/06-rendering-mood.md) + [LOW-POLY-PIVOT.md](LOW-POLY-PIVOT.md) (post-pivot render stack), [M-LOOK.md](M-LOOK.md) (the GREEN gate).
 
 ================================================================

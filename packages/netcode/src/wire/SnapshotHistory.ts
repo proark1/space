@@ -35,7 +35,7 @@ export class SnapshotHistory {
    * Build the smallest packet for a client whose last-acked tick is `baseTick`. Falls back to a
    * full snapshot when `baseTick` is null (needs-full) or the base has aged out of the ring.
    */
-  buildFor(current: WorldSnapshot, baseTick: number | null): Uint8Array {
+  buildFor(current: WorldSnapshot, baseTick: number | null): Uint8Array<ArrayBuffer> {
     if (baseTick === null) return encodeFull(current);
     const base = this.get(baseTick);
     if (!base) return encodeFull(current);

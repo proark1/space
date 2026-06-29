@@ -5,7 +5,7 @@ import { createGameWorld } from './world';
 import { buildStalker, buildPlayer, buildProjectile, despawnGameEntity, spawnRemotePlayer } from './prefabs';
 import {
   Transform, Stalker, AIState, NavAgent, Health, Limb, NetworkId, EnemyTag,
-  PlayerState, LocalPlayer, Projectile, RemotePlayer,
+  PlayerInput, PlayerState, LocalPlayer, Projectile, RemotePlayer,
 } from './components';
 import { LimbSlot, FsmState, PlayerStatus } from './enums';
 
@@ -33,6 +33,8 @@ describe('prefabs', () => {
     expect(PlayerState.health[e]).toBe(100);
     expect(PlayerState.ammoMag[e]).toBe(30);
     expect(PlayerState.status[e]).toBe(PlayerStatus.Alive);
+    expect(NetworkId.ownerPeer[e]).toBe(0);
+    expect(PlayerInput.seq[e]).toBe(0);
     expect(NetworkId.archetype[e]).toBe(EntityType.Player);
   });
 

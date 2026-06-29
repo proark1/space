@@ -65,6 +65,19 @@ describe('full snapshot', () => {
     }
   });
 
+  it('round-trips owner slot and input ack metadata when present', () => {
+    const world: WorldSnapshot = {
+      tick: 7,
+      entities: [
+        { id: 42, type: 1, x: 1, y: 1, z: 2, yaw: 0.25, anim: 0, hp: 100, ownerSlot: 2, inputAck: 99 },
+      ],
+    };
+
+    const back = decodeFull(encodeFull(world));
+
+    expect(back.entities[0]).toMatchObject({ ownerSlot: 2, inputAck: 99 });
+  });
+
   it('keeps a 24-entity full snapshot well under the MTU', () => {
     const bytes = encodeFull(randWorld(1, 24));
     expect(bytes.length).toBeLessThan(1200);
@@ -100,6 +113,28 @@ describe('delta snapshot', () => {
     const delta = decodeDelta(encodeDelta(current, base));
     expect(delta.changed.length).toBe(1);
     expect(delta.removed.length).toBe(0);
+  });
+
+  it('deltas owner slot and input ack metadata', () => {
+    const base = quantized({
+      tick: 30,
+      entities: [
+        { id: 10, type: 1, x: 0, y: 1, z: 0, yaw: 0, anim: 0, hp: 100, ownerSlot: 1, inputAck: 4 },
+      ],
+    });
+    const current = quantized({
+      tick: 31,
+      entities: [
+        { ...base.entities[0]!, inputAck: 5 },
+      ],
+    });
+
+    const delta = decodeDelta(encodeDelta(current, base));
+    const applied = applyDelta(base, delta);
+
+    expect(delta.changed).toHaveLength(1);
+    expect(delta.changed[0]!.fields.inputAck).toBe(5);
+    expect(applied.entities[0]).toMatchObject({ ownerSlot: 1, inputAck: 5 });
   });
 
   it('survives a 1000-iteration fuzz of random base→current transitions', () => {

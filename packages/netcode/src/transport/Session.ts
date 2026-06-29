@@ -7,7 +7,8 @@ import { NetStats } from '../client/NetStats';
 import type { NetStatsView } from '../client/NetStats';
 import { HostLossWatcher } from '../client/HostLossWatcher';
 import { createSignaler } from '../signaling/TrysteroSignaler';
-import type { SignalPayload } from '../signaling/TrysteroSignaler';
+import type { Signaler, SignalPayload } from '../signaling/TrysteroSignaler';
+import { createWebSocketSignaler } from '../signaling/WebSocketSignaler';
 import { PeerLink } from './PeerLink';
 import { ConnectionMachine } from './ConnectionMachine';
 
@@ -47,6 +48,10 @@ export function createSession(opts: {
   isHost: boolean;
   iceServers: RTCIceServer[];
   events: SessionEvents;
+  /** Optional Worker/DO base URL. When omitted, Trystero's public relay path is used. */
+  signalingUrl?: string;
+  /** Test/integration hook; overrides signalingUrl and the default Trystero signaler. */
+  signaler?: Signaler;
   now?: () => number;
 }): Session {
   const { code, isHost, iceServers, events } = opts;
@@ -61,7 +66,8 @@ export function createSession(opts: {
     events.onHostLost?.();
     machine.onPcState('failed');
   });
-  const signaler = createSignaler(code);
+  const signaler =
+    opts.signaler ?? (opts.signalingUrl ? createWebSocketSignaler(code, opts.signalingUrl) : createSignaler(code));
   const short = (id: string): string => id.slice(0, 6);
   const announce = (): void => events.onPeers?.([...links.keys()]);
 
@@ -69,6 +75,23 @@ export function createSession(opts: {
   let lastPairAt = 0;
 
   machine.startSignaling();
+
+  function wireBytes(data: ArrayBuffer | ArrayBufferView<ArrayBuffer>): Uint8Array {
+    return data instanceof ArrayBuffer
+      ? new Uint8Array(data)
+      : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+
+  function recordWireStats(data: ArrayBuffer | ArrayBufferView<ArrayBuffer>, t = now()): void {
+    const bytes = wireBytes(data);
+    try {
+      const header = readHeader(new ByteReader(bytes));
+      if (header.msgType === MsgType.Snapshot) stats.recordSnapshot(t, bytes.byteLength, header.serverTick);
+      else if (header.msgType === MsgType.Input) stats.recordInput(t);
+    } catch {
+      /* non-game packet or malformed user data: ignore for telemetry */
+    }
+  }
 
   function handleReliable(peerId: string, data: ArrayBuffer): void {
     if (!isHost) hostLoss.heard(now());
@@ -121,6 +144,7 @@ export function createSession(opts: {
       onReliable: (data) => handleReliable(peerId, data),
       onUnreliable: (data) => {
         if (!isHost) hostLoss.heard(now());
+        recordWireStats(data);
         events.onUnreliable?.(peerId, data);
       },
     });
@@ -222,12 +246,14 @@ export function createSession(opts: {
       links.get(peerId)?.sendReliable(data);
     },
     sendUnreliable: (peerId, data) => {
+      recordWireStats(data);
       links.get(peerId)?.sendUnreliable(data);
     },
     broadcastReliable: (data) => {
       for (const link of links.values()) link.sendReliable(data);
     },
     broadcastUnreliable: (data) => {
+      recordWireStats(data);
       for (const link of links.values()) link.sendUnreliable(data);
     },
     leave: () => {

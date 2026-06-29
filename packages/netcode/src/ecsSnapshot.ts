@@ -1,6 +1,7 @@
 import {
   Health,
   NetworkId,
+  PlayerInput,
   PlayerState,
   Transform,
   despawnGameEntity,
@@ -45,6 +46,8 @@ export function buildSnapshotFromEcs(world: GameWorld, tick: number): WorldSnaps
       yaw: yawFromQuat(eid),
       anim: byte(PlayerState.status[eid] ?? 0),
       hp: byte(Health.hp[eid] ?? 0),
+      ownerSlot: NetworkId.ownerPeer[eid] ?? 0,
+      inputAck: PlayerInput.seq[eid] ?? 0,
     });
   }
   return { tick, entities };
@@ -59,6 +62,8 @@ function writeEntitySnapshot(entity: EntitySnapshot, eid: number): void {
   writeYawQuat(eid, entity.yaw);
   Health.hp[eid] = entity.hp;
   PlayerState.status[eid] = entity.anim;
+  NetworkId.ownerPeer[eid] = entity.ownerSlot ?? 0;
+  PlayerInput.seq[eid] = entity.inputAck ?? 0;
 }
 
 /** Client-side bridge for already-bound entities. */

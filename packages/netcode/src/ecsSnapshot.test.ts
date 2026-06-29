@@ -3,6 +3,7 @@ import {
   createGameWorld,
   Health,
   NetworkId,
+  PlayerInput,
   PlayerState,
   queryRemotePlayers,
   spawnPlayer,
@@ -24,6 +25,8 @@ describe('ecs snapshot bridge', () => {
     Transform.qw[eid] = Math.cos(Math.PI / 4);
     Health.hp[eid] = 87;
     PlayerState.status[eid] = 3;
+    NetworkId.ownerPeer[eid] = 2;
+    PlayerInput.seq[eid] = 44;
 
     const snap = buildSnapshotFromEcs(world, 123);
     expect(snap.tick).toBe(123);
@@ -36,6 +39,8 @@ describe('ecs snapshot bridge', () => {
         z: -3.5,
         hp: 87,
         anim: 3,
+        ownerSlot: 2,
+        inputAck: 44,
       }),
     ]);
     expect(snap.entities[0]!.yaw).toBeCloseTo(Math.PI / 2, 5);
@@ -47,7 +52,7 @@ describe('ecs snapshot bridge', () => {
     const updated = applySnapshotToMappedEcs(
       {
         tick: 9,
-        entities: [{ id: 77, type: 1, x: -2, y: 1.25, z: 4, yaw: Math.PI, hp: 55, anim: 2 }],
+        entities: [{ id: 77, type: 1, x: -2, y: 1.25, z: 4, yaw: Math.PI, hp: 55, anim: 2, ownerSlot: 3, inputAck: 12 }],
       },
       new Map([[77, eid]]),
     );
@@ -59,6 +64,8 @@ describe('ecs snapshot bridge', () => {
     expect(Transform.qy[eid]).toBeCloseTo(1, 5);
     expect(Health.hp[eid]).toBe(55);
     expect(PlayerState.status[eid]).toBe(2);
+    expect(NetworkId.ownerPeer[eid]).toBe(3);
+    expect(PlayerInput.seq[eid]).toBe(12);
   });
 
   it('spawns and updates remote players for unknown snapshot ids', () => {

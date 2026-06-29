@@ -1,5 +1,9 @@
 # SIGNAL LOST — M0→M4 Build Backlog
 
+> **Implementation status:** see [../IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md).
+> Current code is M0 / early-M1 infrastructure with a playable lookdev greybox, not the M4
+> vertical slice. Treat the task table below as the target backlog; not every row is complete.
+
 ## Ordered backlog
 
 | ID | M | Task | Size | Depends | Done when |

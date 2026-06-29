@@ -32,6 +32,10 @@ export interface EntitySnapshot {
   yaw: number;
   anim: number;
   hp: number;
+  /** Owner slot from the packet header/lobby assignment. Host-local is 0; clients start at 1. */
+  ownerSlot?: number;
+  /** Last input sequence the host applied for this player, used by local reconciliation. */
+  inputAck?: number;
 }
 
 export interface WorldSnapshot {
@@ -46,6 +50,14 @@ export interface SnapshotDelta {
   changed: Array<{ id: number; type: number; mask: number; fields: Partial<EntitySnapshot> }>;
 }
 
+function hasExtra(e: EntitySnapshot): boolean {
+  return (e.ownerSlot ?? 0) !== 0 || (e.inputAck ?? 0) !== 0;
+}
+
+function fullMaskFor(e: EntitySnapshot): number {
+  return FULL_MASK | (hasExtra(e) ? Field.Extra : 0);
+}
+
 function writeFields(w: ByteWriter, e: EntitySnapshot, mask: number): void {
   if (mask & Field.Pos) {
     w.i16(quantizePosAxis(e.x));
@@ -55,6 +67,10 @@ function writeFields(w: ByteWriter, e: EntitySnapshot, mask: number): void {
   if (mask & Field.Yaw) w.u16(quantizeYaw(e.yaw));
   if (mask & Field.Anim) w.u8(e.anim);
   if (mask & Field.Hp) w.u8(e.hp);
+  if (mask & Field.Extra) {
+    w.u8(e.ownerSlot ?? 0);
+    w.u32(e.inputAck ?? 0);
+  }
 }
 
 function readFields(r: ByteReader, mask: number, into: Partial<EntitySnapshot>): void {
@@ -66,6 +82,10 @@ function readFields(r: ByteReader, mask: number, into: Partial<EntitySnapshot>):
   if (mask & Field.Yaw) into.yaw = dequantizeYaw(r.u16());
   if (mask & Field.Anim) into.anim = r.u8();
   if (mask & Field.Hp) into.hp = r.u8();
+  if (mask & Field.Extra) {
+    into.ownerSlot = r.u8();
+    into.inputAck = r.u32();
+  }
 }
 
 export function encodeFull(world: WorldSnapshot, opts?: { senderSlot?: number }): Uint8Array<ArrayBuffer> {
@@ -79,10 +99,11 @@ export function encodeFull(world: WorldSnapshot, opts?: { senderSlot?: number })
   });
   w.u16(world.entities.length);
   for (const e of world.entities) {
+    const mask = fullMaskFor(e);
     w.u16(e.id);
     w.u8(e.type);
-    w.u8(FULL_MASK);
-    writeFields(w, e, FULL_MASK);
+    w.u8(mask);
+    writeFields(w, e, mask);
   }
   return w.bytes();
 }
@@ -115,6 +136,9 @@ function fieldDiff(prev: EntitySnapshot, cur: EntitySnapshot): number {
   if (quantizeYaw(prev.yaw) !== quantizeYaw(cur.yaw)) mask |= Field.Yaw;
   if (prev.anim !== cur.anim) mask |= Field.Anim;
   if (prev.hp !== cur.hp) mask |= Field.Hp;
+  if ((prev.ownerSlot ?? 0) !== (cur.ownerSlot ?? 0) || (prev.inputAck ?? 0) !== (cur.inputAck ?? 0)) {
+    mask |= Field.Extra;
+  }
   return mask;
 }
 
@@ -145,7 +169,7 @@ export function encodeDelta(
   const changed: Array<{ e: EntitySnapshot; mask: number }> = [];
   for (const e of current.entities) {
     const prev = baseById.get(e.id);
-    const mask = prev ? fieldDiff(prev, e) : FULL_MASK; // new entity → full record
+    const mask = prev ? fieldDiff(prev, e) : fullMaskFor(e); // new entity → full record
     if (mask === 0) continue; // unchanged → omitted entirely
     changed.push({ e, mask });
   }
@@ -202,6 +226,8 @@ export function applyDelta(base: WorldSnapshot, delta: SnapshotDelta): WorldSnap
         yaw: c.fields.yaw ?? 0,
         anim: c.fields.anim ?? 0,
         hp: c.fields.hp ?? 0,
+        ownerSlot: c.fields.ownerSlot,
+        inputAck: c.fields.inputAck,
       });
     }
   }
