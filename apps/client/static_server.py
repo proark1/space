@@ -311,6 +311,25 @@ def music_length_ms(value, fallback_seconds):
     return int(max(3.0, min(600.0, seconds)) * 1000)
 
 
+def newest_existing(names):
+    found = []
+    for name in names:
+        path = os.path.join(AUDIO_DIR, name)
+        if os.path.isfile(path):
+            found.append((os.path.getmtime(path), "/audio/" + name))
+    found.sort()
+    return found[-1][1] if found else None
+
+
+def published_share_image():
+    """Newest landing share image on the asset server for OpenGraph/Twitter tags.
+    Prefers the purpose-built social card, then falls back to the saved hero."""
+    return (
+        newest_existing(["landing-social-card.jpg", "landing-social-card.jpeg", "landing-social-card.png", "landing-social-card.webp"])
+        or newest_existing(["landing-hero.jpg", "landing-hero.jpeg", "landing-hero.png", "landing-hero.webp"])
+    )
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
@@ -345,6 +364,46 @@ class Handler(SimpleHTTPRequestHandler):
         if send_body:
             with open(path, "rb") as media:
                 self.wfile.write(media.read())
+
+    def _public_base(self):
+        host = (self.headers.get("Host") or (HOST + ":" + str(PORT))).split(",")[0].strip()
+        proto = self.headers.get("X-Forwarded-Proto") or ("http" if host.startswith(("localhost", "127.")) else "https")
+        return proto.split(",")[0].strip() + "://" + host
+
+    def _serve_index(self, send_body=True):
+        path = os.path.join(ROOT, "index.html")
+        try:
+            with open(path, "rb") as page:
+                html = page.read().decode("utf-8", "replace")
+        except OSError:
+            self.send_response(404)
+            self.end_headers()
+            return
+        share = published_share_image()
+        if share and "</head>" in html:
+            image = self._public_base() + share
+            title = "SIGNAL LOST — Co-op Horror Panic Simulator"
+            desc = ("A funny-scary co-op space horror game where your voice is useful, your "
+                    "flashlight is incriminating, and the rescue signal is not asking nicely.")
+            tags = (
+                '<meta property="og:type" content="website">'
+                '<meta property="og:title" content="' + title + '">'
+                '<meta property="og:description" content="' + desc + '">'
+                '<meta property="og:image" content="' + image + '">'
+                '<meta name="twitter:card" content="summary_large_image">'
+                '<meta name="twitter:title" content="' + title + '">'
+                '<meta name="twitter:description" content="' + desc + '">'
+                '<meta name="twitter:image" content="' + image + '">'
+            )
+            html = html.replace("</head>", tags + "</head>", 1)
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        if send_body:
+            self.wfile.write(data)
 
     def _voices(self):
         key = key_of(self.headers)
@@ -533,6 +592,8 @@ class Handler(SimpleHTTPRequestHandler):
         local_path = os.path.join(ROOT, request_path.lstrip("/"))
         basename = os.path.basename(request_path)
 
+        if request_path in ("/", "/index.html"):
+            return self._serve_index()
         if request_path == "/api/manifest":
             return self._json({"items": manifest_items(), "audioDir": AUDIO_DIR})
         if request_path == "/api/voices":
@@ -556,6 +617,8 @@ class Handler(SimpleHTTPRequestHandler):
         local_path = os.path.join(ROOT, request_path.lstrip("/"))
         basename = os.path.basename(request_path)
 
+        if request_path in ("/", "/index.html"):
+            return self._serve_index(send_body=False)
         if request_path == "/api/manifest":
             return self._json({"items": manifest_items(), "audioDir": AUDIO_DIR}, send_body=False)
         if request_path.startswith("/audio/"):

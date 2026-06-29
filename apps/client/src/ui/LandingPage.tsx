@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
 import { useNet } from './store';
@@ -54,14 +54,60 @@ function playDemo(): void {
   window.location.assign(DEMO_URL);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assetUrl(file: string): string {
+  return /^(https?:|data:|blob:|\/)/.test(file) ? file : `/${file}`;
+}
+
+interface LandingArt {
+  hero?: string;
+  keyArt?: string;
+}
+
+// Landing art is published from /admin, which writes the files onto the asset
+// server and exposes them through /api/manifest. We resolve it here at runtime
+// (newest file per id wins) so saving art in the admin shows up on the next
+// page load with no rebuild or redeploy. Falls back to the bundled hero.
+function useLandingArt(): LandingArt {
+  const [art, setArt] = useState<LandingArt>({});
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch('/api/manifest', { cache: 'no-store' });
+        if (!response.ok) return;
+        const payload: unknown = await response.json();
+        const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
+        const newest = new Map<string, { file: string; at: string }>();
+        for (const item of items) {
+          if (!isRecord(item) || typeof item.id !== 'string' || typeof item.file !== 'string') continue;
+          const at = typeof item.createdAt === 'string' ? item.createdAt : '';
+          const current = newest.get(item.id);
+          if (!current || at >= current.at) newest.set(item.id, { file: assetUrl(item.file), at });
+        }
+        if (active) setArt({ hero: newest.get('landing-hero')?.file, keyArt: newest.get('landing-key-art-clean')?.file });
+      } catch {
+        // Keep the bundled fallback art if the manifest is unavailable.
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  return art;
+}
+
 export function LandingPage() {
   const { status, code, isHost, peers, log, host, join, leave, lostReason } = useNet();
+  const art = useLandingArt();
+  const heroSrc = art.hero ?? heroImage;
   const [draft, setDraft] = useState('');
   const [panicIndex, setPanicIndex] = useState(0);
   const [shakeKey, setShakeKey] = useState(0);
   const live = status !== 'idle' && status !== 'failed';
   const panicLine = PANIC_LINES[panicIndex] ?? PANIC_LINES[0];
-  const artStyle = useMemo(() => ({ '--landing-art': `url(${heroImage})` }) as CSSProperties, []);
+  const artStyle = useMemo(() => ({ '--landing-art': `url(${heroSrc})` }) as CSSProperties, [heroSrc]);
 
   const startRoom = (): void => {
     host();
@@ -81,7 +127,7 @@ export function LandingPage() {
   return (
     <main className="landing" style={artStyle}>
       <section className="hero" aria-label="Signal Lost landing page">
-        <img className="hero__image" src={heroImage} alt="" />
+        <img className="hero__image" src={heroSrc} alt="" />
         <div className="hero__grain" aria-hidden="true" />
         <nav className="nav" aria-label="Primary">
           <a className="nav__brand" href="#top" aria-label="Signal Lost home">
@@ -160,6 +206,18 @@ export function LandingPage() {
           ))}
         </div>
       </section>
+
+      {art.keyArt ? (
+        <section className="section section--keyart" id="key-art">
+          <div className="section__intro">
+            <p className="eyebrow">Recovered transmission</p>
+            <h2>Key art, straight off the salvage drive.</h2>
+          </div>
+          <figure className="key-art">
+            <img src={art.keyArt} alt="SIGNAL LOST key art" loading="lazy" />
+          </figure>
+        </section>
+      ) : null}
 
       <section className="section section--lobby" id="capsule-lobby">
         <div className="lobby-copy">

@@ -457,6 +457,28 @@ h1 {
     var(--panel-solid);
 }
 
+.section--keyart {
+  background:
+    radial-gradient(circle at 80% 18%, rgba(84, 242, 255, 0.08), transparent 26rem),
+    radial-gradient(circle at 14% 82%, rgba(255, 61, 46, 0.08), transparent 26rem),
+    #060809;
+  border-top: 1px solid rgba(244, 239, 228, 0.12);
+}
+
+.key-art {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(244, 239, 228, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+.key-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .section--lobby {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem);
