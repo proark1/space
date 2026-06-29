@@ -1,8 +1,10 @@
 // SIGNAL LOST — load a Unit Forge GLB into a scene with per-state animation playback.
-// Used by the game (index.html) to swap a procedural unit for a forged/uploaded model when one exists.
-// Returns null if the unit has no model yet, so the caller keeps its procedural fallback.
+// Used by the game (index.html) for the CHORUS and the crew bench (units.html) for the crew.
+// loadUnitModel() returns null if the unit has no model yet, so callers keep their procedural fallback.
+// The returned instance has .instance() to spawn more independent copies (own mixer) — for crews/enemies.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 
 const _loader = new GLTFLoader();
 
@@ -15,28 +17,16 @@ const STATE_CLIPS = {
   death:  ['death', 'die', 'dead'],
 };
 
-// loadUnitModel(id, { src?, rigged?, height?, yaw? }) -> { root, mixer, clips, clipNames, play, update, current } | null
-export async function loadUnitModel(id, opts = {}) {
-  const src = opts.src || ('/u/' + id + (opts.rigged ? '_rigged' : '') + '.glb');
-  let gltf;
-  try { gltf = await _loader.loadAsync(src); }
-  catch (e) { return null; }                       // 404 / not forged yet -> caller keeps its fallback
-
-  const inner = gltf.scene;
+// Build one independent, normalized, animatable instance from a (pristine) source scene + clips.
+function buildInstance(srcScene, clips, norm, opts) {
+  const inner = cloneSkeleton(srcScene);                 // SkeletonUtils handles skinned meshes correctly
   inner.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
-
-  // normalize: center on x/z, feet at y=0, scale to a target height so it drops into the scene predictably
-  const box = new THREE.Box3().setFromObject(inner);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const targetH = opts.height || 1.8;
-  inner.position.set(-center.x, -box.min.y, -center.z);
-  if (opts.yaw) inner.rotation.y = opts.yaw;        // flip if the model faces the wrong way
+  inner.position.copy(norm.pos);                          // center x/z + feet on the floor
+  if (opts.yaw) inner.rotation.y = opts.yaw;              // flip if the model faces the wrong way
   const root = new THREE.Group();
   root.add(inner);
-  root.scale.setScalar(targetH / (size.y || 1));
+  root.scale.setScalar(norm.scale);                       // scale to the requested height
 
-  const clips = gltf.animations || [];
   const mixer = clips.length ? new THREE.AnimationMixer(inner) : null;
   const clipFor = state => {
     if (!clips.length) return null;
@@ -46,12 +36,11 @@ export async function loadUnitModel(id, opts = {}) {
     }
     return null;
   };
-
   let curAction = null, curClip = null;
   function play(state, fade = 0.25) {
     if (!mixer) return;
     const clip = clipFor(state) || clips[0];
-    if (!clip || clip === curClip) return;          // already playing it
+    if (!clip || clip === curClip) return;               // already playing it
     const next = mixer.clipAction(clip);
     next.reset().setEffectiveWeight(1).fadeIn(fade).play();
     if (curAction && curAction !== next) curAction.fadeOut(fade);
@@ -65,4 +54,24 @@ export async function loadUnitModel(id, opts = {}) {
     update: dt => { if (mixer) mixer.update(dt); },
     get current() { return curClip ? curClip.name : null; },
   };
+}
+
+// loadUnitModel(id, { src?, rigged?, height?, yaw? }) -> instance | null
+// instance also has .instance() -> another independent copy (own mixer), for spawning a crew/swarm.
+export async function loadUnitModel(id, opts = {}) {
+  const src = opts.src || ('/u/' + id + (opts.rigged ? '_rigged' : '') + '.glb');
+  let gltf;
+  try { gltf = await _loader.loadAsync(src); }
+  catch (e) { return null; }                              // 404 / not forged yet -> caller keeps its fallback
+
+  const srcScene = gltf.scene, clips = gltf.animations || [];
+  const box = new THREE.Box3().setFromObject(srcScene);   // measure the pristine model once
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const targetH = opts.height || 1.8;
+  const norm = { pos: new THREE.Vector3(-center.x, -box.min.y, -center.z), scale: targetH / (size.y || 1) };
+
+  const first = buildInstance(srcScene, clips, norm, opts);
+  first.instance = () => buildInstance(srcScene, clips, norm, opts);
+  return first;
 }

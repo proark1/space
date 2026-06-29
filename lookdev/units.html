@@ -31,6 +31,7 @@
 <script type="module">
 import * as THREE from 'three';
 import './nav.js?v=2';
+import { loadUnitModel } from './unitgltf.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -131,9 +132,25 @@ const crate=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.8,0.95),new THREE.MeshSt
 crate.position.set(0,0.4,-2.05); crate.castShadow=crate.receiveShadow=true; turntable.add(crate);
 const seated=makeAstronaut({accent:TEAM[3],seated:true,expression:'worried',tone:3}); seated.position.set(0,0.8,-2.05); seated.rotation.y=0.12; turntable.add(seated);
 
+// If a crew model has been forged (/u/unit-crew.glb), use it for the standing crew — one instance per mode
+// (walk / run / attack), animated from the GLB's own clips. Falls back to the procedural bench when none exists.
+let crewModels=[];
+loadUnitModel('unit-crew', {height:1.85}).then(base=>{
+  if(!base) return;                                                  // none forged -> keep the procedural crew
+  standing.forEach(a=>{ a.visible=false; });                          // hide the procedural standing crew
+  [-1.0,0,1.0].forEach((x,i)=>{
+    const inst = i===0 ? base : base.instance();                      // first + independent clones (own mixers)
+    inst.root.position.set(x,0,0); inst.root.rotation.y=-0.18+i*0.18;
+    inst.play(MODES[i]);                                              // walk / run / attack
+    turntable.add(inst.root); crewModels.push(inst);
+  });
+});
+globalThis.__crew={ get models(){return crewModels;}, standing };     // inspect forged crew
+
 const clock=new THREE.Clock();
-function animate(){ requestAnimationFrame(animate); const t=clock.getElapsedTime();
+function animate(){ requestAnimationFrame(animate); const dt=clock.getDelta(); const t=clock.getElapsedTime();
   turntable.rotation.y=Math.sin(t*0.18)*0.08;
+  crewModels.forEach(c=>c.update(dt));                               // drive forged-crew animation (no-op if procedural)
   standing.forEach((a,i)=>animateAstronaut(a,a.userData.mode,t+i*0.08,1));
   const animState=standing.map(a=>({
     mode:a.userData.animState?.mode,
