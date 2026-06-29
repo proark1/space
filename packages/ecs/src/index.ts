@@ -4,3 +4,4 @@ export * from './components';
 export * from './world';
 export * from './pool';
 export * from './prefabs';
+export * from './queries';

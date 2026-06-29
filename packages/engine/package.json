@@ -16,5 +16,9 @@
     "build": "tsc -b",
     "test": "vitest run",
     "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@sl/ecs": "workspace:*",
+    "@dimforge/rapier3d-compat": "^0.19.3"
   }
 }
