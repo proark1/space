@@ -6,11 +6,14 @@ import ssl
 import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT = os.environ.get("STATIC_ROOT") or os.getcwd()
 AUDIO_DIR = os.environ.get("AUDIO_DIR") or os.path.join(ROOT, "audio")
 APPROVED_FILE = os.path.join(AUDIO_DIR, "_approved.json")
+# Unit Forge: per-unit source views (.img) + generated Tripo3D models (.glb). Point UNITS_DIR
+# at a Railway volume (e.g. /data/units) for persistence; defaults next to the served root.
+UNITS_DIR = os.environ.get("UNITS_DIR") or os.path.join(ROOT, "units_data")
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
@@ -20,6 +23,19 @@ GEMINI_SIZE = os.environ.get("GEMINI_IMAGE_SIZE", "2K")
 SIGNAL_LOST_VOICE_PREFIX = "SL ·"
 CTX = ssl.create_default_context()
 GEMINI_ASPECT_RATIOS = ("1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9")
+
+# Shared Tripo3D + Unit Forge logic. In the container tripo_forge.py is copied adjacent;
+# in local apps/client dev it lives in lookdev/, so fall back to that path.
+try:
+    import tripo_forge as tf
+except ImportError:  # pragma: no cover - local dev convenience
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "lookdev"))
+    import tripo_forge as tf
+
+
+def tripo_key_of(headers):
+    return headers.get("x-tripo-key") or os.environ.get("TRIPO_API_KEY") or ""
 LOOKDEV_ROUTES = {
     "/game": "/game.html",
     "/game/": "/game.html",
@@ -625,6 +641,20 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"items": manifest_items(), "audioDir": AUDIO_DIR})
         if request_path == "/api/voices":
             return self._voices()
+        if request_path == "/api/units":
+            return self._json({"items": self._units_manifest(), "dir": UNITS_DIR})
+        if request_path == "/api/tripo-balance":
+            return self._tripo_balance()
+        if request_path == "/api/unit-status":
+            return self._unit_status(parsed.query)
+        if request_path.startswith("/u/"):
+            return self._serve_unit(request_path)
+        if request_path in ("/forge", "/forge/", "/units-forge", "/unit-forge"):
+            self.path = "/units_forge.html"
+            return super().do_GET()
+        if request_path in ("/model", "/model/", "/viewer", "/forge3d"):
+            self.path = "/model.html"
+            return super().do_GET()
         if request_path.startswith("/audio/"):
             return self._serve_media(request_path)
         if request_path in LOOKDEV_ROUTES:
@@ -674,6 +704,238 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
+    # ---- Unit Forge: front/back/side views -> Tripo3D textured + auto-rigged 3D ----
+    def _units_manifest(self):
+        items = []
+        if not os.path.isdir(UNITS_DIR):
+            return items
+        for name in sorted(os.listdir(UNITS_DIR)):
+            if not name.endswith(".json"):
+                continue
+            try:
+                meta = json.load(open(os.path.join(UNITS_DIR, name)))
+            except Exception:
+                continue
+            uid = meta.get("id") or os.path.splitext(name)[0]
+
+            def url_if(suffix, uid=uid):
+                path = tf.unit_file(UNITS_DIR, uid + suffix)
+                return ("/u/" + uid + suffix + "?t=" + str(int(os.stat(path).st_mtime))) if os.path.isfile(path) else None
+
+            meta["frontUrl"] = url_if("_front.img")
+            meta["backUrl"] = url_if("_back.img")
+            meta["sideUrl"] = url_if("_side.img")
+            meta["glbUrl"] = url_if(".glb")
+            meta["riggedUrl"] = url_if("_rigged.glb")
+            items.append(meta)
+        return items
+
+    def _serve_unit(self, request_path):
+        name = os.path.basename(request_path[len("/u/"):])
+        path = tf.unit_file(UNITS_DIR, name)
+        if not os.path.isfile(path):
+            self.send_response(404)
+            self.end_headers()
+            return
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        data = open(path, "rb").read()
+        ctype = tf.UNIT_MIME.get(ext) or tf.img_mime(data)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _tripo_balance(self):
+        key = tripo_key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "no tripo key"}, 200)
+        try:
+            data = tf.balance(key)
+            return self._json({"ok": True, "balance": data.get("balance"), "frozen": data.get("frozen")})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "status": exc.code, "error": exc.read().decode()[:400]}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _unit_status(self, query):
+        params = parse_qs(query)
+        task_id = (params.get("task_id") or [""])[0]
+        uid = tf.safe_id((params.get("id") or [""])[0])
+        kind = (params.get("kind") or ["model"])[0]
+        if not task_id:
+            return self._json({"ok": False, "error": "no task_id"}, 200)
+        key = tripo_key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "no tripo key"}, 200)
+        try:
+            task = tf.task(task_id, key)
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (exc.code, exc.read().decode()[:300])}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        status = task.get("status")
+        out = {"ok": True, "status": status, "progress": task.get("progress"), "rendered": tf.rendered_url(task)}
+        if status == "success":
+            glb = tf.glb_url(task)
+            suffix = "_rigged.glb" if kind == "rig" else ".glb"
+            if glb:
+                try:
+                    os.makedirs(UNITS_DIR, exist_ok=True)
+                    with open(tf.unit_file(UNITS_DIR, uid + suffix), "wb") as handle:
+                        handle.write(tf.download(glb))
+                    size, _ = stamp(tf.unit_file(UNITS_DIR, uid + suffix))
+                    out["glb"] = "/u/" + uid + suffix + "?t=" + str(int(os.stat(tf.unit_file(UNITS_DIR, uid + suffix)).st_mtime))
+                    out["size"] = size
+                except Exception as exc:
+                    out["ok"] = False
+                    out["error"] = "model done but download failed: " + str(exc)
+            meta = tf.load_unit(UNITS_DIR, uid)
+            meta[kind + "_status"] = "success"
+            meta[kind + "_task"] = task_id
+            if out.get("glb"):
+                meta[kind + "_glb"] = out["glb"]
+            tf.save_unit(UNITS_DIR, meta)
+        elif status in ("failed", "banned", "expired", "cancelled", "unknown"):
+            meta = tf.load_unit(UNITS_DIR, uid)
+            meta[kind + "_status"] = status
+            tf.save_unit(UNITS_DIR, meta)
+            out["error"] = "task %s" % status
+        return self._json(out)
+
+    def _unit_image(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        uid = tf.safe_id(body.get("id"))
+        view = body.get("view")
+        if view not in ("front", "back", "side"):
+            return self._json({"ok": False, "error": "view must be 'front', 'back' or 'side'"}, 200)
+        meta = tf.load_unit(UNITS_DIR, uid)
+        if body.get("name"):
+            meta["name"] = body["name"]
+        desc = (body.get("prompt") or meta.get("prompt") or meta.get("name") or "").strip()
+        if body.get("prompt"):
+            meta["prompt"] = body["prompt"]
+        try:
+            data_url = body.get("dataUrl", "") or ""
+            if data_url:
+                mime = "image/png"
+                if data_url.startswith("data:") and ";base64," in data_url:
+                    mime = data_url[5:data_url.index(";base64,")]
+                    data_url = data_url.split(",", 1)[1]
+                elif "," in data_url:
+                    data_url = data_url.split(",", 1)[1]
+                raw = base64.b64decode(data_url)
+                if not raw:
+                    return self._json({"ok": False, "error": "empty image"}, 200)
+                if len(raw) > 12_000_000:
+                    return self._json({"ok": False, "error": "image too large (max 12 MB)"}, 200)
+                out_mime = mime
+            else:
+                gkey = gemini_key_of(self.headers)
+                if not gkey:
+                    return self._json({"ok": False, "error": "No Gemini key — paste one, or upload an image."}, 200)
+                if not desc:
+                    return self._json({"ok": False, "error": "describe the unit first (prompt is empty)"}, 200)
+                ref_b64, ref_mime = None, None
+                if view in ("back", "side"):
+                    front = tf.unit_file(UNITS_DIR, uid + "_front.img")
+                    if os.path.isfile(front):
+                        fb = open(front, "rb").read()
+                        ref_b64 = base64.b64encode(fb).decode()
+                        ref_mime = tf.img_mime(fb)
+                raw, out_mime = tf.gemini_view(tf.view_prompt(view, desc), ref_b64, ref_mime, gkey)
+                if len(raw) > 16_000_000:
+                    return self._json({"ok": False, "error": "generated image too large"}, 200)
+            os.makedirs(UNITS_DIR, exist_ok=True)
+            path = tf.unit_file(UNITS_DIR, uid + "_" + view + ".img")
+            with open(path, "wb") as handle:
+                handle.write(raw)
+            size, updated = stamp(path)
+            meta[view + "_at"] = updated
+            tf.save_unit(UNITS_DIR, meta)
+            return self._json({"ok": True, "view": view, "size": size, "updatedAt": updated,
+                               "url": "/u/" + uid + "_" + view + ".img?t=" + str(int(os.stat(path).st_mtime)),
+                               "dataUrl": "data:" + (out_mime or "image/png") + ";base64," + base64.b64encode(raw).decode()})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "error": "Gemini HTTP %s: %s" % (exc.code, exc.read().decode()[:400])}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _unit_model(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        uid = tf.safe_id(body.get("id"))
+        key = tripo_key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "No Tripo key — paste one or set TRIPO_API_KEY."}, 200)
+        views = {v: tf.unit_file(UNITS_DIR, uid + "_" + v + ".img") for v in ("front", "back", "side")}
+        missing = [v for v, path in views.items() if not os.path.isfile(path)]
+        if missing:
+            return self._json({"ok": False, "error": "all 3 views required — still missing: " + ", ".join(missing)}, 200)
+        try:
+            def up(path):
+                raw = open(path, "rb").read()
+                return tf.upload(raw, tf.img_mime(raw), key)
+
+            tokens = [up(views["front"]), up(views["side"]), up(views["back"]), None]  # [front, left, back, right]
+            task_id = tf.model_task(tokens, key, texture=body.get("texture", True), pbr=body.get("pbr", True))
+            meta = tf.load_unit(UNITS_DIR, uid)
+            if body.get("name"):
+                meta["name"] = body["name"]
+            meta["model_task"] = task_id
+            meta["model_status"] = "running"
+            meta.pop("rig_task", None)
+            meta.pop("rig_status", None)
+            tf.save_unit(UNITS_DIR, meta)
+            return self._json({"ok": True, "task_id": task_id})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (exc.code, exc.read().decode()[:400])}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _unit_rig(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        uid = tf.safe_id(body.get("id"))
+        key = tripo_key_of(self.headers)
+        if not key:
+            return self._json({"ok": False, "error": "No Tripo key."}, 200)
+        meta = tf.load_unit(UNITS_DIR, uid)
+        if not meta.get("model_task") or meta.get("model_status") != "success":
+            return self._json({"ok": False, "error": "build the 3D model first (and let it finish)"}, 200)
+        try:
+            task_id = tf.rig_task(meta["model_task"], key)
+            meta["rig_task"] = task_id
+            meta["rig_status"] = "running"
+            tf.save_unit(UNITS_DIR, meta)
+            return self._json({"ok": True, "task_id": task_id})
+        except urllib.error.HTTPError as exc:
+            return self._json({"ok": False, "error": "Tripo HTTP %s: %s" % (exc.code, exc.read().decode()[:400])}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _unit_delete(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        uid = tf.safe_id(body.get("id"))
+        for suffix in ("_front.img", "_back.img", "_side.img", ".glb", "_rigged.glb", ".json"):
+            try:
+                os.remove(tf.unit_file(UNITS_DIR, uid + suffix))
+            except OSError:
+                pass
+        return self._json({"ok": True, "id": uid})
+
     def do_POST(self):
         parsed = urlparse(self.path)
         request_path = unquote(parsed.path)
@@ -690,6 +952,14 @@ class Handler(SimpleHTTPRequestHandler):
             return self._save_image_upload()
         if request_path == "/api/approve":
             return self._approve()
+        if request_path == "/api/unit-image":
+            return self._unit_image()
+        if request_path == "/api/unit-model":
+            return self._unit_model()
+        if request_path == "/api/unit-rig":
+            return self._unit_rig()
+        if request_path == "/api/unit-delete":
+            return self._unit_delete()
 
         self.send_response(404)
         self.end_headers()

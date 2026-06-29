@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGNAL LOST — Unit Forge (3D)</title>
+<style>
+  :root{--bg:#0a0d12;--card:#10151c;--line:#1d2733;--amber:#E8A33D;--cyan:#7fd0ff;--green:#7dffb0;--purple:#b9a3ff;--txt:#cdd6e0;--mut:#8092a0;--red:#ff6a5a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  header{position:sticky;top:0;z-index:5;background:#070a0e;border-bottom:1px solid var(--line);padding:12px 18px}
+  h1{margin:0;font-size:15px;letter-spacing:3px;color:var(--green);font-weight:600}
+  .sub{color:var(--mut);font-size:11px;margin-top:3px}
+  main{padding:18px;max-width:1080px;margin:0 auto}
+  input,select{background:#0c1117;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:7px 9px;font:12px ui-monospace,monospace}
+  input:focus{outline:none;border-color:var(--amber)}
+  input.key{width:330px}
+  button{background:#0c1117;border:1px solid #2a3a48;color:var(--txt);border-radius:6px;padding:7px 12px;font:600 12px ui-monospace,monospace;cursor:pointer}
+  button:hover{border-color:var(--amber)}
+  button.gen{background:var(--amber);color:#1a1206;border:0}
+  button:disabled{opacity:.5;cursor:wait}
+  .cat{margin:22px 0 8px;color:var(--green);font-size:12px;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .cnt{float:right;color:var(--mut);font-size:10px;letter-spacing:0;text-transform:none}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .item.done{border-left:3px solid #2f5e44}
+  .item:hover{border-color:#28394a}
+  .head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .name{font-weight:600;color:var(--txt)}
+  .tag{font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
+  .id{margin-left:auto;color:#54616d;font-size:10px}
+  label.lbl,.lbl{display:block;font-size:10px;color:var(--mut);margin:8px 0 3px;text-transform:uppercase;letter-spacing:1px}
+  textarea{width:100%;background:#0c1117;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:8px;font:12px ui-monospace,monospace;resize:vertical;min-height:44px}
+  .row{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .stat{font-size:11px;color:var(--mut)} .stat.err{color:var(--red)} .stat.ok{color:var(--green)}
+  .note{color:var(--mut);font-size:11px;margin:6px 0 0} a{color:var(--cyan)} code{color:var(--purple)}
+  .genbar{height:3px;background:#0c1117;border-radius:3px;margin-top:10px;overflow:hidden;display:none}
+  .genbar.on{display:block}
+  .genbarfill{height:100%;width:0;background:linear-gradient(90deg,var(--amber),var(--green));transition:width .25s ease}
+  .scenes{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .scenes a{font-size:11px;color:#cdd6e0;text-decoration:none;background:#0c1117;border:1px solid #2a3a48;border-radius:20px;padding:5px 12px;letter-spacing:1px}
+  .scenes a:hover{border-color:var(--amber);color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>UNIT&nbsp;FORGE</h1>
+  <div class="sub">SIGNAL LOST · front + back + side views → <b>Tripo3D</b> textured + auto-rigged 3D models · view results in the <a href="/model" target="_blank">3D viewer ↗</a></div>
+  <div class="scenes">
+    <a href="/">▸ home</a><a href="/game">▸ game</a><a href="/units">▸ crew</a><a href="/model">▸ 3D viewer</a>
+  </div>
+</header>
+<main>
+  <!-- UNIT FORGE — front + back + side -> textured, auto-rigged 3D model (Tripo3D + Gemini) -->
+  <div class="cat">Unit Forge · front + back + side → 3D model <span class="cnt" id="unitcnt"></span></div>
+  <div class="item" id="unitpanel">
+    <div class="note">Describe a unit, generate its <b>front</b>, <b>back</b> and <b>side</b> view with <b>Gemini</b> (or upload your own), then <b>Tripo3D</b> turns the three views into a textured 3D mesh and can <b>auto-rig</b> it. All 3 views are required. Models open in the <a href="/model" target="_blank">3D viewer ↗</a>. Keys are used server-side only (or set <code>TRIPO_API_KEY</code> / <code>GEMINI_API_KEY</code> on the server).</div>
+    <div class="row" style="margin-top:10px">
+      <input class="key" id="tripokey" type="password" placeholder="paste Tripo3D key (tsk_…)" style="width:290px">
+      <input class="key" id="unitgmkey" type="password" placeholder="paste Gemini key (for the views)" style="width:290px">
+      <button id="tripocheck">Check balance</button>
+      <span class="stat" id="tripobal">balance —</span>
+    </div>
+    <div class="note" id="tripowarn" style="display:none;color:var(--amber);border:1px solid #4a3a1a;background:#1a1305;border-radius:6px;padding:8px 10px;margin-top:8px"></div>
+    <div class="row" style="margin-top:8px"><button id="unitadd">+ Add custom unit</button></div>
+  </div>
+  <div id="unitlist"></div>
+</main>
+<script type="module" src="./unitforge.js?v=1"></script>
+<script src="./nav.js?v=2"></script>
+</body>
+</html>
