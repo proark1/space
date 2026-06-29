@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { createGameWorld, Health, NetworkId, PlayerState, spawnPlayer, Transform } from '@sl/ecs';
-import { applySnapshotToMappedEcs, buildSnapshotFromEcs } from './ecsSnapshot';
+import {
+  createGameWorld,
+  Health,
+  NetworkId,
+  PlayerState,
+  queryRemotePlayers,
+  spawnPlayer,
+  Transform,
+} from '@sl/ecs';
+import { EntityType } from '@sl/shared-types';
+import { applySnapshotToEcs, applySnapshotToMappedEcs, buildSnapshotFromEcs } from './ecsSnapshot';
 
 describe('ecs snapshot bridge', () => {
   it('builds a wire snapshot from replicated ECS rows', () => {
@@ -50,5 +59,73 @@ describe('ecs snapshot bridge', () => {
     expect(Transform.qy[eid]).toBeCloseTo(1, 5);
     expect(Health.hp[eid]).toBe(55);
     expect(PlayerState.status[eid]).toBe(2);
+  });
+
+  it('spawns and updates remote players for unknown snapshot ids', () => {
+    const world = createGameWorld('client');
+    const map = new Map<number, number>();
+
+    const first = applySnapshotToEcs(
+      world,
+      {
+        tick: 1,
+        entities: [{ id: 101, type: EntityType.Player, x: 1, y: 2, z: 3, yaw: 0.5, hp: 88, anim: 1 }],
+      },
+      map,
+    );
+
+    const eid = map.get(101)!;
+    expect(first.spawned).toEqual([eid]);
+    expect(first.updated).toEqual([eid]);
+    expect([...queryRemotePlayers(world)]).toContain(eid);
+    expect(Transform.z[eid]).toBe(3);
+    expect(Health.hp[eid]).toBe(88);
+
+    const second = applySnapshotToEcs(
+      world,
+      {
+        tick: 2,
+        entities: [{ id: 101, type: EntityType.Player, x: -4, y: 2, z: -6, yaw: 0, hp: 77, anim: 2 }],
+      },
+      map,
+    );
+
+    expect(second.spawned).toEqual([]);
+    expect(second.updated).toEqual([eid]);
+    expect(map.get(101)).toBe(eid);
+    expect(Transform.x[eid]).toBe(-4);
+    expect(Transform.z[eid]).toBe(-6);
+    expect(Health.hp[eid]).toBe(77);
+  });
+
+  it('despawns mapped remotes missing from an authoritative full snapshot', () => {
+    const world = createGameWorld('client');
+    const map = new Map<number, number>();
+    applySnapshotToEcs(
+      world,
+      {
+        tick: 1,
+        entities: [
+          { id: 201, type: EntityType.Player, x: 0, y: 1, z: 0, yaw: 0, hp: 100, anim: 0 },
+          { id: 202, type: EntityType.Player, x: 1, y: 1, z: 0, yaw: 0, hp: 100, anim: 0 },
+        ],
+      },
+      map,
+    );
+    const removed = map.get(202)!;
+
+    const result = applySnapshotToEcs(
+      world,
+      {
+        tick: 2,
+        entities: [{ id: 201, type: EntityType.Player, x: 0, y: 1, z: 0, yaw: 0, hp: 99, anim: 0 }],
+      },
+      map,
+      { despawnMissing: true },
+    );
+
+    expect(result.despawned).toEqual([removed]);
+    expect(map.has(202)).toBe(false);
+    expect([...queryRemotePlayers(world)]).not.toContain(removed);
   });
 });

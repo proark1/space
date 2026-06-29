@@ -24,6 +24,7 @@ export interface SessionEvents {
   onLog?: (msg: string) => void;
   onPeers?: (peerIds: string[]) => void;
   onReliable?: (peerId: string, data: ArrayBuffer) => void;
+  onUnreliable?: (peerId: string, data: ArrayBuffer) => void;
   onStats?: (stats: NetStatsView) => void;
   onHostLost?: () => void;
 }
@@ -31,8 +32,13 @@ export interface SessionEvents {
 export interface Session {
   readonly code: string;
   readonly isHost: boolean;
+  readonly peerIds: readonly string[];
   /** Drive periodically (e.g. 4 Hz): schedules pings, checks host-loss, emits stats. */
   tick(): void;
+  sendReliable(peerId: string, data: ArrayBufferView<ArrayBuffer>): void;
+  sendUnreliable(peerId: string, data: ArrayBufferView<ArrayBuffer>): void;
+  broadcastReliable(data: ArrayBufferView<ArrayBuffer>): void;
+  broadcastUnreliable(data: ArrayBufferView<ArrayBuffer>): void;
   leave(): void;
 }
 
@@ -113,6 +119,10 @@ export function createSession(opts: {
         log(`peer ${short(peerId)} connected`);
       },
       onReliable: (data) => handleReliable(peerId, data),
+      onUnreliable: (data) => {
+        if (!isHost) hostLoss.heard(now());
+        events.onUnreliable?.(peerId, data);
+      },
     });
     links.set(peerId, link);
     pingers.set(peerId, new PingTracker());
@@ -185,6 +195,9 @@ export function createSession(opts: {
   return {
     code,
     isHost,
+    get peerIds() {
+      return [...links.keys()];
+    },
     tick: () => {
       const t = now();
       if (t - lastPingAt > 1000) {
@@ -204,6 +217,18 @@ export function createSession(opts: {
       }
       stats.setBuffered(links.size);
       events.onStats?.(stats.view(t));
+    },
+    sendReliable: (peerId, data) => {
+      links.get(peerId)?.sendReliable(data);
+    },
+    sendUnreliable: (peerId, data) => {
+      links.get(peerId)?.sendUnreliable(data);
+    },
+    broadcastReliable: (data) => {
+      for (const link of links.values()) link.sendReliable(data);
+    },
+    broadcastUnreliable: (data) => {
+      for (const link of links.values()) link.sendUnreliable(data);
     },
     leave: () => {
       for (const link of links.values()) link.close();

@@ -20,6 +20,7 @@
   "dependencies": {
     "@sl/ecs": "workspace:*",
     "@sl/netcode": "workspace:*",
+    "@sl/shared-types": "workspace:*",
     "@dimforge/rapier3d-compat": "^0.19.3"
   }
 }

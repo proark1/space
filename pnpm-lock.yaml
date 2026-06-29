@@ -118,6 +118,9 @@ importers:
       '@sl/netcode':
         specifier: workspace:*
         version: link:../netcode
+      '@sl/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
 
   packages/netcode:
     dependencies:

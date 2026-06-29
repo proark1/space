@@ -14,11 +14,13 @@ COPY packages/ ./packages/
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @sl/client build
+RUN SL_LOOKDEV_BASE=/lookdev/ pnpm --filter @sl/lookdev build
 
 FROM python:3.12-slim
 
 WORKDIR /app
 COPY --from=build /app/apps/client/dist ./
+COPY --from=build /app/apps/lookdev/dist ./lookdev/
 COPY --from=build /app/apps/client/static_server.py ./static_server.py
 COPY lookdev/admincontent.js lookdev/audio.js lookdev/flow.js lookdev/hero.js lookdev/nav.js lookdev/units.js lookdev/units_alpha.js ./
 COPY lookdev/units.html lookdev/launch.html lookdev/lobby.html lookdev/pad.html lookdev/dock.html lookdev/exterior.html lookdev/units_alpha.html ./

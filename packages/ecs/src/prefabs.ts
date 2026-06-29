@@ -1,10 +1,10 @@
-import { addComponent, addEntity } from 'bitecs';
+import { addComponent, addEntity, removeEntity } from 'bitecs';
 import { EntityType } from '@sl/shared-types';
 import type { GameWorld } from './world';
 import {
   Transform, PrevTransform, Velocity, EnemyTag, Stalker, Swarmer, AIState, NavAgent,
   Health, Limb, NetworkId, Replicated, Pooled, Projectile, Lifetime, Noise,
-  PlayerState, PlayerInput, Flashlight, LocalPlayer,
+  PlayerState, PlayerInput, Flashlight, LocalPlayer, RemotePlayer,
 } from './components';
 import { LimbSlot, FsmState, PlayerStatus } from './enums';
 
@@ -80,11 +80,10 @@ export function buildNoise(world: GameWorld, e: number): void {
   Lifetime.remaining[e] = 0;
 }
 
-export function buildPlayer(world: GameWorld, e: number): void {
+function buildPlayerBase(world: GameWorld, e: number): void {
   addComponent(world, e, Transform);
   addComponent(world, e, PrevTransform);
   addComponent(world, e, Velocity);
-  addComponent(world, e, LocalPlayer);
   addComponent(world, e, PlayerInput);
   addComponent(world, e, PlayerState);
   addComponent(world, e, Flashlight);
@@ -105,11 +104,32 @@ export function buildPlayer(world: GameWorld, e: number): void {
   NetworkId.archetype[e] = EntityType.Player;
 }
 
+export function buildPlayer(world: GameWorld, e: number): void {
+  buildPlayerBase(world, e);
+  addComponent(world, e, LocalPlayer);
+}
+
+export function buildRemotePlayer(world: GameWorld, e: number): void {
+  buildPlayerBase(world, e);
+  addComponent(world, e, RemotePlayer);
+}
+
 /** Create a fresh entity and build it into the local player (the non-pooled singleton). */
 export function spawnPlayer(world: GameWorld): number {
   const e = addEntity(world);
   buildPlayer(world, e);
   return e;
+}
+
+/** Create a fresh replicated remote-player entity for client-side snapshot application. */
+export function spawnRemotePlayer(world: GameWorld): number {
+  const e = addEntity(world);
+  buildRemotePlayer(world, e);
+  return e;
+}
+
+export function despawnGameEntity(world: GameWorld, eid: number): void {
+  removeEntity(world, eid);
 }
 
 // — reclaim: zero a recycled entity's fields on pool release —

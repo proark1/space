@@ -19,6 +19,20 @@ export interface PhysicsBox {
 
 /** The fixed simulation step (60 Hz), matching the GameLoop / host clock. */
 export const PHYSICS_FIXED_DT = 1 / 60;
+const RAPIER_DEPRECATED_INIT_WARNING = 'using deprecated parameters for the initialization function';
+
+async function initRapier(): Promise<void> {
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    if (typeof args[0] === 'string' && args[0].includes(RAPIER_DEPRECATED_INIT_WARNING)) return;
+    originalWarn(...args);
+  };
+  try {
+    await RAPIER.init();
+  } finally {
+    console.warn = originalWarn;
+  }
+}
 
 /**
  * Host-authoritative physics (T23). A thin, deterministic wrapper over a Rapier world stepped at a
@@ -37,7 +51,7 @@ export class PhysicsWorld {
 
   /** Initialise the Rapier WASM runtime (idempotent) and create a world. */
   static async create(gravity: Vec3 = { x: 0, y: -9.81, z: 0 }): Promise<PhysicsWorld> {
-    await RAPIER.init();
+    await initRapier();
     return new PhysicsWorld(gravity);
   }
 

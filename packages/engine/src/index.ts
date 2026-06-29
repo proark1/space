@@ -17,3 +17,9 @@ export type {
   InProcessMultiplayerSliceOptions,
   InProcessStepResult,
 } from './net/InProcessMultiplayerSlice';
+export { GameplayNetDriver, createGameplaySession } from './net/GameplayNetDriver';
+export type {
+  ClientInputIntent,
+  CreateGameplaySessionOptions,
+  GameplayNetDriverOptions,
+} from './net/GameplayNetDriver';

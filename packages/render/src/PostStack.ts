@@ -1,4 +1,4 @@
-import { PostProcessing } from 'three/webgpu';
+import { RenderPipeline } from 'three/webgpu';
 import type { Camera, Scene } from 'three';
 import {
   pass,
@@ -40,7 +40,7 @@ function buildUniforms(profile: RenderProfile) {
 export type PostUniformsBank = ReturnType<typeof buildUniforms>;
 
 export interface PostStack {
-  readonly post: PostProcessing;
+  readonly post: RenderPipeline;
   readonly uniforms: PostUniformsBank;
   /** Render the post-processed frame (drives the underlying scene pass). */
   render(): void;
@@ -84,7 +84,7 @@ export function createPostStack(
   // bands into the PS1 register (replaces the hard posterize + film grain, per the locked stack).
   c = bayerDither(c, uniforms.posterizeLevels);
 
-  const post = new PostProcessing(renderer.three, vec4(c, float(1)));
+  const post = new RenderPipeline(renderer.three, vec4(c, float(1)));
 
   return {
     post,

@@ -7,12 +7,27 @@ import { fileURLToPath } from 'node:url';
 const src = (p: string) => fileURLToPath(new URL(`../../packages/${p}/src/index.ts`, import.meta.url));
 
 export default defineConfig({
+  base: process.env.SL_LOOKDEV_BASE ?? '/',
+  build: {
+    chunkSizeWarningLimit: 2400,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/@dimforge/rapier3d-compat/')) return 'vendor-rapier';
+          if (id.includes('/three/')) return 'vendor-three';
+          if (id.includes('/react') || id.includes('/zustand/')) return 'vendor-ui';
+          return undefined;
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@sl/render': src('render'),
       '@sl/engine': src('engine'),
       '@sl/ecs': src('ecs'),
       '@sl/ui': src('ui'),
+      '@sl/netcode': src('netcode'),
       '@sl/shared-types': src('shared-types'),
     },
   },

@@ -3,9 +3,12 @@ import {
   NetworkId,
   PlayerState,
   Transform,
+  despawnGameEntity,
   queryReplicated,
+  spawnRemotePlayer,
   type GameWorld,
 } from '@sl/ecs';
+import { EntityType } from '@sl/shared-types';
 import type { EntitySnapshot, WorldSnapshot } from './wire/snapshot';
 
 function yawFromQuat(eid: number): number {
@@ -47,10 +50,18 @@ export function buildSnapshotFromEcs(world: GameWorld, tick: number): WorldSnaps
   return { tick, entities };
 }
 
-/**
- * Client-side bridge for already-bound entities. Spawn/despawn/id-map ownership lands in the later
- * replication task; this function updates the ECS rows for netIds the caller has already mapped.
- */
+function writeEntitySnapshot(entity: EntitySnapshot, eid: number): void {
+  NetworkId.id[eid] = entity.id;
+  NetworkId.archetype[eid] = entity.type;
+  Transform.x[eid] = entity.x;
+  Transform.y[eid] = entity.y;
+  Transform.z[eid] = entity.z;
+  writeYawQuat(eid, entity.yaw);
+  Health.hp[eid] = entity.hp;
+  PlayerState.status[eid] = entity.anim;
+}
+
+/** Client-side bridge for already-bound entities. */
 export function applySnapshotToMappedEcs(
   snapshot: WorldSnapshot,
   netIdToEid: ReadonlyMap<number, number>,
@@ -59,15 +70,62 @@ export function applySnapshotToMappedEcs(
   for (const entity of snapshot.entities) {
     const eid = netIdToEid.get(entity.id);
     if (eid === undefined) continue;
-    NetworkId.id[eid] = entity.id;
-    NetworkId.archetype[eid] = entity.type;
-    Transform.x[eid] = entity.x;
-    Transform.y[eid] = entity.y;
-    Transform.z[eid] = entity.z;
-    writeYawQuat(eid, entity.yaw);
-    Health.hp[eid] = entity.hp;
-    PlayerState.status[eid] = entity.anim;
+    writeEntitySnapshot(entity, eid);
     updated.push(eid);
   }
   return updated;
+}
+
+export interface SnapshotApplyResult {
+  readonly updated: number[];
+  readonly spawned: number[];
+  readonly despawned: number[];
+}
+
+export interface SnapshotApplyOptions {
+  /**
+   * Treat this full snapshot as authoritative for the provided map: mapped net ids absent from the
+   * snapshot are removed from the world and map. Keep false for partial/delta-derived updates.
+   */
+  readonly despawnMissing?: boolean;
+}
+
+/**
+ * Client-side replicated lifecycle bridge. Unknown player net ids spawn RemotePlayer entities, mapped
+ * ids update in-place, and optionally missing mapped ids despawn on authoritative full snapshots.
+ */
+export function applySnapshotToEcs(
+  world: GameWorld,
+  snapshot: WorldSnapshot,
+  netIdToEid: Map<number, number>,
+  opts: SnapshotApplyOptions = {},
+): SnapshotApplyResult {
+  const updated: number[] = [];
+  const spawned: number[] = [];
+  const despawned: number[] = [];
+  const seen = new Set<number>();
+
+  for (const entity of snapshot.entities) {
+    seen.add(entity.id);
+    let eid = netIdToEid.get(entity.id);
+    if (eid === undefined) {
+      if (entity.type !== EntityType.Player) continue;
+      eid = spawnRemotePlayer(world);
+      netIdToEid.set(entity.id, eid);
+      spawned.push(eid);
+    }
+    writeEntitySnapshot(entity, eid);
+    updated.push(eid);
+  }
+
+  if (opts.despawnMissing) {
+    for (const [netId, eid] of [...netIdToEid.entries()]) {
+      if (seen.has(netId)) continue;
+      netIdToEid.delete(netId);
+      despawnGameEntity(world, eid);
+      despawned.push(eid);
+    }
+  }
+
+  return { updated, spawned, despawned };
 }
