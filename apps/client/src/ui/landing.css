@@ -784,9 +784,9 @@ h1 {
 
 .admin-status {
   display: grid;
-  grid-template-columns: repeat(4, minmax(5.9rem, 1fr));
+  grid-template-columns: repeat(5, minmax(5.9rem, 1fr));
   gap: 0.6rem;
-  min-width: min(100%, 30rem);
+  min-width: min(100%, 37rem);
 }
 
 .admin-status span,
@@ -820,7 +820,7 @@ h1 {
   top: 0;
   z-index: 5;
   display: grid;
-  grid-template-columns: auto minmax(14rem, 1fr) auto auto;
+  grid-template-columns: auto minmax(14rem, 1fr) auto auto auto;
   gap: 0.75rem;
   align-items: center;
   padding: 0.9rem 0;
@@ -1010,6 +1010,7 @@ h1 {
 .asset-meta span {
   border: 1px solid rgba(244, 239, 228, 0.12);
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .asset-preview {

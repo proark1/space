@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
 
 type AdminTab = 'audio' | 'image';
@@ -13,6 +13,8 @@ interface BaseAsset {
   use: AssetUse;
   prompt: string;
   file?: string;
+  size?: number;
+  createdAt?: string;
 }
 
 interface AudioAsset extends BaseAsset {
@@ -25,6 +27,16 @@ interface ImageAsset extends BaseAsset {
   kind: 'landing' | 'scene' | 'character' | 'item' | 'ui';
   ratio: string;
   preview?: string;
+}
+
+interface ManifestItem {
+  id: string;
+  file: string;
+  media: AdminTab;
+  kind?: string;
+  prompt?: string;
+  size?: number;
+  createdAt?: string;
 }
 
 const AUDIO_ASSETS: AudioAsset[] = [
@@ -80,6 +92,176 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
   stale: 'stale',
 };
 
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function extensionOf(file: string): string {
+  return file.split('?')[0]?.split('.').pop()?.toLowerCase() ?? '';
+}
+
+function idFromFile(file: string): string {
+  const name = file.split('?')[0]?.split('/').pop() ?? file;
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+function mediaFromManifest(file: string, kind?: string): AdminTab | undefined {
+  const ext = extensionOf(file);
+  const normalizedKind = kind?.toLowerCase() ?? '';
+  if (AUDIO_EXTENSIONS.has(ext) || /audio|music|voice|sfx|sound/.test(normalizedKind)) return 'audio';
+  if (IMAGE_EXTENSIONS.has(ext) || /image|scene|character|item|ui|landing/.test(normalizedKind)) return 'image';
+  return undefined;
+}
+
+function assetUrl(file: string): string {
+  if (/^(https?:|data:|blob:|\/)/.test(file)) return file;
+  return `/${file}`;
+}
+
+function normalizeManifestItems(payload: unknown): ManifestItem[] {
+  const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
+  const normalized: ManifestItem[] = [];
+  for (const item of items) {
+    if (!isRecord(item)) continue;
+    const file = stringValue(item.file);
+    if (!file) continue;
+    const kind = stringValue(item.kind) ?? stringValue(item.category);
+    const media = mediaFromManifest(file, kind);
+    if (!media) continue;
+    normalized.push({
+      id: stringValue(item.id) ?? idFromFile(file),
+      file: assetUrl(file),
+      media,
+      kind,
+      prompt: stringValue(item.prompt),
+      size: numberValue(item.size),
+      createdAt: stringValue(item.createdAt) ?? stringValue(item.created_at) ?? stringValue(item.updatedAt),
+    });
+  }
+  return normalized.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function titleFromId(id: string): string {
+  return id
+    .replace(/^voice:/, 'voice-')
+    .split(/[-_:]+/)
+    .filter(Boolean)
+    .map((word) => word.length <= 3 ? word.toUpperCase() : word[0]?.toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function audioKind(item: ManifestItem): AudioAsset['kind'] {
+  const value = `${item.kind ?? ''} ${item.id}`.toLowerCase();
+  if (value.includes('music') || value.startsWith('mus-')) return 'music';
+  if (value.includes('voice') || value.includes('vox-')) return 'voice';
+  return 'sound';
+}
+
+function imageKind(item: ManifestItem): ImageAsset['kind'] {
+  const value = `${item.kind ?? ''} ${item.id}`.toLowerCase();
+  if (value.includes('landing')) return 'landing';
+  if (value.includes('character') || value.includes('crew') || value.includes('portrait')) return 'character';
+  if (value.includes('item') || value.includes('icon')) return 'item';
+  if (value.includes('ui') || value.includes('thumb')) return 'ui';
+  return 'scene';
+}
+
+function mergeAudioAssets(catalog: AudioAsset[], manifest: ManifestItem[]): AudioAsset[] {
+  const audioItems = manifest.filter((item) => item.media === 'audio');
+  const byId = new Map(audioItems.map((item) => [item.id, item]));
+  const used = new Set<string>();
+  const merged = catalog.map<AudioAsset>((asset) => {
+    const item = byId.get(asset.id);
+    if (!item) return asset;
+    used.add(item.id);
+    return {
+      ...asset,
+      status: asset.status === 'approved' ? asset.status : 'generated',
+      file: item.file,
+      prompt: item.prompt ?? asset.prompt,
+      size: item.size,
+      createdAt: item.createdAt,
+    };
+  });
+  const detected = audioItems
+    .filter((item) => !used.has(item.id))
+    .map<AudioAsset>((item) => ({
+      id: item.id,
+      name: titleFromId(item.id),
+      kind: audioKind(item),
+      group: 'Detected Files',
+      status: 'generated',
+      use: 'shared',
+      duration: 'file',
+      prompt: item.prompt ?? 'Existing audio file found on the asset server.',
+      file: item.file,
+      size: item.size,
+      createdAt: item.createdAt,
+    }));
+  return [...merged, ...detected];
+}
+
+function mergeImageAssets(catalog: ImageAsset[], manifest: ManifestItem[]): ImageAsset[] {
+  const imageItems = manifest.filter((item) => item.media === 'image');
+  const byId = new Map(imageItems.map((item) => [item.id, item]));
+  const used = new Set<string>();
+  const merged = catalog.map<ImageAsset>((asset) => {
+    const item = byId.get(asset.id);
+    if (!item) return asset;
+    used.add(item.id);
+    return {
+      ...asset,
+      status: asset.status === 'approved' ? asset.status : 'generated',
+      file: item.file,
+      preview: item.file,
+      prompt: item.prompt ?? asset.prompt,
+      size: item.size,
+      createdAt: item.createdAt,
+    };
+  });
+  const detected = imageItems
+    .filter((item) => !used.has(item.id))
+    .map<ImageAsset>((item) => ({
+      id: item.id,
+      name: titleFromId(item.id),
+      kind: imageKind(item),
+      group: 'Detected Files',
+      status: 'generated',
+      use: 'shared',
+      ratio: 'file',
+      prompt: item.prompt ?? 'Existing image file found on the asset server.',
+      file: item.file,
+      preview: item.file,
+      size: item.size,
+      createdAt: item.createdAt,
+    }));
+  return [...merged, ...detected];
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function statusCount<T extends BaseAsset>(items: T[], status: AssetStatus): number {
   return items.filter((item) => item.status === status).length;
 }
@@ -95,7 +277,7 @@ function useFilteredAssets<T extends BaseAsset>(items: T[], query: string, statu
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
       const statusMatch = status === 'all' || item.status === status;
-      const queryMatch = !needle || [item.id, item.name, item.group, item.prompt, item.use].some((value) => value.toLowerCase().includes(needle));
+      const queryMatch = !needle || [item.id, item.name, item.group, item.prompt, item.use, item.file].some((value) => value?.toLowerCase().includes(needle));
       return statusMatch && queryMatch;
     });
   }, [items, query, status]);
@@ -105,10 +287,33 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>('audio');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AssetStatus | 'all'>('all');
-  const [toast, setToast] = useState('Asset backend is not connected yet. Catalog, routing, and approvals surface are ready.');
-  const assets: BaseAsset[] = tab === 'audio' ? AUDIO_ASSETS : IMAGE_ASSETS;
-  const filteredAudio = useFilteredAssets(AUDIO_ASSETS, query, status);
-  const filteredImages = useFilteredAssets(IMAGE_ASSETS, query, status);
+  const [manifest, setManifest] = useState<ManifestItem[]>([]);
+  const [toast, setToast] = useState('Checking for existing asset files...');
+
+  const refreshManifest = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch('/api/manifest', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`manifest ${response.status}`);
+      const items = normalizeManifestItems(await response.json());
+      setManifest(items);
+      setToast(items.length
+        ? `Detected ${items.length} existing file${items.length === 1 ? '' : 's'} from the asset server.`
+        : 'Asset manifest connected. No generated files found yet.');
+    } catch {
+      setManifest([]);
+      setToast('No asset manifest endpoint responded. Showing the bundled catalog only.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshManifest();
+  }, [refreshManifest]);
+
+  const audioAssets = useMemo(() => mergeAudioAssets(AUDIO_ASSETS, manifest), [manifest]);
+  const imageAssets = useMemo(() => mergeImageAssets(IMAGE_ASSETS, manifest), [manifest]);
+  const assets: BaseAsset[] = tab === 'audio' ? audioAssets : imageAssets;
+  const filteredAudio = useFilteredAssets(audioAssets, query, status);
+  const filteredImages = useFilteredAssets(imageAssets, query, status);
   const filtered = tab === 'audio' ? filteredAudio : filteredImages;
 
   const action = (asset: BaseAsset, verb: string): void => {
@@ -129,6 +334,7 @@ export function AdminPage() {
         <div className="admin-status" aria-label="Asset status counts">
           <span><strong>{assets.length}</strong> total</span>
           <span><strong>{statusCount(assets, 'approved')}</strong> approved</span>
+          <span><strong>{statusCount(assets, 'generated')}</strong> generated</span>
           <span><strong>{statusCount(assets, 'missing')}</strong> missing</span>
           <span><strong>{statusCount(assets, 'stale')}</strong> stale</span>
         </div>
@@ -147,6 +353,7 @@ export function AdminPage() {
           <option value="missing">Missing</option>
           <option value="stale">Stale</option>
         </select>
+        <button className="admin-export" onClick={() => void refreshManifest()}>Refresh files</button>
         <button className="admin-export" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
       </section>
 
@@ -198,13 +405,16 @@ function AudioRow(props: { asset: AudioAsset; onAction: (asset: BaseAsset, verb:
           <span>{asset.duration}</span>
           <span>{asset.use}</span>
           {asset.voice ? <span>{asset.voice}</span> : null}
+          {asset.file ? <span>{asset.file}</span> : null}
+          {asset.size ? <span>{formatBytes(asset.size)}</span> : null}
+          {asset.createdAt ? <span>{formatDate(asset.createdAt)}</span> : null}
         </div>
       </div>
       <div className="asset-preview asset-preview--audio">
         {asset.file ? <audio controls src={asset.file} /> : <span>No clip</span>}
       </div>
       <div className="asset-actions">
-        <button onClick={() => props.onAction(asset, 'Generate')}>Generate</button>
+        <button onClick={() => props.onAction(asset, asset.file ? 'Regenerate' : 'Generate')}>{asset.file ? 'Regenerate' : 'Generate'}</button>
         <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
       </div>
     </article>
@@ -230,6 +440,8 @@ function ImageRow(props: { asset: ImageAsset; onAction: (asset: BaseAsset, verb:
           <span>{asset.ratio}</span>
           <span>{asset.use}</span>
           {asset.file ? <span>{asset.file}</span> : null}
+          {asset.size ? <span>{formatBytes(asset.size)}</span> : null}
+          {asset.createdAt ? <span>{formatDate(asset.createdAt)}</span> : null}
         </div>
       </div>
       <div className="asset-actions">
