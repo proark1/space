@@ -25,9 +25,9 @@ export function createCorridorScene(profile: RenderProfile): HarnessScene {
   scene.add(new HemisphereLight(0x141a22, 0x05070a, 0.5));
 
   // Mid-grey greybox albedos (the near-black placeholder read as pure void after posterize).
-  const wallMat = new MeshStandardMaterial({ color: 0x8a9099, roughness: 0.9, metalness: 0.0 });
-  const floorMat = new MeshStandardMaterial({ color: 0x6a6f76, roughness: 1.0, metalness: 0.0 });
-  const crateMat = new MeshStandardMaterial({ color: 0x9a8a6e, roughness: 0.85, metalness: 0.0 });
+  const wallMat = new MeshStandardMaterial({ color: 0x8a9099, roughness: 0.9, metalness: 0.0, flatShading: true });
+  const floorMat = new MeshStandardMaterial({ color: 0x6a6f76, roughness: 1.0, metalness: 0.0, flatShading: true });
+  const crateMat = new MeshStandardMaterial({ color: 0x9a8a6e, roughness: 0.85, metalness: 0.0, flatShading: true });
 
   const W = 4;
   const H = 3;

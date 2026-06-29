@@ -24,10 +24,19 @@ async function main(): Promise<void> {
       : createCorridorScene(renderer.profile);
   const post = createPostStack(renderer, harness.scene, harness.camera, renderer.profile);
 
+  // Internal-res crunch — the dominant PS1 cue (the lookdev's own technique): render at a fraction
+  // and let CSS upscale with nearest (#scene { image-rendering: pixelated }). pixelRatio 1 so the
+  // DPR doesn't undo the crunch; RETRO is Director-ramp ready (lower it under dread).
+  const RETRO = 0.5;
+  renderer.three.setPixelRatio(1);
   const resize = (): void => {
     const w = window.innerWidth || canvas.clientWidth || 960;
     const h = window.innerHeight || canvas.clientHeight || 600;
-    renderer.setSize(w, h);
+    renderer.three.setSize(Math.max(1, Math.round(w * RETRO)), Math.max(1, Math.round(h * RETRO)), false);
+    // The small buffer must still DISPLAY at full size (CSS upscales it); set explicit px (= viewport
+    // size in a real browser) so it survives headless 0-width 100vw and overrides three's inline px.
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
     harness.resize(w, h);
   };
   window.addEventListener('resize', resize);
