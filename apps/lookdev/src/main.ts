@@ -1,60 +1,87 @@
-// SIGNAL LOST — M-LOOK harness entry (T24).
-// Brings up the real renderer (WebGPU, or WebGL2 via ?gl=2 / fallback) and drives a clear-color
-// frame + a rotating greybox cube through the engine GameLoop — the first end-to-end proof that
-// @sl/render and @sl/engine compose. Later tasks replace the cube with the corridor + post stack.
-import { Scene, PerspectiveCamera, Mesh, BoxGeometry, MeshNormalMaterial } from 'three';
+// SIGNAL LOST — M-LOOK harness entry.
+// Default scene is the Phase B chaos-stress harness: `n` dynamic Rapier boxes (300 by default)
+// rendered as one InstancedMesh — the perf-headroom probe for the low-poly GREEN bar (B3). Query
+// params: ?n=N body count, ?gl=2 forces the WebGL2 fallback, ?tier=low|mid|high|ultra quality tier.
 import { createRenderer } from '@sl/render';
 import { GameLoop } from '@sl/engine';
+import { createChaosScene } from './chaosScene';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const hud = document.getElementById('hud');
 
 async function main(): Promise<void> {
-  // ?gl=2 forces the WebGL2 fallback path; ?tier=low|mid|high|ultra picks the quality tier.
   const params = new URLSearchParams(location.search);
   const forceBackend = params.get('gl') === '2' ? 'webgl2' : undefined;
-  const tierParam = params.get('tier');
-  const tier = (['low', 'mid', 'high', 'ultra'] as const).find((t) => t === tierParam);
+  const tier = (['low', 'mid', 'high', 'ultra'] as const).find((t) => t === params.get('tier'));
+  const count = Math.max(1, Math.min(2000, Math.floor(Number(params.get('n')) || 300)));
+
   const renderer = await createRenderer({ canvas, forceBackend, tier });
-
-  const scene = new Scene();
-  const camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.position.set(0, 0, 4);
-
-  const cube = new Mesh(new BoxGeometry(1.4, 1.4, 1.4), new MeshNormalMaterial());
-  scene.add(cube);
+  const chaos = await createChaosScene(count);
 
   const resize = (): void => {
-    // Fall back to a sane size when the host reports a 0-size viewport (e.g. headless verification),
-    // so the canvas + camera aspect never collapse to 0 / NaN.
     const w = window.innerWidth || canvas.clientWidth || 960;
     const h = window.innerHeight || canvas.clientHeight || 600;
     renderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    chaos.resize(w, h);
   };
   window.addEventListener('resize', resize);
   resize();
 
+  let fps = 0;
+  let frames = 0;
+  let acc = 0;
+  let lastT = performance.now();
+
+  const updateHud = (): void => {
+    if (!hud) return;
+    const p = renderer.profile;
+    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${chaos.bodyCount} bodies · ${fps} fps · ${renderer.three.info.render.drawCalls} draws`;
+  };
+
   const loop = new GameLoop({
     fixedHz: 60,
-    fixedUpdate: (dt) => {
-      cube.rotation.x += dt * 0.6;
-      cube.rotation.y += dt * 0.8;
+    fixedUpdate: () => chaos.step(),
+    render: () => {
+      chaos.syncInstances();
+      renderer.render(chaos.scene, chaos.camera);
+      const now = performance.now();
+      acc += now - lastT;
+      lastT = now;
+      frames += 1;
+      if (acc >= 500) {
+        fps = Math.round((frames * 1000) / acc);
+        frames = 0;
+        acc = 0;
+        updateHud();
+      }
     },
-    render: () => renderer.render(scene, camera),
   });
+
+  updateHud();
   loop.start();
 
-  const p = renderer.profile;
-  if (hud) {
-    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · dpr ${p.pixelRatio} · shadow ${p.shadowMapSize} · ssr ${p.ssr} · fog ${p.fog}`;
-  }
-  // Expose for headless verification (assert backend/profile + that the loop is running, no throw).
-  (window as unknown as { __sl?: unknown }).__sl = { renderer, loop, scene, camera, backend: renderer.backend, profile: renderer.profile };
+  // Expose for verification: __sl.benchmark(frames) times CPU step+sync synchronously (headless),
+  // returning ms/frame + draw calls; the on-screen meter reports real GPU-bound fps in a browser.
+  (window as unknown as { __sl?: unknown }).__sl = {
+    renderer,
+    loop,
+    chaos,
+    backend: renderer.backend,
+    profile: renderer.profile,
+    benchmark: (f = 180) => {
+      const r = chaos.benchmark(f);
+      renderer.render(chaos.scene, chaos.camera);
+      return {
+        ...r,
+        bodies: chaos.bodyCount,
+        backend: renderer.backend,
+        drawCalls: renderer.three.info.render.drawCalls,
+      };
+    },
+  };
 }
 
 main().catch((err: unknown) => {
-  console.error('[lookdev] renderer init failed', err);
+  console.error('[lookdev] init failed', err);
   if (hud) hud.textContent = `init failed: ${String(err)}`;
 });
