@@ -33,11 +33,13 @@
 import * as THREE from 'three';
 import './nav.js?v=2';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -74,7 +76,7 @@ controls.minDistance=30; controls.maxDistance=480; controls.target.set(13,1,-13)
 
 const pos=(o,x,y,z)=>{ y===undefined ? o.position.copy(x) : o.position.set(x,y,z); return o; }; // .position is read-only in three; mutate, never reassign
 // ---- lights ----
-scene.add(new THREE.AmbientLight(0x3a4a60,0.85));
+const ambientLight=new THREE.AmbientLight(0x3a4a60,0.85); scene.add(ambientLight);
 scene.add(new THREE.HemisphereLight(0x44607e,0x0c1018,0.7));
 const sun=new THREE.DirectionalLight(0xfff0d6,3.3); sun.position.set(320,260,300); sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.near=160; sun.shadow.camera.far=1200;
@@ -155,7 +157,8 @@ for(let z=-38;z<=36;z+=2.6){ for(const yy of [2.4,0.8,-0.8,-2.4]){ const lit=Mat
 const rl=(c,x,y,z)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8),new THREE.MeshStandardMaterial({color:0,emissive:c,emissiveIntensity:3.5,roughness:1}));m.position.set(x,y,z);ship.add(m);return m;};
 rl(0xff3030,-7,0,-46); rl(0x30ff60,7,0,-46); const beacon=rl(0xffffff,0,11.4,-28);
 bx(5,4,0.6,new THREE.MeshBasicMaterial({color:0x000000}),6.8,1,16); for(let i=0;i<9;i++) bx(0.25,0.25,1+Math.random()*2.5,M.metal,6.7,(Math.random()-0.5)*3,16+(Math.random()-0.5)*4,null,Math.random(),Math.random(),Math.random());
-ship.rotation.y=0.15;
+let adminShipOffsetY=0, adminShipRotationY=0.15;
+ship.rotation.y=adminShipRotationY;
 
 // ===== REAL DOCKING PORT (recessed bay + guidance funnel + collar + petals + ring lights + approach ladder) =====
 const dock=new THREE.Group(); dock.position.set(6.5,1,-12); ship.add(dock);
@@ -205,9 +208,26 @@ cap.traverse(o=>{if(o.isMesh)o.castShadow=true;}); cap.scale.setScalar(1.35); sc
 const _p1=new THREE.Vector3(),_p2=new THREE.Vector3(),_p3=new THREE.Vector3(),_p4=new THREE.Vector3(),_p5=new THREE.Vector3(),_aim=new THREE.Vector3(),_m=new THREE.Matrix4();
 const capEl=document.getElementById('cap'); const ez=k=>1-Math.pow(1-k,3);
 
+async function applyAdminSpaceship(){
+  const cfg=await loadAdminScene('spaceship'); if(!cfg)return;
+  applyMaterialTuning({
+    base:[M.hull,M.hull2,M.dark,M.rust,M.metal,M.panel],
+    emissive:[M.amber,M.cyan,M.engine]
+  }, cfg, 0x717a86, 0x36e0d0);
+  ambientLight.intensity=finiteNumber(cfg.ambientIntensity,ambientLight.intensity);
+  sun.intensity=finiteNumber(cfg.keyIntensity,sun.intensity);
+  if(scene.fog) scene.fog.density=finiteNumber(cfg.fogDensity,scene.fog.density);
+  adminShipOffsetY=finiteNumber(cfg.positionY,0);
+  adminShipRotationY=finiteNumber(cfg.rotationY,adminShipRotationY);
+  ship.scale.setScalar(finiteNumber(cfg.scale,1));
+  const model=await attachAdminModel(THREE,GLTFLoader,ship,cfg,{targetSize:24});
+  if(model){ model.position.z-=4; model.position.y+=1; }
+}
+void applyAdminSpaceship();
+
 const clock=new THREE.Clock(); const T=18;
 function animate(){ requestAnimationFrame(animate); const dt=clock.getDelta(), t=clock.elapsedTime; controls.update();
-  ship.position.y=Math.sin(t*0.2)*0.5; ship.rotation.z=Math.sin(t*0.14)*0.012;
+  ship.position.y=adminShipOffsetY+Math.sin(t*0.2)*0.5; ship.rotation.y=adminShipRotationY; ship.rotation.z=Math.sin(t*0.14)*0.012;
   // docking frame in world space: collar mouth + its outward normal (ship-local +x), recomputed each frame
   COLLAR.set(6.5+9.0,1,-12).applyMatrix4(ship.matrixWorld);
   AX.set(1,0,0).transformDirection(ship.matrixWorld); SIDE.copy(AX).cross(UP).normalize();

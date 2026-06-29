@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
+import { SceneAdminPanel, UnitsAdminPanel, type PanelStats } from './Admin3D';
 
-type AdminTab = 'audio' | 'image';
+type AdminTab = 'audio' | 'image' | 'units' | 'spaceship' | 'lobby';
 type AssetStatus = 'approved' | 'generated' | 'missing' | 'stale';
 type AssetUse = 'landing' | 'game' | 'shared' | 'admin';
 
@@ -679,6 +680,7 @@ export function AdminPage() {
   const [imageSizeById, setImageSizeById] = useState<Record<string, number>>({});
   const [audioMessages, setAudioMessages] = useState<Record<string, string>>({});
   const [voicePreviewsById, setVoicePreviewsById] = useState<Record<string, VoicePreview[]>>({});
+  const [panelStats, setPanelStats] = useState<Partial<Record<AdminTab, PanelStats>>>({});
   const [toast, setToast] = useState('Checking for existing asset files...');
 
   const setAudioMessage = useCallback((assetId: string, message: string): void => {
@@ -712,9 +714,26 @@ export function AdminPage() {
   const audioAssets = useMemo(() => mergeAudioAssets(ALL_AUDIO_ASSETS, manifest), [manifest]);
   const imageAssets = useMemo(() => mergeImageAssets(IMAGE_ASSETS, manifest), [manifest]);
   const assets: BaseAsset[] = tab === 'audio' ? audioAssets : imageAssets;
+  const assetTab = tab === 'audio' || tab === 'image';
   const filteredAudio = useFilteredAssets(audioAssets, query, status);
   const filteredImages = useFilteredAssets(imageAssets, query, status);
   const filtered = tab === 'audio' ? filteredAudio : filteredImages;
+  const visibleStats: PanelStats = assetTab
+    ? {
+        total: assets.length,
+        approved: statusCount(assets, 'approved'),
+        generated: statusCount(assets, 'generated'),
+        missing: statusCount(assets, 'missing'),
+        stale: statusCount(assets, 'stale'),
+      }
+    : panelStats[tab] ?? { total: 0, approved: 0, generated: 0, missing: 0, stale: 0 };
+
+  const updatePanelStats = useCallback((nextTab: AdminTab, stats: PanelStats): void => {
+    setPanelStats((current) => ({ ...current, [nextTab]: stats }));
+  }, []);
+  const updateUnitsStats = useCallback((stats: PanelStats): void => updatePanelStats('units', stats), [updatePanelStats]);
+  const updateSpaceshipStats = useCallback((stats: PanelStats): void => updatePanelStats('spaceship', stats), [updatePanelStats]);
+  const updateLobbyStats = useCallback((stats: PanelStats): void => updatePanelStats('lobby', stats), [updatePanelStats]);
 
   const connectVoices = useCallback(async (): Promise<void> => {
     setToast('Connecting to ElevenLabs...');
@@ -1070,59 +1089,70 @@ export function AdminPage() {
           <h1>Forge Control</h1>
         </div>
         <div className="admin-status" aria-label="Asset status counts">
-          <span><strong>{assets.length}</strong> total</span>
-          <span><strong>{statusCount(assets, 'approved')}</strong> approved</span>
-          <span><strong>{statusCount(assets, 'generated')}</strong> generated</span>
-          <span><strong>{statusCount(assets, 'missing')}</strong> missing</span>
-          <span><strong>{statusCount(assets, 'stale')}</strong> stale</span>
+          <span><strong>{visibleStats.total}</strong> total</span>
+          <span><strong>{visibleStats.approved}</strong> approved</span>
+          <span><strong>{visibleStats.generated}</strong> generated</span>
+          <span><strong>{visibleStats.missing}</strong> missing</span>
+          <span><strong>{visibleStats.stale}</strong> stale</span>
         </div>
       </header>
 
-      <section className="admin-toolbar" aria-label="Admin controls">
+      <section className={`admin-toolbar ${assetTab ? '' : 'admin-toolbar--models'}`} aria-label="Admin controls">
         <div className="admin-tabs" role="tablist" aria-label="Asset type">
           <button className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')} role="tab" aria-selected={tab === 'audio'}>Audio</button>
           <button className={tab === 'image' ? 'active' : ''} onClick={() => setTab('image')} role="tab" aria-selected={tab === 'image'}>Image</button>
+          <button className={tab === 'units' ? 'active' : ''} onClick={() => setTab('units')} role="tab" aria-selected={tab === 'units'}>Units</button>
+          <button className={tab === 'spaceship' ? 'active' : ''} onClick={() => setTab('spaceship')} role="tab" aria-selected={tab === 'spaceship'}>Space Ship</button>
+          <button className={tab === 'lobby' ? 'active' : ''} onClick={() => setTab('lobby')} role="tab" aria-selected={tab === 'lobby'}>Lobby</button>
         </div>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search id, prompt, group, usage" aria-label="Search assets" />
-        <select value={status} onChange={(event) => setStatus(event.target.value as AssetStatus | 'all')} aria-label="Filter by status">
-          <option value="all">All status</option>
-          <option value="approved">Approved</option>
-          <option value="generated">Generated</option>
-          <option value="missing">Missing</option>
-          <option value="stale">Stale</option>
-        </select>
-        <button className="admin-export" onClick={() => void refreshManifest()}>Refresh files</button>
-        <button className="admin-export" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
+        {assetTab ? (
+          <>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search id, prompt, group, usage" aria-label="Search assets" />
+            <select value={status} onChange={(event) => setStatus(event.target.value as AssetStatus | 'all')} aria-label="Filter by status">
+              <option value="all">All status</option>
+              <option value="approved">Approved</option>
+              <option value="generated">Generated</option>
+              <option value="missing">Missing</option>
+              <option value="stale">Stale</option>
+            </select>
+            <button className="admin-export" onClick={() => void refreshManifest()}>Refresh files</button>
+            <button className="admin-export" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
+          </>
+        ) : (
+          <div className="admin-toolbar__hint">3D changes save to the admin content store and are read by the live scenes on reload.</div>
+        )}
       </section>
 
-      <section className="admin-keybar" aria-label="Generation keys">
-        <input
-          value={apiKey}
-          onChange={(event) => setStoredApiKey(event.target.value)}
-          type="password"
-          placeholder="ElevenLabs API key, or leave blank for server key"
-          aria-label="ElevenLabs API key"
-        />
-        <input
-          value={geminiKey}
-          onChange={(event) => setStoredGeminiKey(event.target.value)}
-          type="password"
-          placeholder="Gemini image API key, or leave blank for server key"
-          aria-label="Gemini API key"
-        />
-        <button className="admin-export" onClick={() => void connectVoices()}>Connect voices</button>
-        <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Fallback Signal Lost voice">
-          <option value="">Auto SL voice by row</option>
-          {voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
-        </select>
-        <select value={modelId} onChange={(event) => setStoredModel(event.target.value)} aria-label="Text to speech model">
-          <option value="eleven_v3">TTS v3</option>
-          <option value="eleven_multilingual_v2">Multilingual v2</option>
-          <option value="eleven_turbo_v2_5">Turbo v2.5</option>
-          <option value="eleven_flash_v2_5">Flash v2.5</option>
-        </select>
-        <span>Keys are sent only to this server and saved in this browser.</span>
-      </section>
+      {assetTab ? (
+        <section className="admin-keybar" aria-label="Generation keys">
+          <input
+            value={apiKey}
+            onChange={(event) => setStoredApiKey(event.target.value)}
+            type="password"
+            placeholder="ElevenLabs API key, or leave blank for server key"
+            aria-label="ElevenLabs API key"
+          />
+          <input
+            value={geminiKey}
+            onChange={(event) => setStoredGeminiKey(event.target.value)}
+            type="password"
+            placeholder="Gemini image API key, or leave blank for server key"
+            aria-label="Gemini API key"
+          />
+          <button className="admin-export" onClick={() => void connectVoices()}>Connect voices</button>
+          <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Fallback Signal Lost voice">
+            <option value="">Auto SL voice by row</option>
+            {voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
+          </select>
+          <select value={modelId} onChange={(event) => setStoredModel(event.target.value)} aria-label="Text to speech model">
+            <option value="eleven_v3">TTS v3</option>
+            <option value="eleven_multilingual_v2">Multilingual v2</option>
+            <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+            <option value="eleven_flash_v2_5">Flash v2.5</option>
+          </select>
+          <span>Keys are sent only to this server and saved in this browser.</span>
+        </section>
+      ) : null}
 
       <section className="admin-note" aria-live="polite">{toast}</section>
 
@@ -1140,7 +1170,7 @@ export function AdminPage() {
             onApprove={approveAsset}
           />
         )} />
-      ) : (
+      ) : tab === 'image' ? (
         <AssetGroups groups={grouped(filteredImages)} render={(asset) => (
           <ImageRow
             asset={asset}
@@ -1155,6 +1185,29 @@ export function AdminPage() {
             onApprove={approveAsset}
           />
         )} />
+      ) : tab === 'units' ? (
+        <UnitsAdminPanel
+          onStats={updateUnitsStats}
+          onToast={setToast}
+        />
+      ) : tab === 'spaceship' ? (
+        <SceneAdminPanel
+          sceneId="spaceship"
+          title="Space Ship"
+          copy="Tune the derelict exterior, optional replacement GLB, lighting, fog, and model transform."
+          liveUrl="/exterior"
+          onStats={updateSpaceshipStats}
+          onToast={setToast}
+        />
+      ) : (
+        <SceneAdminPanel
+          sceneId="lobby"
+          title="Lobby"
+          copy="Tune the departure lobby preview, optional replacement GLB, room lighting, screen glow, and fog."
+          liveUrl="/lobby"
+          onStats={updateLobbyStats}
+          onToast={setToast}
+        />
       )}
     </main>
   );

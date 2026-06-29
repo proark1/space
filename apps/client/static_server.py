@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = os.environ.get("STATIC_ROOT") or os.getcwd()
 AUDIO_DIR = os.environ.get("AUDIO_DIR") or os.path.join(ROOT, "audio")
 APPROVED_FILE = os.path.join(AUDIO_DIR, "_approved.json")
+ADMIN_CONTENT_DIR = os.environ.get("ADMIN_CONTENT_DIR") or os.path.join(ROOT, "admin_content")
 # Unit Forge: per-unit source views (.img) + generated Tripo3D models (.glb). Point UNITS_DIR
 # at a Railway volume (e.g. /data/units) for persistence; defaults next to the served root.
 UNITS_DIR = os.environ.get("UNITS_DIR") or os.path.join(ROOT, "units_data")
@@ -80,6 +81,44 @@ MEDIA_MIME = {
     "avif": "image/avif",
 }
 
+ADMIN_CONTENT_MIME = {
+    **MEDIA_MIME,
+    "glb": "model/gltf-binary",
+    "gltf": "model/gltf+json",
+    "json": "application/json",
+}
+
+ADMIN_SCENES = {
+    "spaceship": {
+        "id": "spaceship",
+        "name": "Space Ship",
+        "modelUrl": "",
+        "baseColor": "#717a86",
+        "emissiveColor": "#36e0d0",
+        "emissiveIntensity": 2.4,
+        "scale": 1.0,
+        "positionY": 0.0,
+        "rotationY": 0.15,
+        "ambientIntensity": 0.85,
+        "keyIntensity": 3.3,
+        "fogDensity": 0.00045,
+    },
+    "lobby": {
+        "id": "lobby",
+        "name": "Lobby",
+        "modelUrl": "",
+        "baseColor": "#c9ced6",
+        "emissiveColor": "#bfe9ff",
+        "emissiveIntensity": 1.6,
+        "scale": 1.0,
+        "positionY": 0.0,
+        "rotationY": 0.0,
+        "ambientIntensity": 0.7,
+        "keyIntensity": 1.5,
+        "fogDensity": 0.009,
+    },
+}
+
 
 def stamp(path):
     st = os.stat(path)
@@ -135,6 +174,113 @@ def manifest_items():
 def safe_asset_id(asset_id):
     cleaned = "".join(c if c.isalnum() or c in "._-" else "_" for c in asset_id)
     return cleaned.strip("._") or "clip"
+
+
+def safe_admin_scene_id(scene_id):
+    cleaned = "".join(c if c.isalnum() or c in "-_" else "-" for c in str(scene_id or "").lower())
+    return cleaned.strip("-_")
+
+
+def safe_admin_model_id(model_id):
+    cleaned = "".join(c if c.isalnum() or c in "-_" else "-" for c in str(model_id or "").lower())
+    return cleaned.strip("-_") or "model"
+
+
+def admin_scene_path(scene_id):
+    return os.path.join(ADMIN_CONTENT_DIR, "scenes", safe_admin_scene_id(scene_id) + ".json")
+
+
+def admin_model_path(model_id):
+    return os.path.join(ADMIN_CONTENT_DIR, "models", safe_admin_model_id(model_id) + ".glb")
+
+
+def number_or(value, fallback, lo=None, hi=None):
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if not out == out or out in (float("inf"), float("-inf")):
+        return fallback
+    if lo is not None:
+        out = max(lo, out)
+    if hi is not None:
+        out = min(hi, out)
+    return out
+
+
+def hex_color_or(value, fallback):
+    text = str(value or "").strip()
+    if len(text) == 7 and text[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in text[1:]):
+        return text
+    return fallback
+
+
+def load_admin_scene(scene_id):
+    scene_id = safe_admin_scene_id(scene_id)
+    if scene_id not in ADMIN_SCENES:
+        raise ValueError("Unknown admin scene.")
+    data = dict(ADMIN_SCENES[scene_id])
+    path = admin_scene_path(scene_id)
+    try:
+        with open(path) as handle:
+            saved = json.load(handle)
+        if isinstance(saved, dict):
+            data.update(saved)
+    except (OSError, ValueError):
+        pass
+    data["id"] = scene_id
+    return data
+
+
+def normalize_admin_scene(scene_id, body):
+    base = load_admin_scene(scene_id)
+    incoming = body if isinstance(body, dict) else {}
+    model_url = str(incoming.get("modelUrl") or base.get("modelUrl") or "").strip()
+    if model_url and not (model_url.startswith(("/", "http://", "https://"))):
+        model_url = ""
+    return {
+        **base,
+        "modelUrl": model_url,
+        "baseColor": hex_color_or(incoming.get("baseColor"), base["baseColor"]),
+        "emissiveColor": hex_color_or(incoming.get("emissiveColor"), base["emissiveColor"]),
+        "emissiveIntensity": number_or(incoming.get("emissiveIntensity"), base["emissiveIntensity"], 0, 12),
+        "scale": number_or(incoming.get("scale"), base["scale"], 0.05, 20),
+        "positionY": number_or(incoming.get("positionY"), base["positionY"], -50, 50),
+        "rotationY": number_or(incoming.get("rotationY"), base["rotationY"], -6.2832, 6.2832),
+        "ambientIntensity": number_or(incoming.get("ambientIntensity"), base["ambientIntensity"], 0, 5),
+        "keyIntensity": number_or(incoming.get("keyIntensity"), base["keyIntensity"], 0, 12),
+        "fogDensity": number_or(incoming.get("fogDensity"), base["fogDensity"], 0, 0.05),
+    }
+
+
+def save_admin_scene(scene_id, data):
+    os.makedirs(os.path.dirname(admin_scene_path(scene_id)), exist_ok=True)
+    data = dict(data)
+    data["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+    tmp = admin_scene_path(scene_id) + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+    os.replace(tmp, admin_scene_path(scene_id))
+    return data
+
+
+def decode_glb_data_url(data_url, max_bytes=120_000_000):
+    text = str(data_url or "")
+    if "," in text:
+        text = text.split(",", 1)[1]
+    if len(text) > max_bytes * 2:
+        raise ValueError("GLB upload is too large.")
+    try:
+        raw = base64.b64decode(text)
+    except Exception as exc:
+        raise ValueError("GLB data is not valid base64.") from exc
+    if not raw:
+        raise ValueError("GLB upload is empty.")
+    if len(raw) > max_bytes:
+        raise ValueError("GLB upload is too large.")
+    if not tf.is_glb(raw):
+        raise ValueError("Not a .glb file.")
+    return raw
 
 
 def key_of(headers):
@@ -408,6 +554,31 @@ class Handler(SimpleHTTPRequestHandler):
             with open(path, "rb") as media:
                 self.wfile.write(media.read())
 
+    def _serve_admin_content(self, request_path, send_body=True):
+        rel = request_path[len("/admin-content/"):]
+        safe_parts = [part for part in rel.split("/") if part and part not in (".", "..")]
+        root = os.path.abspath(ADMIN_CONTENT_DIR)
+        path = os.path.abspath(os.path.join(root, *safe_parts))
+        if path != root and not path.startswith(root + os.sep):
+            self.send_response(404)
+            self.end_headers()
+            return
+        if not os.path.isfile(path):
+            self.send_response(404)
+            self.end_headers()
+            return
+        ext = os.path.basename(path).rsplit(".", 1)[-1].lower() if "." in os.path.basename(path) else ""
+        data_len = os.path.getsize(path)
+        self.send_response(200)
+        self.send_header("Content-Type", ADMIN_CONTENT_MIME.get(ext, "application/octet-stream"))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(data_len))
+        self.end_headers()
+        if send_body:
+            with open(path, "rb") as content:
+                self.wfile.write(content.read())
+
     def _public_base(self):
         host = (self.headers.get("Host") or (HOST + ":" + str(PORT))).split(",")[0].strip()
         proto = self.headers.get("X-Forwarded-Proto") or ("http" if host.startswith(("localhost", "127.")) else "https")
@@ -647,8 +818,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._tripo_balance()
         if request_path == "/api/unit-status":
             return self._unit_status(parsed.query)
+        if request_path.startswith("/api/admin/scene/"):
+            return self._admin_scene(request_path.rsplit("/", 1)[-1])
         if request_path.startswith("/u/"):
             return self._serve_unit(request_path)
+        if request_path.startswith("/admin-content/"):
+            return self._serve_admin_content(request_path)
         if request_path in ("/forge", "/forge/", "/units-forge", "/unit-forge"):
             self.path = "/units_forge.html"
             return super().do_GET()
@@ -701,6 +876,73 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             add_approved(asset_id)
             return self._json({"ok": True, "id": asset_id, "approved": True})
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _admin_scene(self, scene_id):
+        try:
+            return self._json({"ok": True, "scene": load_admin_scene(scene_id), "contentDir": ADMIN_CONTENT_DIR})
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _save_admin_scene(self, scene_id):
+        try:
+            body = read_json(self)
+            scene = save_admin_scene(scene_id, normalize_admin_scene(scene_id, body))
+            return self._json({"ok": True, "scene": scene})
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _admin_model_upload(self):
+        try:
+            body = read_json(self)
+            model_id = safe_admin_model_id(body.get("id"))
+            raw = decode_glb_data_url(body.get("dataUrl"))
+            os.makedirs(os.path.dirname(admin_model_path(model_id)), exist_ok=True)
+            path = admin_model_path(model_id)
+            with open(path, "wb") as handle:
+                handle.write(raw)
+            size, updated = stamp(path)
+            return self._json({
+                "ok": True,
+                "id": model_id,
+                "url": "/admin-content/models/" + model_id + ".glb?t=" + str(int(os.stat(path).st_mtime)),
+                "size": size,
+                "updatedAt": updated,
+            })
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+    def _save_admin_unit(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
+        uid = tf.safe_id(body.get("id"))
+        if not uid:
+            return self._json({"ok": False, "error": "No unit id was provided."}, 200)
+        try:
+            meta = tf.load_unit(UNITS_DIR, uid)
+            meta["id"] = uid
+            for key in ("name", "kind", "prompt", "role"):
+                value = body.get(key)
+                if isinstance(value, str):
+                    meta[key] = value.strip()
+            meta["height"] = number_or(body.get("height"), meta.get("height", 1.8), 0.1, 20)
+            meta["scale"] = number_or(body.get("scale"), meta.get("scale", 1.0), 0.05, 20)
+            meta["yaw"] = number_or(body.get("yaw"), meta.get("yaw", 0), -6.2832, 6.2832)
+            meta["colliderRadius"] = number_or(body.get("colliderRadius"), meta.get("colliderRadius", 0.35), 0.01, 10)
+            meta["colliderHeight"] = number_or(body.get("colliderHeight"), meta.get("colliderHeight", meta["height"]), 0.01, 20)
+            meta["adminUpdatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+            os.makedirs(UNITS_DIR, exist_ok=True)
+            tf.save_unit(UNITS_DIR, meta)
+            items = [item for item in self._units_manifest() if item.get("id") == uid]
+            return self._json({"ok": True, "unit": items[0] if items else meta})
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
@@ -996,6 +1238,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._unit_delete()
         if request_path == "/api/unit-glb":
             return self._unit_glb()
+        if request_path == "/api/admin/unit":
+            return self._save_admin_unit()
+        if request_path == "/api/admin/model":
+            return self._admin_model_upload()
+        if request_path.startswith("/api/admin/scene/"):
+            return self._save_admin_scene(request_path.rsplit("/", 1)[-1])
 
         self.send_response(404)
         self.end_headers()
