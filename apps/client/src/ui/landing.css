@@ -1050,6 +1050,16 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.asset-row__message {
+  margin-top: 0.62rem;
+  border-left: 2px solid rgba(84, 242, 255, 0.68);
+  padding: 0.12rem 0 0.12rem 0.62rem;
+  color: rgba(244, 239, 228, 0.86);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .asset-preview {
   min-width: 0;
 }

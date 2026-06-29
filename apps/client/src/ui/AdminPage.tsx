@@ -432,6 +432,10 @@ function resolveSignalLostVoice(asset: AudioAsset, voices: VoiceOption[], select
   return { voice };
 }
 
+function isVoiceDesignAsset(asset: AudioAsset): boolean {
+  return asset.kind === 'voice' && asset.duration === 'voice';
+}
+
 function generationHeaders(apiKey: string): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey.trim()) headers['x-eleven-key'] = apiKey.trim();
@@ -626,7 +630,17 @@ export function AdminPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [manifest, setManifest] = useState<ManifestItem[]>([]);
   const [imageSizeById, setImageSizeById] = useState<Record<string, number>>({});
+  const [audioMessages, setAudioMessages] = useState<Record<string, string>>({});
   const [toast, setToast] = useState('Checking for existing asset files...');
+
+  const setAudioMessage = useCallback((assetId: string, message: string): void => {
+    setAudioMessages((messages) => {
+      const next = { ...messages };
+      if (message) next[assetId] = message;
+      else delete next[assetId];
+      return next;
+    });
+  }, []);
 
   const refreshManifest = useCallback(async (): Promise<void> => {
     try {
@@ -680,10 +694,23 @@ export function AdminPage() {
 
   const generateAudio = async (asset: AudioAsset): Promise<void> => {
     setBusyId(asset.id);
+    setAudioMessage(asset.id, '');
     setToast(`${asset.file ? 'Regenerating' : 'Generating'} ${asset.id}...`);
     try {
+      if (isVoiceDesignAsset(asset)) {
+        const resolvedVoice = resolveSignalLostVoice(asset, voices, voiceId);
+        const message = resolvedVoice.error
+          ? `${resolvedVoice.error} This row checks the saved SL voice only; generate clips from the Spoken Text rows below.`
+          : `${resolvedVoice.voice?.name ?? expectedSignalLostVoiceName(asset.voice)} is connected. Generate clips from the Spoken Text rows that use ${asset.voice ?? 'this role'}.`;
+        setAudioMessage(asset.id, message);
+        setToast(message);
+        return;
+      }
+
       const resolvedVoice = resolveSignalLostVoice(asset, voices, voiceId);
       if (resolvedVoice.error) {
+        const message = `Generation failed: ${resolvedVoice.error}`;
+        setAudioMessage(asset.id, message);
         setToast(`Generation failed for ${asset.id}: ${resolvedVoice.error}`);
         return;
       }
@@ -703,15 +730,21 @@ export function AdminPage() {
       });
       const payload: unknown = await response.json();
       if (!isRecord(payload) || payload.ok !== true) {
-        setToast(`Generation failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        const message = `Generation failed: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`;
+        setAudioMessage(asset.id, message);
+        setToast(`Generation failed for ${asset.id}: ${message.replace(/^Generation failed: /, '')}`);
         return;
       }
       const generated = normalizeManifestItems({ items: [payload] });
       setManifest((items) => [...items.filter((item) => item.id !== asset.id), ...generated]);
-      setToast(`Generated ${asset.id}. File saved to ${stringValue(payload.file) ?? 'the asset directory'}.`);
+      const message = `Generated ${asset.id}. File saved to ${stringValue(payload.file) ?? 'the asset directory'}.`;
+      setAudioMessage(asset.id, message);
+      setToast(message);
       void refreshManifest();
     } catch (error) {
-      setToast(`Generation failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+      const message = `Generation failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+      setAudioMessage(asset.id, message);
+      setToast(`Generation failed for ${asset.id}: ${message.replace(/^Generation failed: /, '')}`);
     } finally {
       setBusyId(null);
     }
@@ -867,7 +900,7 @@ export function AdminPage() {
 
       {tab === 'audio' ? (
         <AssetGroups groups={grouped(filteredAudio)} render={(asset) => (
-          <AudioRow asset={asset} busy={busyId === asset.id} onGenerate={generateAudio} onAction={action} />
+          <AudioRow asset={asset} busy={busyId === asset.id} message={audioMessages[asset.id]} onGenerate={generateAudio} onAction={action} />
         )} />
       ) : (
         <AssetGroups groups={grouped(filteredImages)} render={(asset) => (
@@ -904,8 +937,10 @@ function AssetGroups<T extends BaseAsset>(props: { groups: Array<[string, T[]]>;
   );
 }
 
-function AudioRow(props: { asset: AudioAsset; busy: boolean; onGenerate: (asset: AudioAsset) => Promise<void>; onAction: (asset: BaseAsset, verb: string) => void }) {
+function AudioRow(props: { asset: AudioAsset; busy: boolean; message?: string; onGenerate: (asset: AudioAsset) => Promise<void>; onAction: (asset: BaseAsset, verb: string) => void }) {
   const { asset } = props;
+  const isVoiceDesign = isVoiceDesignAsset(asset);
+  const generateLabel = props.busy ? (isVoiceDesign ? 'Checking...' : 'Generating...') : isVoiceDesign ? 'Check SL voice' : asset.file ? 'Regenerate' : 'Generate';
   return (
     <article className="asset-row">
       <div className="asset-row__main">
@@ -924,12 +959,13 @@ function AudioRow(props: { asset: AudioAsset; busy: boolean; onGenerate: (asset:
           {asset.size ? <span>{formatBytes(asset.size)}</span> : null}
           {asset.createdAt ? <span>{formatDate(asset.createdAt)}</span> : null}
         </div>
+        {props.message ? <div className="asset-row__message" role="status">{props.message}</div> : null}
       </div>
       <div className="asset-preview asset-preview--audio">
-        {asset.file ? <audio controls src={asset.file} /> : <span>No clip</span>}
+        {asset.file ? <audio controls src={asset.file} /> : <span>{isVoiceDesign ? 'Saved SL voice' : 'No clip'}</span>}
       </div>
       <div className="asset-actions">
-        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Generating...' : asset.file ? 'Regenerate' : 'Generate'}</button>
+        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{generateLabel}</button>
         <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
       </div>
     </article>
