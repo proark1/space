@@ -660,9 +660,10 @@ class Handler(SimpleHTTPRequestHandler):
             body = read_json(self)
         except ValueError as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
-        asset_id = safe_asset_id(str(body.get("id") or ""))
-        if not asset_id:
+        raw_id = str(body.get("id") or "").strip()
+        if not raw_id:
             return self._json({"ok": False, "error": "No asset id was provided."}, 200)
+        asset_id = safe_asset_id(raw_id)
         try:
             add_approved(asset_id)
             return self._json({"ok": True, "id": asset_id, "approved": True})
