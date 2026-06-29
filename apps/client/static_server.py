@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 
 ROOT = os.environ.get("STATIC_ROOT") or os.getcwd()
 AUDIO_DIR = os.environ.get("AUDIO_DIR") or os.path.join(ROOT, "audio")
+APPROVED_FILE = os.path.join(AUDIO_DIR, "_approved.json")
 PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
@@ -65,10 +66,31 @@ def stamp(path):
     return st.st_size, datetime.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")
 
 
+def load_approved():
+    try:
+        with open(APPROVED_FILE) as handle:
+            data = json.load(handle)
+        return set(data) if isinstance(data, list) else set()
+    except (OSError, ValueError):
+        return set()
+
+
+def add_approved(asset_id):
+    approved = load_approved()
+    approved.add(asset_id)
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    tmp = APPROVED_FILE + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(sorted(approved), handle)
+    os.replace(tmp, APPROVED_FILE)
+    return approved
+
+
 def manifest_items():
     if not os.path.isdir(AUDIO_DIR):
         return []
     items = []
+    approved = load_approved()
     for name in sorted(os.listdir(AUDIO_DIR)):
         path = os.path.join(AUDIO_DIR, name)
         if not os.path.isfile(path):
@@ -85,6 +107,7 @@ def manifest_items():
             "mime": mime,
             "size": size,
             "createdAt": created,
+            "approved": os.path.splitext(name)[0] in approved,
         })
     return items
 
@@ -632,6 +655,20 @@ class Handler(SimpleHTTPRequestHandler):
 
         return super().do_HEAD()
 
+    def _approve(self):
+        try:
+            body = read_json(self)
+        except ValueError as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+        asset_id = safe_asset_id(str(body.get("id") or ""))
+        if not asset_id:
+            return self._json({"ok": False, "error": "No asset id was provided."}, 200)
+        try:
+            add_approved(asset_id)
+            return self._json({"ok": True, "id": asset_id, "approved": True})
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, 200)
+
     def do_POST(self):
         parsed = urlparse(self.path)
         request_path = unquote(parsed.path)
@@ -646,6 +683,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._save_voice()
         if request_path == "/api/save-image":
             return self._save_image_upload()
+        if request_path == "/api/approve":
+            return self._approve()
 
         self.send_response(404)
         self.end_headers()

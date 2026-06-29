@@ -10,32 +10,35 @@ const PANIC_LINES = [
   'The Chorus heard the group chat and joined uninvited.',
   'Objective updated: stop calling the monster "bro".',
   'Battery carrier has fallen. Morale somehow improved.',
+  'Flashlight on. Everyone within 40 metres is now on the menu.',
+  'Vote passed: the quiet one is definitely the monster now.',
 ] as const;
 
-const CLIP_CARDS = [
-  {
-    title: 'The Slip Heard Round Earth',
-    tag: '0:08 wipe',
-    copy: 'One flashlight, four opinions, and a wet floor with perfect comedic timing.',
-  },
-  {
-    title: 'Whisper Meta Dies First',
-    tag: 'voice bait',
-    copy: 'The quiet player coughs. The ship answers in the same voice. Everyone votes to sprint.',
-  },
-  {
-    title: 'Hero Button, Bad Button',
-    tag: 'plot twist',
-    copy: 'Restore comms to win. Discover that winning is exactly what the thing wanted.',
-  },
-] as const;
+interface ClipCard {
+  id: string;
+  title: string;
+  tag: string;
+  copy: string;
+}
 
-const FEATURES = [
-  ['Sound Is The Monster', 'Talk to survive, whisper to hide, scream to become the dinner bell.'],
-  ['Light Is Bait', 'Your flashlight saves your crew until it paints a runway for The Chorus.'],
-  ['Co-op Goes Sideways', 'Every plan becomes slapstick when doors jam, batteries roll, and friends panic.'],
-  ['One Signal Lies', 'The distress call never stopped. That does not mean anyone human is alive.'],
-] as const;
+const CLIP_CARDS: ClipCard[] = [
+  { id: 'landing-clip-1', title: 'Wet Floor, Dry Screams', tag: '0:08 wipe', copy: 'One flashlight, four opinions, a slick deck. Physics wins. Dignity does not.' },
+  { id: 'landing-clip-2', title: 'It Learned Your Voice', tag: 'voice bait', copy: 'The quiet one coughs. The vent coughs back in their voice. The room votes to sprint.' },
+  { id: 'landing-clip-3', title: 'Winning Was The Trap', tag: 'plot twist', copy: 'Restore comms to win. Realise too late that winning is exactly what it wanted.' },
+];
+
+interface Feature {
+  id: string;
+  title: string;
+  copy: string;
+}
+
+const FEATURES: Feature[] = [
+  { id: 'landing-system-sound', title: 'Sound Is The Monster', copy: 'Talk to survive, whisper to hide, scream to become the dinner bell.' },
+  { id: 'landing-system-light', title: 'Light Is Bait', copy: 'Your flashlight saves your crew until it paints a runway for The Chorus.' },
+  { id: 'landing-system-coop', title: 'Co-op Goes Sideways', copy: 'Every plan becomes slapstick when doors jam, batteries roll, and friends panic.' },
+  { id: 'landing-system-signal', title: 'One Signal Lies', copy: 'The distress call never stopped. That does not mean anyone human is alive.' },
+];
 
 const TICKER_ITEMS = [
   'EARTH CONTROL: bring her voice back',
@@ -62,17 +65,12 @@ function assetUrl(file: string): string {
   return /^(https?:|data:|blob:|\/)/.test(file) ? file : `/${file}`;
 }
 
-interface LandingArt {
-  hero?: string;
-  keyArt?: string;
-}
-
 // Landing art is published from /admin, which writes the files onto the asset
-// server and exposes them through /api/manifest. We resolve it here at runtime
-// (newest file per id wins) so saving art in the admin shows up on the next
-// page load with no rebuild or redeploy. Falls back to the bundled hero.
-function useLandingArt(): LandingArt {
-  const [art, setArt] = useState<LandingArt>({});
+// server and exposes them through /api/manifest. We resolve every slot here at
+// runtime (newest file per id wins) so saving art in the admin shows up on the
+// next page load with no rebuild. Empty slots fall back to bundled/CSS art.
+function useLandingArt(): Record<string, string> {
+  const [art, setArt] = useState<Record<string, string>>({});
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -88,9 +86,12 @@ function useLandingArt(): LandingArt {
           const current = newest.get(item.id);
           if (!current || at >= current.at) newest.set(item.id, { file: assetUrl(item.file), at });
         }
-        if (active) setArt({ hero: newest.get('landing-hero')?.file, keyArt: newest.get('landing-key-art-clean')?.file });
+        if (!active) return;
+        const resolved: Record<string, string> = {};
+        for (const [id, value] of newest) resolved[id] = value.file;
+        setArt(resolved);
       } catch {
-        // Keep the bundled fallback art if the manifest is unavailable.
+        // Keep bundled/CSS fallback art if the manifest is unavailable.
       }
     })();
     return () => { active = false; };
@@ -98,10 +99,16 @@ function useLandingArt(): LandingArt {
   return art;
 }
 
+// Builds a cover background (dark gradient over the art) for a slot, or undefined
+// when the slot has no generated art yet so the CSS fallback stays in control.
+function coverStyle(url: string | undefined, overlay: string): CSSProperties | undefined {
+  return url ? { backgroundImage: `${overlay}, url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined;
+}
+
 export function LandingPage() {
   const { status, code, isHost, peers, log, host, join, leave, lostReason } = useNet();
   const art = useLandingArt();
-  const heroSrc = art.hero ?? heroImage;
+  const heroSrc = art['landing-hero'] ?? heroImage;
   const [draft, setDraft] = useState('');
   const [panicIndex, setPanicIndex] = useState(0);
   const [shakeKey, setShakeKey] = useState(0);
@@ -150,10 +157,16 @@ export function LandingPage() {
             incriminating, and the rescue signal is absolutely not asking nicely.
           </p>
           <div className="hero__actions" aria-label="Main actions">
-            <button className="button button--primary" onClick={playDemo}>Play cold open</button>
-            <button className="button button--ghost" onClick={startRoom}>Start a room</button>
-            <button className="button button--ghost" onClick={scrollToLobby}>Join a crew</button>
-            <button className="button button--danger" onClick={panic}>Panic button</button>
+            <button className="button button--primary button--glitch" onClick={playDemo} data-text="Play cold open">Play cold open</button>
+            <button className="button button--ghost button--glitch" onClick={startRoom} data-text="Start a room">Start a room</button>
+            <button className="button button--ghost button--glitch" onClick={scrollToLobby} data-text="Join a crew">Join a crew</button>
+          </div>
+          <div className="hero__panic" aria-label="Panic buttons">
+            <span className="hero__panic-label" aria-hidden="true">Panic array</span>
+            <button className="button button--danger button--glitch" onClick={panic} data-text="PANIC">PANIC</button>
+            <button className="button button--danger button--glitch" onClick={panic} data-text="SCREAM">SCREAM</button>
+            <button className="button button--danger button--glitch" onClick={panic} data-text="FLASHLIGHT">FLASHLIGHT</button>
+            <button className="button button--danger button--glitch" onClick={panic} data-text="BLAME DAVE">BLAME DAVE</button>
           </div>
           <div className="hero__readout" key={shakeKey}>
             <span className="hero__readout-label">Live channel</span>
@@ -180,8 +193,12 @@ export function LandingPage() {
         </div>
         <div className="clip-grid">
           {CLIP_CARDS.map((clip, index) => (
-            <article className={`clip-card clip-card--${index + 1}`} key={clip.title}>
-              <div className="clip-card__still" aria-hidden="true" />
+            <article className={`clip-card clip-card--${index + 1}`} key={clip.id}>
+              <div
+                className="clip-card__still"
+                aria-hidden="true"
+                style={coverStyle(art[clip.id], 'linear-gradient(180deg, rgba(5, 6, 7, 0.1), rgba(5, 6, 7, 0.82))')}
+              />
               <div className="clip-card__body">
                 <span>{clip.tag}</span>
                 <h3>{clip.title}</h3>
@@ -198,26 +215,18 @@ export function LandingPage() {
           <h2>The ship is serious. Your crew is the problem.</h2>
         </div>
         <div className="feature-grid">
-          {FEATURES.map(([title, copy]) => (
-            <article className="feature-card" key={title}>
-              <h3>{title}</h3>
-              <p>{copy}</p>
+          {FEATURES.map((feature) => (
+            <article
+              className={`feature-card ${art[feature.id] ? 'feature-card--art' : ''}`}
+              key={feature.id}
+              style={coverStyle(art[feature.id], 'linear-gradient(180deg, rgba(5, 6, 7, 0.34), rgba(5, 6, 7, 0.93))')}
+            >
+              <h3>{feature.title}</h3>
+              <p>{feature.copy}</p>
             </article>
           ))}
         </div>
       </section>
-
-      {art.keyArt ? (
-        <section className="section section--keyart" id="key-art">
-          <div className="section__intro">
-            <p className="eyebrow">Recovered transmission</p>
-            <h2>Key art, straight off the salvage drive.</h2>
-          </div>
-          <figure className="key-art">
-            <img src={art.keyArt} alt="SIGNAL LOST key art" loading="lazy" />
-          </figure>
-        </section>
-      ) : null}
 
       <section className="section section--lobby" id="capsule-lobby">
         <div className="lobby-copy">
@@ -249,8 +258,8 @@ export function LandingPage() {
             </div>
           ) : (
             <div className="lobby-panel__body">
-              <button className="button button--primary" onClick={playDemo}>Play local demo</button>
-              <button className="button button--primary" onClick={startRoom}>Host game</button>
+              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={playDemo} data-text="Play local demo">Play local demo</button>
+              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-host'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={startRoom} data-text="Host game">Host game</button>
               <div className="join-row">
                 <input
                   value={draft}
