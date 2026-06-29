@@ -11,3 +11,9 @@ export type { Vec3, PhysicsCharacter, PhysicsBox } from './physics/PhysicsWorld'
 export { syncBodyToTransform, syncBodiesToTransforms } from './physics/physicsSync';
 export { PlayerController } from './player/PlayerController';
 export type { MoveInput, PlayerControllerOptions } from './player/PlayerController';
+export { InProcessMultiplayerSlice } from './net/InProcessMultiplayerSlice';
+export type {
+  InProcessClientIntent,
+  InProcessMultiplayerSliceOptions,
+  InProcessStepResult,
+} from './net/InProcessMultiplayerSlice';

@@ -69,6 +69,9 @@ importers:
       '@sl/render':
         specifier: workspace:*
         version: link:../../packages/render
+      '@sl/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       three:
         specifier: ^0.185.0
         version: 0.185.0
@@ -112,6 +115,9 @@ importers:
       '@sl/ecs':
         specifier: workspace:*
         version: link:../ecs
+      '@sl/netcode':
+        specifier: workspace:*
+        version: link:../netcode
 
   packages/netcode:
     dependencies:

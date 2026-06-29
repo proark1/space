@@ -42,6 +42,7 @@ export class Game {
 
   private input: MoveInput = ZERO_INPUT;
   private disposed = false;
+  private externalTick = 0;
 
   private constructor(
     physics: PhysicsWorld,
@@ -107,6 +108,12 @@ export class Game {
   /** Deterministic test/in-process driver; browser runtime normally uses `loop.start()`. */
   advance(frameDt: number): number {
     return this.loop.advance(frameDt);
+  }
+
+  /** Single fixed tick for externally-owned loops such as lookdev render harnesses. */
+  stepFixed(dt: number, tick?: number): void {
+    const fixedTick = tick ?? this.externalTick++;
+    this.fixedStep(dt, fixedTick);
   }
 
   dispose(): void {

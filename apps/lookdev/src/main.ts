@@ -5,6 +5,7 @@
 // dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
 import { createRenderer, createPostStack } from '@sl/render';
 import { GameLoop } from '@sl/engine';
+import { useHudStore } from '@sl/ui';
 import { createChaosScene } from './chaosScene';
 import { createCorridorScene } from './corridorScene';
 import { createWalkScene } from './walkScene';
@@ -55,8 +56,13 @@ async function main(): Promise<void> {
   const updateHud = (): void => {
     if (!hud) return;
     const p = renderer.profile;
-    const hint = harness.label === 'walk' ? ' · WASD move · click to look · Space jump' : '';
-    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${renderer.three.info.render.drawCalls} draws${hint}`;
+    const drawCalls = renderer.three.info.render.drawCalls;
+    const store = useHudStore.getState();
+    const hint =
+      harness.label === 'walk'
+        ? ` · hp ${store.health} · bat ${store.battery} · ammo ${store.ammoMag}/${store.ammoReserve} · ${store.status ?? 'idle'} · WASD move · click to look · Space jump`
+        : '';
+    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${drawCalls} draws${hint}`;
   };
 
   const loop = new GameLoop({
@@ -90,6 +96,7 @@ async function main(): Promise<void> {
     post,
     backend: renderer.backend,
     profile: renderer.profile,
+    hudState: () => useHudStore.getState(),
   };
 }
 

@@ -10,4 +10,5 @@ export interface HarnessScene {
   /** Per-frame update (camera / flashlight) — driven once per render with the real frame delta. */
   frameUpdate(dt: number): void;
   resize(width: number, height: number): void;
+  dispose?(): void;
 }

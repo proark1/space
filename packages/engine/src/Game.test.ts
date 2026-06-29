@@ -49,4 +49,21 @@ describe('Game', () => {
     expect(Transform.z[game.playerEid]).toBeLessThan(startZ);
     game.dispose();
   });
+
+  it('supports externally owned fixed-step drivers', async () => {
+    const ticks: number[] = [];
+    const game = await Game.create({
+      role: 'host',
+      onFixedStep: (_dt, tick) => ticks.push(tick),
+    });
+
+    const startZ = Transform.z[game.playerEid];
+    game.setInput({ moveX: 0, moveZ: 1, yaw: 0 });
+    for (let i = 0; i < 10; i++) game.stepFixed(1 / 60);
+
+    expect(ticks).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(Transform.z[game.playerEid]).toBeLessThan(startZ);
+    expect(game.isRunning).toBe(false);
+    game.dispose();
+  });
 });

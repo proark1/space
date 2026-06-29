@@ -12,6 +12,7 @@ export default defineConfig({
       '@sl/render': src('render'),
       '@sl/engine': src('engine'),
       '@sl/ecs': src('ecs'),
+      '@sl/ui': src('ui'),
       '@sl/shared-types': src('shared-types'),
     },
   },

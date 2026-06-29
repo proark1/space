@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@sl/ecs": "workspace:*",
+    "@sl/netcode": "workspace:*",
     "@dimforge/rapier3d-compat": "^0.19.3"
   }
 }

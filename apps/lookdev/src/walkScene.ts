@@ -1,8 +1,9 @@
 import { Scene, PerspectiveCamera, Euler } from 'three';
-import { PhysicsWorld, PlayerController, syncBodyToTransform } from '@sl/engine';
-import { createGameWorld, spawnPlayer, Transform } from '@sl/ecs';
+import { Game } from '@sl/engine';
+import { Health, PlayerState, Transform } from '@sl/ecs';
 import { createFlashlight } from '@sl/render';
 import type { RenderProfile } from '@sl/render';
+import { hudSync } from '@sl/ui';
 import type { HarnessScene } from './scene';
 import { buildCorridor } from './corridor';
 import { createFirstPersonControls, type FirstPersonControls } from './input';
@@ -12,6 +13,7 @@ const EYE_OFFSET = 0.62;
 
 /** Internal hook surface for headless verification (player position + the controls + grounded state). */
 export interface WalkSceneHandle extends HarnessScene {
+  readonly game: Game;
   readonly controls: FirstPersonControls;
   /** The local player's current world position, read from the ECS Transform. */
   playerPosition(): { x: number; y: number; z: number };
@@ -31,27 +33,23 @@ export async function createWalkScene(
   canvas: HTMLCanvasElement,
 ): Promise<WalkSceneHandle> {
   const scene = new Scene();
-  const { colliders } = buildCorridor(scene);
+  const { colliders, level } = buildCorridor(scene);
 
-  // Host physics: a static collider per corridor surface, then the player's kinematic capsule.
-  const physics = await PhysicsWorld.create();
-  for (const b of colliders) {
-    physics.addStaticBox(
-      { x: b.pos[0], y: b.pos[1], z: b.pos[2] },
-      { x: b.half[0], y: b.half[1], z: b.half[2] },
-    );
-  }
-
-  // ECS local player. Spawn near the near end-cap, facing -Z down the hall.
-  const world = createGameWorld();
-  const playerEid = spawnPlayer(world);
-  const spawn = { x: 0, y: 1.0, z: 12 };
-  const character = physics.addCharacter(spawn);
-  Transform.x[playerEid] = spawn.x;
-  Transform.y[playerEid] = spawn.y;
-  Transform.z[playerEid] = spawn.z;
-
-  const controller = new PlayerController();
+  // Shared game root. Spawn near the near end-cap, facing -Z down the hall.
+  const spawn = level.playerSpawn;
+  const game = await Game.create({
+    role: 'host',
+    initialPlayerPosition: spawn,
+    configurePhysics: (physics) => {
+      for (const b of colliders) {
+        physics.addStaticBox(
+          { x: b.pos[0], y: b.pos[1], z: b.pos[2] },
+          { x: b.half[0], y: b.half[1], z: b.half[2] },
+        );
+      }
+    },
+  });
+  const playerEid = game.playerEid;
   const controls = createFirstPersonControls(canvas);
 
   const camera = new PerspectiveCamera(70, 1, 0.1, 60);
@@ -72,23 +70,27 @@ export async function createWalkScene(
     scene,
     camera,
     label: 'walk',
+    game,
     controls,
     get grounded() {
-      return controller.isGrounded;
+      return game.playerController.isGrounded;
     },
     playerPosition() {
       return { x: Transform.x[playerEid]!, y: Transform.y[playerEid]!, z: Transform.z[playerEid]! };
     },
     fixedStep(dt) {
       const mv = controls.moveVector();
-      controller.applyInput(
-        physics,
-        character,
-        { moveX: mv.x, moveZ: mv.z, yaw: controls.yaw, jump: controls.consumeJump() },
-        dt,
-      );
-      physics.step();
-      syncBodyToTransform(playerEid, character.body);
+      game.setInput({ moveX: mv.x, moveZ: mv.z, yaw: controls.yaw, jump: controls.consumeJump() });
+      game.stepFixed(dt);
+      hudSync({
+        health: Math.round(Health.hp[playerEid] ?? PlayerState.health[playerEid] ?? 100),
+        battery: Math.round(PlayerState.battery[playerEid] ?? 100),
+        resolve: Math.round(PlayerState.resolve[playerEid] ?? 100),
+        ammoMag: PlayerState.ammoMag[playerEid] ?? 0,
+        ammoReserve: PlayerState.ammoReserve[playerEid] ?? 0,
+        objective: 'reach the aft bulkhead',
+        status: game.playerController.isGrounded ? 'grounded' : 'airborne',
+      });
     },
     frameUpdate() {
       placeCamera();
@@ -96,6 +98,9 @@ export async function createWalkScene(
     resize(width, height) {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+    },
+    dispose() {
+      game.dispose();
     },
   };
 }
