@@ -50,6 +50,7 @@ import { makeAstronaut } from './units.js?v=6';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 
+const AUTO_START = new URLSearchParams(location.search).has('auto');
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
@@ -237,6 +238,7 @@ boardLink.onclick=e=>{ e.preventDefault(); goNext('/pad?flow=1'); };   // board 
 let phase='wait', doorOpen=0, seqT=0;
 function startSeq(){ if(phase!=='wait')return; phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY'; }
 startBtn.onclick=startSeq;
+if(AUTO_START) setTimeout(startSeq,900);
 
 const clock=new THREE.Clock(); const _f=new THREE.Vector3();
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;

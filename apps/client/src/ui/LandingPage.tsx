@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
 import { useNet } from './store';
 import { NetDebugHud } from './NetDebugHud';
@@ -43,8 +44,14 @@ const TICKER_ITEMS = [
   'THE CHORUS: listening',
 ] as const;
 
+const DEMO_URL = import.meta.env.VITE_LOOKDEV_DEMO_URL ?? 'http://127.0.0.1:8173/lobby?flow=1&auto=1';
+
 function scrollToLobby(): void {
   document.getElementById('capsule-lobby')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function playDemo(): void {
+  window.location.assign(DEMO_URL);
 }
 
 export function LandingPage() {
@@ -54,6 +61,7 @@ export function LandingPage() {
   const [shakeKey, setShakeKey] = useState(0);
   const live = status !== 'idle' && status !== 'failed';
   const panicLine = PANIC_LINES[panicIndex] ?? PANIC_LINES[0];
+  const artStyle = useMemo(() => ({ '--landing-art': `url(${heroImage})` }) as CSSProperties, []);
 
   const startRoom = (): void => {
     host();
@@ -71,7 +79,7 @@ export function LandingPage() {
   };
 
   return (
-    <main className="landing">
+    <main className="landing" style={artStyle}>
       <section className="hero" aria-label="Signal Lost landing page">
         <img className="hero__image" src={heroImage} alt="" />
         <div className="hero__grain" aria-hidden="true" />
@@ -96,7 +104,8 @@ export function LandingPage() {
             incriminating, and the rescue signal is absolutely not asking nicely.
           </p>
           <div className="hero__actions" aria-label="Main actions">
-            <button className="button button--primary" onClick={startRoom}>Start a room</button>
+            <button className="button button--primary" onClick={playDemo}>Play cold open</button>
+            <button className="button button--ghost" onClick={startRoom}>Start a room</button>
             <button className="button button--ghost" onClick={scrollToLobby}>Join a crew</button>
             <button className="button button--danger" onClick={panic}>Panic button</button>
           </div>
@@ -177,10 +186,12 @@ export function LandingPage() {
               <span className="lobby-panel__label">{isHost ? 'Share this code' : 'Joined room'}</span>
               <div className="room-code">{code}</div>
               <p>{peers.length ? `${peers.length} peer connected` : 'Waiting for a doomed friend.'}</p>
+              <button className="button button--primary" onClick={playDemo}>Launch cold open</button>
               <button className="button button--danger" onClick={leave}>Leave room</button>
             </div>
           ) : (
             <div className="lobby-panel__body">
+              <button className="button button--primary" onClick={playDemo}>Play local demo</button>
               <button className="button button--primary" onClick={startRoom}>Host game</button>
               <div className="join-row">
                 <input

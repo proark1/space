@@ -20,25 +20,29 @@
   #cross{position:fixed;left:50%;top:50%;width:3px;height:3px;margin:-1.5px;background:#cdd6e0;border-radius:50%;opacity:.45;display:none;pointer-events:none}
   #obj{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 12px ui-monospace,monospace;letter-spacing:2px;color:#E8A33D;text-shadow:0 0 8px #000;pointer-events:none;text-align:center;max-width:90vw}
   #prompt{position:fixed;left:50%;top:58%;transform:translateX(-50%);font:600 12px ui-monospace,monospace;letter-spacing:2px;color:#7dffb0;text-shadow:0 0 8px #000;pointer-events:none;display:none}
-  #over{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,3,6,.66);pointer-events:none}
+  #over{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,3,6,.78);pointer-events:auto;text-align:center;padding:20px}
   #over b{font:700 22px ui-monospace,monospace;letter-spacing:5px;color:#ff6a5a}
   #over span{font:12px ui-monospace,monospace;letter-spacing:2px;color:#cdd6e0;margin-top:10px}
+  #runStats{max-width:min(520px,88vw);line-height:1.7;color:#9fb0be;letter-spacing:1px}
+  #overActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:18px}
+  #overActions button{min-height:36px;border:1px solid #20303c;border-radius:6px;background:rgba(8,12,18,.88);color:#cdd6e0;font:700 12px ui-monospace,monospace;letter-spacing:1px;padding:0 13px;cursor:pointer}
+  #overActions button:first-child{border-color:#2c5a40;color:#7dffb0}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="cross"></div>
-<div id="obj">REACH THE COMMS CONSOLE</div>
+<div id="obj">REACH THE COMMS CONSOLE · RESTORE THE SIGNAL</div>
 <div id="prompt">[E] RESTORE THE SIGNAL</div>
-<div id="over"><b id="overTxt">TAKEN</b><span id="overSub">[R] try again</span></div>
+<div id="over"><b id="overTxt">TAKEN</b><span id="overSub">[R] try again</span><span id="runStats"></span><div id="overActions"><button id="copyRun" type="button">COPY RUN</button><button id="retryRun" type="button">TRY AGAIN</button></div></div>
 <div id="hint">SIGNAL LOST · look-dev v2 · low-poly / PS1 · sound on</div>
 <div id="ui"><div id="panel">
   <h1>SIGNAL&nbsp;LOST</h1>
-  <p>Reach the <b>comms console</b> at the far end and restore the signal — that's the job.</p>
+  <p>Earth lost the derelict. VESTA found one signal still calling out.</p>
   <p><b>Click</b> look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> light · <b>E</b> use · <b>R</b> retry</p>
-  <p><small>THE CHORUS stalks the dark. <b>Hold your light on it and it freezes</b> — look away and it comes. Slip past it to the console. But think hard before you answer the signal.</small></p>
+  <p><small>Get to the command console. If something answers, keep moving.</small></p>
   <button id="go">ENTER THE SHIP</button>
-  <div style="margin-top:12px"><a href="/exterior" style="color:#9fd0ff;font:12px ui-monospace,monospace;text-decoration:none">▸ or see the ship from outside</a></div>
+  <div style="margin-top:12px;display:grid;gap:6px"><a href="/lobby?flow=1&auto=1" style="color:#7dffb0;font:12px ui-monospace,monospace;text-decoration:none">▸ play the full cold open</a><a href="/exterior" style="color:#9fd0ff;font:12px ui-monospace,monospace;text-decoration:none">▸ or see the ship from outside</a></div>
 </div></div>
 
 <script type="importmap">
@@ -313,15 +317,16 @@ let mActive=false, caught=false, restored=false, enraged=false, won=false;
 // ---------- audio (procedural) ----------
 let A=null;
 function initAudio(){ if(A) return; try{
-  const ctx=new (window.AudioContext||window.webkitAudioContext)(); const master=ctx.createGain(); master.gain.value=0; master.connect(ctx.destination);
-  master.gain.linearRampToValueAtTime(0.55, ctx.currentTime+2.5);
+  const ctx=new (window.AudioContext||window.webkitAudioContext)(); const master=ctx.createGain(); const baseGain=0.55; master.gain.value=0; master.connect(ctx.destination);
+  master.gain.linearRampToValueAtTime(baseGain, ctx.currentTime+2.5);
   const nb=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate); const nd=nb.getChannelData(0); for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
   const dg=ctx.createGain(); dg.gain.value=0.13; dg.connect(master);
   [49,55.5,73].forEach((f,i)=>{ const o=ctx.createOscillator(); o.type=i?'sine':'triangle'; o.frequency.value=f; const g=ctx.createGain(); g.gain.value=0.5; o.connect(g); g.connect(dg);
     const lfo=ctx.createOscillator(); lfo.frequency.value=0.04+i*0.03; const lg=ctx.createGain(); lg.gain.value=0.28; lfo.connect(lg); lg.connect(g.gain); lfo.start(); o.start(); });
   const air=ctx.createBufferSource(); air.buffer=nb; air.loop=true; const af=ctx.createBiquadFilter(); af.type='bandpass'; af.frequency.value=560; af.Q.value=0.6; const ag=ctx.createGain(); ag.gain.value=0.05; air.connect(af); af.connect(ag); ag.connect(master); air.start();
-  A={ctx,master,nb,dg}; scheduleCreak(); loadClips();
+  A={ctx,master,nb,dg,baseGain}; scheduleCreak(); loadClips();
 }catch(e){ console.warn('audio failed',e); } }
+function spendSilence(dur=0.7){ if(!A)return; const {ctx,master,baseGain}=A, t=ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.setValueAtTime(master.gain.value,t); master.gain.linearRampToValueAtTime(0.015,t+0.05); master.gain.linearRampToValueAtTime(baseGain,t+dur); }
 function burst(dur,freq,q,gain,type='bandpass'){ if(!A)return; const {ctx,master,nb}=A; const s=ctx.createBufferSource(); s.buffer=nb; s.loop=true; const f=ctx.createBiquadFilter(); f.type=type; f.frequency.value=freq; f.Q.value=q; const g=ctx.createGain(); const t=ctx.currentTime; g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(gain,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); s.connect(f); f.connect(g); g.connect(master); s.start(); s.stop(t+dur+0.05); }
 function scheduleCreak(){ if(!A)return; setTimeout(()=>{ burst(0.6+Math.random(),120+Math.random()*320,8,0.16); scheduleCreak(); }, (3+Math.random()*7)*1000); }
 function click(){ burst(0.05,1700,1,0.18,'highpass'); }
@@ -352,17 +357,39 @@ async function loadClips(){ if(!A)return; try{
 const controls=new PointerLockControls(camera,document.body);
 const ui=document.getElementById('ui'),cross=document.getElementById('cross');
 document.getElementById('go').onclick=()=>{ initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); controls.lock(); };
-controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.display='block'; initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); });
-controls.addEventListener('unlock',()=>{ ui.style.display='flex'; cross.style.display='none'; });
-const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='KeyF'){flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
+controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.display='block'; if(!runStarted) runStarted=performance.now(); initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); });
+controls.addEventListener('unlock',()=>{ if(!caught&&!won) ui.style.display='flex'; cross.style.display='none'; });
+const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='KeyF'&&!caught&&!won){flashes++; flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
 addEventListener('keyup',e=>{keys[e.code]=false;});
 
 // ---------- objective / interaction ----------
-const objEl=document.getElementById('obj'), promptEl=document.getElementById('prompt'), overEl=document.getElementById('over'), overTxt=document.getElementById('overTxt'), overSub=document.getElementById('overSub');
+const objEl=document.getElementById('obj'), promptEl=document.getElementById('prompt'), overEl=document.getElementById('over'), overTxt=document.getElementById('overTxt'), overSub=document.getElementById('overSub'), runStatsEl=document.getElementById('runStats'), copyRunBtn=document.getElementById('copyRun'), retryRunBtn=document.getElementById('retryRun');
 let lightFactor=1;
 const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
 const setObj=t=>{ objEl.textContent=t; };
-setObj('REACH THE COMMS CONSOLE · HOLD THE LIGHT ON IT');
+setObj('REACH THE COMMS CONSOLE · RESTORE THE SIGNAL');
+let restoredAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, runStarted=0, shareText='';
+const fmtTime=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
+function statLine(){
+  const elapsed=performance.now()-(runStarted||performance.now());
+  const restoreCopy=restoredAt?fmtTime(restoredAt-runStarted):'no';
+  const closeCopy=isFinite(closest)?closest.toFixed(1)+'m':'--';
+  return `time ${fmtTime(elapsed)} · signal ${restoreCopy} · closest ${closeCopy} · flashlight ${flashes} · panic steps ${stepsTaken} · stare failures ${longStares}`;
+}
+function showDebrief(kind){
+  const wonRun=kind==='win';
+  if(controls.isLocked) controls.unlock();
+  const line=statLine();
+  overTxt.textContent=wonRun?'SIGNAL LOST':'THE CHORUS TOOK YOU';
+  overSub.textContent=wonRun?'you got out. for now.':'it learned the shape of your panic.';
+  runStatsEl.textContent=line;
+  shareText=`SIGNAL LOST ${wonRun?'ESCAPE':'DEATH'} RUN\n${line}\nI restored the signal and immediately regretted it.`;
+  copyRunBtn.textContent='COPY RUN';
+  overEl.style.display='flex';
+  setObj('');
+}
+copyRunBtn.onclick=async()=>{ try{ await navigator.clipboard.writeText(shareText||statLine()); copyRunBtn.textContent='COPIED'; }catch(e){ copyRunBtn.textContent='COPY FAILED'; } };
+retryRunBtn.onclick=()=>respawn();
 if(SHOWCASE==='monster'){
   ui.style.display='none';
   cross.style.display='none';
@@ -379,21 +406,22 @@ if(SHOWCASE==='monster'){
   for(let i=0;i<bioStrips.length;i++) bioStrips[i].material.emissiveIntensity=1.25;
 }
 function tryInteract(){ if(restored||caught||won) return; if(camera.position.distanceTo(CONSOLE)<3.4) restore(); }
-function restore(){ restored=true; enraged=true; lightFactor=0.08; shake=0.8; if(!playClip('vox-chorus-1',1.0)) sting();
+function restore(){ restored=true; restoredAt=performance.now(); lightFactor=0.08; lightStun=0.55; flashOn=false; shake=0.45; spendSilence(0.78); playClip('crt-call',0.85);
   SCRL=['> SIGNAL ....... RESTORED','> CHANNEL OPEN','> ... hello?','> I AM THE RESCUE','> YOU CALLED FOR','> [ IT IS HERE ]']; scrScroll=0; drawScreen();
-  setObj('IT ANSWERED · GET BACK TO THE AIRLOCK'); promptEl.style.display='none';
-  mob.position.set(camera.position.x,0,camera.position.z-3.2); }                 // it surges in
+  setObj('CHANNEL OPEN · LISTEN'); promptEl.style.display='none';
+  setTimeout(()=>{ if(!restored||caught||won)return; enraged=true; flashOn=true; lightStun=0.28; shake=1.0; if(!playClip('vox-chorus-1',1.0)) sting(); setObj('IT ANSWERED · GET BACK TO THE AIRLOCK'); mob.position.set(camera.position.x,0,camera.position.z-3.2); },820); }                 // it surges in
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
-  overTxt.textContent='THE CHORUS TOOK YOU'; overSub.textContent='[R] try again'; overEl.style.display='flex'; setObj(''); }
-function respawn(){ caught=false; won=false; restored=false; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0;
-  overEl.style.display='none'; promptEl.style.display='none'; setObj('REACH THE COMMS CONSOLE · HOLD THE LIGHT ON IT');
+  showDebrief('death'); }
+function respawn(){ caught=false; won=false; restored=false; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
+  overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; setObj('REACH THE COMMS CONSOLE · RESTORE THE SIGNAL');
+  if(SHOWCASE!=='monster'){ ui.style.display='flex'; cross.style.display='none'; }
   camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.setScalar(MOB_SCALE); mThroat.material.emissiveIntensity=1; mGlow.intensity=0;
   SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer']; scrScroll=0; drawScreen(); }
 
 // ---------- loop ----------
 const clock=new THREE.Clock(); const fwd=new THREE.Vector3(); const want=new THREE.Vector3();
-let bob=0, shake=0, heart=0;
+let bob=0, shake=0, heart=0, stareHold=0;
 function animate(){ requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05), t=clock.elapsedTime;
   const moving = controls.isLocked && (keys.KeyW||keys.KeyS||keys.KeyA||keys.KeyD);
@@ -403,11 +431,12 @@ function animate(){ requestAnimationFrame(animate);
   camera.position.z=Math.max(-LEN-6,Math.min(-0.6,camera.position.z));
   bob += moving ? dt*(keys.ShiftLeft?13:9) : 0;
   camera.position.y = 1.6 + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
-  stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; playClip('sfx-step',0.35); }
+  stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip('sfx-step',0.35); }
 
   // flashlight (trailing)
   lightStun=Math.max(0,lightStun-dt);
-  flash.intensity = (flashOn && lightStun<=0) ? (SHOWCASE==='monster'?95:130) : 0;
+  const restoreGlitch=restored?(Math.sin(t*22)>0.82||Math.random()<0.018):false;
+  flash.intensity = (flashOn && lightStun<=0 && !restoreGlitch) ? (SHOWCASE==='monster'?95:130) : 0;
   flash.position.copy(camera.position);
   camera.getWorldDirection(fwd); want.copy(camera.position).add(fwd);
   fTarget.position.lerp(want, 1-Math.pow(0.0008,dt));
@@ -429,6 +458,7 @@ function animate(){ requestAnimationFrame(animate);
 
   // ---- THE CHORUS: stalks, freezes while you hold the light on it, advances when you look away ----
   const dM=camera.position.distanceTo(mob.position);
+  if(!caught&&!won) closest=Math.min(closest,dM);
   if(SHOWCASE==='monster'){
     const pulse=1.35+0.9*(Math.sin(t*4.4)*0.5+0.5);
     mThroat.material.emissiveIntensity=pulse;
@@ -438,13 +468,16 @@ function animate(){ requestAnimationFrame(animate);
     mob.position.y=Math.sin(t*1.25)*0.035;
   }
   if(stalkNode){ if(!caught){ setPanPos(stalkNode,mob.position); stalkNode.g.gain.value=Math.max(0,Math.min(0.8,1.2-dM/13)); } else { stalkNode.g.gain.value=Math.max(0,stalkNode.g.gain.value-dt*0.5); } }
-  if(!mActive && controls.isLocked && camera.position.z<-7) mActive=true;   // it wakes once you are inside
+  if(!mActive && controls.isLocked && camera.position.z<-7){ mActive=true; playClip3D('crt-call',mob.position,0.65); }   // it wakes once you are inside
+  if(!mimicPlayed && controls.isLocked && camera.position.z<-22){ mimicPlayed=true; if(!playClip('vox-vesta-1',0.75)) playClip('vox-vesta-3',0.75); }
   if(mActive && !caught && !won){
     const ox=mob.position.x-camera.position.x, oz=mob.position.z-camera.position.z, ol=Math.hypot(ox,oz)||1;
     camera.getWorldDirection(fwd);
     const facing=fwd.x*(ox/ol)+fwd.z*(oz/ol);
     const lit=flashOn && lightStun<=0 && facing>0.93 && dM<16;     // looking right at it, in the beam
     const frozen=lit && !enraged;                                  // the light pins it — until the trap enrages it
+    stareHold=frozen?stareHold+dt:0;
+    if(stareHold>1.9){ stareHold=0; longStares++; lightStun=0.75; shake=0.45; if(!playClip('sfx-flashlight',0.95)) burst(0.18,1900,2,0.22,'highpass'); }
     const spd=frozen?0:(enraged?2.7:1.5);
     mob.position.x += (-ox/ol)*spd*dt; mob.position.z += (-oz/ol)*spd*dt;
     mob.position.x=Math.max(-W/2+0.35,Math.min(W/2-0.35,mob.position.x));
@@ -461,7 +494,7 @@ function animate(){ requestAnimationFrame(animate);
   }
   // objective prompt + the escape
   promptEl.style.display=(!restored && !caught && !won && camera.position.distanceTo(CONSOLE)<3.4)?'block':'none';
-  if(restored && !won && !caught && camera.position.z>-2.6){ won=true; overTxt.textContent='SIGNAL LOST'; overSub.textContent='you got out. for now.   [R]'; overEl.style.display='flex'; setObj(''); }
+  if(restored && !won && !caught && camera.position.z>-2.6){ won=true; showDebrief('win'); }
 
   // render with shake / sway offset (no drift)
   updateListener();
