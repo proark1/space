@@ -66,7 +66,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 const QUERY = new URLSearchParams(location.search);
 const SHOWCASE = QUERY.get('showcase');
 const ADMIN_UNIT = QUERY.get('adminUnit') || 'unit-chorus';
-let adminUnitSettings = {height:2.35, scale:1, yaw:0, positionY:0};
+let adminUnitSettings = {height:2.35, scale:1, yaw:0, positionY:0, colliderRadius:0.55, colliderHeight:2.35, materialEnabled:false, materialColor:'#1a1f22', emissiveEnabled:false, emissiveColor:'#36e0d0', emissiveIntensity:0, showCollider:true};
 function finiteNumber(value, fallback){ const n=Number(value); return Number.isFinite(n)?n:fallback; }
 function normalizeUnitSettings(value, fallback=adminUnitSettings){
   const source=value&&typeof value==='object'?value:{};
@@ -74,7 +74,15 @@ function normalizeUnitSettings(value, fallback=adminUnitSettings){
     height:finiteNumber(source.height,fallback.height),
     scale:finiteNumber(source.scale,fallback.scale),
     yaw:finiteNumber(source.yaw,fallback.yaw),
-    positionY:finiteNumber(source.positionY,fallback.positionY)
+    positionY:finiteNumber(source.positionY,fallback.positionY),
+    colliderRadius:finiteNumber(source.colliderRadius,fallback.colliderRadius),
+    colliderHeight:finiteNumber(source.colliderHeight,fallback.colliderHeight),
+    materialEnabled:typeof source.materialEnabled==='boolean'?source.materialEnabled:!!source.materialColor,
+    materialColor:typeof source.materialColor==='string'?source.materialColor:fallback.materialColor,
+    emissiveEnabled:typeof source.emissiveEnabled==='boolean'?source.emissiveEnabled:!!source.emissiveColor,
+    emissiveColor:typeof source.emissiveColor==='string'?source.emissiveColor:fallback.emissiveColor,
+    emissiveIntensity:finiteNumber(source.emissiveIntensity,fallback.emissiveIntensity),
+    showCollider:typeof source.showCollider==='boolean'?source.showCollider:fallback.showCollider
   };
 }
 async function loadAdminUnitSettings(){
@@ -334,6 +342,12 @@ mp(new THREE.ConeGeometry(0.055,0.27,6), mClaw, 0,0.48,-0.68, 1.18);  // tail bl
 
 const MOB_SCALE=1.28;
 mob.position.set(0.5,0,-LEN-4.6); mob.scale.setScalar(MOB_SCALE); scene.add(mob);
+const adminColliderViz=new THREE.Mesh(
+  new THREE.CylinderGeometry(1,1,1,32,1,true),
+  new THREE.MeshBasicMaterial({color:0x36e0d0,transparent:true,opacity:0.22,wireframe:true,depthWrite:false})
+);
+adminColliderViz.renderOrder=10; scene.add(adminColliderViz);
+adminColliderViz.visible=false;
 let mActive=false, caught=false, restored=false, enraged=false, won=false;
 function adminMobScale(){
   return Math.max(0.05,(adminUnitSettings.height/2.35)*adminUnitSettings.scale);
@@ -343,6 +357,24 @@ function applyAdminUnitSettings(settings){
   if(SHOWCASE==='monster'){
     mob.scale.setScalar(MOB_SCALE*adminMobScale());
     mob.rotation.y=adminUnitSettings.yaw;
+    adminColliderViz.visible=adminUnitSettings.showCollider!==false;
+    adminColliderViz.scale.set(Math.max(0.01,adminUnitSettings.colliderRadius),Math.max(0.01,adminUnitSettings.colliderHeight),Math.max(0.01,adminUnitSettings.colliderRadius));
+    mob.traverse(o=>{
+      if(!o.isMesh||!o.material)return;
+      const materials=Array.isArray(o.material)?o.material:[o.material];
+      for(const mat of materials){
+        if(mat.color){
+          if(!mat.userData.adminBaseColor)mat.userData.adminBaseColor=mat.color.clone();
+          if(adminUnitSettings.materialEnabled)mat.color.set(adminUnitSettings.materialColor);
+          else mat.color.copy(mat.userData.adminBaseColor);
+        }
+        if(mat.emissive){
+          if(!mat.userData.adminBaseEmissive)mat.userData.adminBaseEmissive=mat.emissive.clone();
+          if(adminUnitSettings.emissiveEnabled){ mat.emissive.set(adminUnitSettings.emissiveColor); mat.emissiveIntensity=adminUnitSettings.emissiveIntensity; }
+          else mat.emissive.copy(mat.userData.adminBaseEmissive);
+        }
+      }
+    });
   }
 }
 void loadAdminUnitSettings().then(()=>applyAdminUnitSettings(adminUnitSettings));
@@ -516,6 +548,7 @@ function animate(){ requestAnimationFrame(animate);
     mob.position.y=adminUnitSettings.positionY+Math.sin(t*1.25)*0.035;
     mob.scale.setScalar(MOB_SCALE*adminMobScale());
     mob.rotation.y=adminUnitSettings.yaw;
+    adminColliderViz.position.set(mob.position.x,adminUnitSettings.positionY+Math.max(0.01,adminUnitSettings.colliderHeight)*0.5,mob.position.z);
   }
   if(stalkNode){ if(!caught){ setPanPos(stalkNode,mob.position); stalkNode.g.gain.value=Math.max(0,Math.min(0.8,1.2-dM/13)); } else { stalkNode.g.gain.value=Math.max(0,stalkNode.g.gain.value-dt*0.5); } }
   if(!mActive && controls.isLocked && camera.position.z<-7){ mActive=true; playClip3D('crt-call',mob.position,0.65); }   // it wakes once you are inside

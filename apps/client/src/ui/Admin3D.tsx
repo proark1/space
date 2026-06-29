@@ -11,7 +11,11 @@ export interface PanelStats {
 interface Admin3DProps {
   onStats: (stats: PanelStats) => void;
   onToast: (message: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
+
+export type ModelAdminTab = 'units' | 'spaceship' | 'lobby';
+type UnitPreviewState = 'bench' | 'idle' | 'walk' | 'run' | 'attack' | 'death';
 
 interface UnitItem {
   id: string;
@@ -25,14 +29,22 @@ interface UnitItem {
   sideUrl?: string;
   glbUrl?: string;
   riggedUrl?: string;
+  glbSize?: number;
+  riggedSize?: number;
+  glbUpdatedAt?: string;
+  riggedUpdatedAt?: string;
   model_status?: string;
   rig_status?: string;
+  adminUpdatedAt?: string;
   height?: number;
   scale?: number;
   yaw?: number;
   positionY?: number;
   colliderRadius?: number;
   colliderHeight?: number;
+  materialColor?: string;
+  emissiveColor?: string;
+  emissiveIntensity?: number;
 }
 
 interface UnitDraft {
@@ -46,6 +58,13 @@ interface UnitDraft {
   positionY: number;
   colliderRadius: number;
   colliderHeight: number;
+  materialEnabled: boolean;
+  materialColor: string;
+  emissiveEnabled: boolean;
+  emissiveColor: string;
+  emissiveIntensity: number;
+  previewState: UnitPreviewState;
+  showCollider: boolean;
   uploadAsRigged: boolean;
 }
 
@@ -53,6 +72,7 @@ interface SceneSettings {
   id: 'spaceship' | 'lobby';
   name: string;
   modelUrl: string;
+  modelSize?: number;
   baseColor: string;
   emissiveColor: string;
   emissiveIntensity: number;
@@ -110,6 +130,7 @@ const SCENE_DEFAULTS: Record<SceneSettings['id'], SceneSettings> = {
     id: 'spaceship',
     name: 'Space Ship',
     modelUrl: '',
+    modelSize: undefined,
     baseColor: '#717a86',
     emissiveColor: '#36e0d0',
     emissiveIntensity: 2.4,
@@ -124,6 +145,7 @@ const SCENE_DEFAULTS: Record<SceneSettings['id'], SceneSettings> = {
     id: 'lobby',
     name: 'Lobby',
     modelUrl: '',
+    modelSize: undefined,
     baseColor: '#c9ced6',
     emissiveColor: '#bfe9ff',
     emissiveIntensity: 1.6,
@@ -148,6 +170,14 @@ function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function optionalNumberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function colorValue(value: unknown, fallback = '#ffffff'): string {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
+}
+
 function booleanValue(value: unknown, fallback = false): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
@@ -161,6 +191,17 @@ function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatOptionalBytes(size: number | undefined): string {
+  return typeof size === 'number' && Number.isFinite(size) ? formatBytes(size) : 'no file';
+}
+
+function formatDate(value: string | undefined): string {
+  if (!value) return 'not saved';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -188,14 +229,22 @@ function normalizeUnit(item: unknown): UnitItem | undefined {
     sideUrl: assetUrl(stringValue(item.sideUrl)),
     glbUrl: assetUrl(stringValue(item.glbUrl)),
     riggedUrl: assetUrl(stringValue(item.riggedUrl)),
+    glbSize: optionalNumberValue(item.glbSize),
+    riggedSize: optionalNumberValue(item.riggedSize),
+    glbUpdatedAt: stringValue(item.glbUpdatedAt),
+    riggedUpdatedAt: stringValue(item.riggedUpdatedAt),
     model_status: stringValue(item.model_status),
     rig_status: stringValue(item.rig_status),
+    adminUpdatedAt: stringValue(item.adminUpdatedAt),
     height: numberValue(item.height, 1.8),
     scale: numberValue(item.scale, 1),
     yaw: numberValue(item.yaw, 0),
     positionY: numberValue(item.positionY, 0),
     colliderRadius: numberValue(item.colliderRadius, 0.35),
     colliderHeight: numberValue(item.colliderHeight, numberValue(item.height, 1.8)),
+    materialColor: stringValue(item.materialColor),
+    emissiveColor: stringValue(item.emissiveColor),
+    emissiveIntensity: numberValue(item.emissiveIntensity, 0),
   };
 }
 
@@ -224,8 +273,77 @@ function unitDraft(unit: UnitItem | undefined): UnitDraft {
     positionY: unit?.positionY ?? 0,
     colliderRadius: unit?.colliderRadius ?? 0.35,
     colliderHeight: unit?.colliderHeight ?? unit?.height ?? 1.8,
+    materialEnabled: Boolean(unit?.materialColor),
+    materialColor: colorValue(unit?.materialColor, '#d9d3c3'),
+    emissiveEnabled: Boolean(unit?.emissiveColor),
+    emissiveColor: colorValue(unit?.emissiveColor, '#36e0d0'),
+    emissiveIntensity: unit?.emissiveIntensity ?? 0,
+    previewState: 'bench',
+    showCollider: true,
     uploadAsRigged: false,
   };
+}
+
+function savedUnitDraft(unit: UnitItem | undefined): Omit<UnitDraft, 'previewState' | 'showCollider' | 'uploadAsRigged'> {
+  const draft = unitDraft(unit);
+  return {
+    name: draft.name,
+    kind: draft.kind,
+    prompt: draft.prompt,
+    role: draft.role,
+    height: draft.height,
+    scale: draft.scale,
+    yaw: draft.yaw,
+    positionY: draft.positionY,
+    colliderRadius: draft.colliderRadius,
+    colliderHeight: draft.colliderHeight,
+    materialEnabled: draft.materialEnabled,
+    materialColor: draft.materialColor,
+    emissiveEnabled: draft.emissiveEnabled,
+    emissiveColor: draft.emissiveColor,
+    emissiveIntensity: draft.emissiveIntensity,
+  };
+}
+
+function comparableUnitDraft(draft: UnitDraft): Omit<UnitDraft, 'previewState' | 'showCollider' | 'uploadAsRigged'> {
+  return {
+    name: draft.name,
+    kind: draft.kind,
+    prompt: draft.prompt,
+    role: draft.role,
+    height: draft.height,
+    scale: draft.scale,
+    yaw: draft.yaw,
+    positionY: draft.positionY,
+    colliderRadius: draft.colliderRadius,
+    colliderHeight: draft.colliderHeight,
+    materialEnabled: draft.materialEnabled,
+    materialColor: draft.materialColor,
+    emissiveEnabled: draft.emissiveEnabled,
+    emissiveColor: draft.emissiveColor,
+    emissiveIntensity: draft.emissiveIntensity,
+  };
+}
+
+function unitIsDirty(unit: UnitItem | undefined, draft: UnitDraft): boolean {
+  if (!unit) return false;
+  return JSON.stringify(savedUnitDraft(unit)) !== JSON.stringify(comparableUnitDraft(draft));
+}
+
+function sceneIsDirty(settings: SceneSettings, saved: SceneSettings): boolean {
+  const strip = (scene: SceneSettings) => ({
+    modelUrl: scene.modelUrl,
+    baseColor: scene.baseColor,
+    emissiveColor: scene.emissiveColor,
+    emissiveIntensity: scene.emissiveIntensity,
+    scale: scene.scale,
+    positionY: scene.positionY,
+    rotationY: scene.rotationY,
+    ambientIntensity: scene.ambientIntensity,
+    keyIntensity: scene.keyIntensity,
+    fogDensity: scene.fogDensity,
+  });
+  return JSON.stringify(strip(settings)) !== JSON.stringify(strip(saved));
 }
 
 function normalizeScene(id: SceneSettings['id'], item: unknown): SceneSettings {
@@ -234,6 +352,7 @@ function normalizeScene(id: SceneSettings['id'], item: unknown): SceneSettings {
   return {
     ...base,
     modelUrl: assetUrl(stringValue(item.modelUrl, base.modelUrl)),
+    modelSize: optionalNumberValue(item.modelSize),
     baseColor: stringValue(item.baseColor, base.baseColor),
     emissiveColor: stringValue(item.emissiveColor, base.emissiveColor),
     emissiveIntensity: numberValue(item.emissiveIntensity, base.emissiveIntensity),
@@ -249,6 +368,22 @@ function normalizeScene(id: SceneSettings['id'], item: unknown): SceneSettings {
 
 function readyUnit(unit: UnitItem): boolean {
   return Boolean(unit.glbUrl || unit.riggedUrl);
+}
+
+function unitModelSize(unit: UnitItem): number | undefined {
+  return unit.riggedSize ?? unit.glbSize;
+}
+
+function unitModelUpdatedAt(unit: UnitItem): string | undefined {
+  return unit.riggedUpdatedAt || unit.glbUpdatedAt || unit.adminUpdatedAt;
+}
+
+function unitSceneLabel(unit: UnitItem): string {
+  const kind = unit.kind.toLowerCase();
+  if (unit.riggedUrl || unit.glbUrl) return '/model';
+  if (unit.id === 'unit-chorus' || unit.id === 'unit-swarmer' || kind === 'monster' || kind === 'enemy') return '/game monster showcase';
+  if (unit.id === 'unit-crate' || kind === 'prop') return '/lobby props';
+  return '/units crew bench';
 }
 
 function previewStats(units: UnitItem[]): PanelStats {
@@ -368,12 +503,37 @@ function TextField(props: {
   );
 }
 
+function SelectField<T extends string>(props: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="model-field">
+      <span>{props.label}</span>
+      <select value={props.value} onChange={(event) => props.onChange(event.target.value as T)}>
+        {props.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function ColorField(props: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="model-field model-field--color">
       <span>{props.label}</span>
       <input type="color" value={props.value} onChange={(event) => props.onChange(event.target.value)} />
     </label>
+  );
+}
+
+function UnitThumbnail({ unit }: { unit: UnitItem }) {
+  const image = unit.frontUrl || unit.sideUrl || unit.backUrl;
+  return (
+    <span className="model-thumb" aria-hidden="true">
+      {image ? <img src={image} alt="" /> : <span>{unit.name.slice(0, 2).toUpperCase()}</span>}
+    </span>
   );
 }
 
@@ -385,7 +545,137 @@ function ModelStatusPill(props: { unit: UnitItem }) {
   return <span className="model-pill">missing model</span>;
 }
 
-export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
+function SceneOverviewCard(props: {
+  scene: SceneSettings;
+  liveUrl: string;
+  usedIn: string;
+  onOpen?: (tab: ModelAdminTab) => void;
+}) {
+  return (
+    <article className="model-overview-card">
+      <div className="model-overview-card__preview">
+        <iframe title={`${props.scene.name} overview`} src={props.liveUrl} />
+      </div>
+      <div className="model-overview-card__body">
+        <div>
+          <p className="eyebrow">Scene</p>
+          <h2>{props.scene.name}</h2>
+        </div>
+        <div className="model-overview-card__meta">
+          <span>Used in {props.usedIn}</span>
+          <span>{props.scene.modelUrl ? 'Replacement GLB' : 'Procedural scene'}</span>
+          <span>{formatOptionalBytes(props.scene.modelSize)}</span>
+          <span>{formatDate(props.scene.updatedAt)}</span>
+        </div>
+        <button onClick={() => props.onOpen?.(props.scene.id)}>Open editor</button>
+      </div>
+    </article>
+  );
+}
+
+function UnitOverviewCard({ unit, onOpen }: { unit: UnitItem; onOpen?: (tab: ModelAdminTab) => void }) {
+  return (
+    <article className="model-overview-card">
+      <div className="model-overview-card__preview model-overview-card__preview--unit">
+        <UnitThumbnail unit={unit} />
+      </div>
+      <div className="model-overview-card__body">
+        <div>
+          <p className="eyebrow">{unit.kind}</p>
+          <h2>{unit.name}</h2>
+        </div>
+        <div className="model-overview-card__meta">
+          <span>{unit.id}</span>
+          <span>{unitSceneLabel(unit)}</span>
+          <span>{readyUnit(unit) ? 'GLB ready' : 'Missing GLB'}</span>
+          <span>{formatOptionalBytes(unitModelSize(unit))}</span>
+          <span>{formatDate(unitModelUpdatedAt(unit))}</span>
+        </div>
+        <button onClick={() => onOpen?.('units')}>Open units</button>
+      </div>
+    </article>
+  );
+}
+
+export function Admin3DOverviewPanel(props: Admin3DProps & { onOpenTab?: (tab: ModelAdminTab) => void }) {
+  const { onStats, onToast, onOpenTab, onDirtyChange } = props;
+  const [units, setUnits] = useState<UnitItem[]>([]);
+  const [spaceship, setSpaceship] = useState<SceneSettings>(() => SCENE_DEFAULTS.spaceship);
+  const [lobby, setLobby] = useState<SceneSettings>(() => SCENE_DEFAULTS.lobby);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const [unitsResponse, spaceshipResponse, lobbyResponse] = await Promise.all([
+        fetch('/api/units', { cache: 'no-store' }),
+        fetch('/api/admin/scene/spaceship', { cache: 'no-store' }),
+        fetch('/api/admin/scene/lobby', { cache: 'no-store' }),
+      ]);
+      const [unitsPayload, spaceshipPayload, lobbyPayload]: unknown[] = await Promise.all([
+        unitsResponse.json(),
+        spaceshipResponse.json(),
+        lobbyResponse.json(),
+      ]);
+      const merged = mergeUnits(isRecord(unitsPayload) && Array.isArray(unitsPayload.items) ? unitsPayload.items : []);
+      const shipScene = normalizeScene('spaceship', isRecord(spaceshipPayload) ? spaceshipPayload.scene : undefined);
+      const lobbyScene = normalizeScene('lobby', isRecord(lobbyPayload) ? lobbyPayload.scene : undefined);
+      setUnits(merged);
+      setSpaceship(shipScene);
+      setLobby(lobbyScene);
+      const unitStats = previewStats(merged);
+      onStats({
+        total: unitStats.total + 2,
+        approved: unitStats.approved + (shipScene.updatedAt ? 1 : 0) + (lobbyScene.updatedAt ? 1 : 0),
+        generated: unitStats.generated + (shipScene.modelUrl ? 1 : 0) + (lobbyScene.modelUrl ? 1 : 0),
+        missing: unitStats.missing,
+        stale: unitStats.stale,
+      });
+    } catch (error) {
+      onToast(`3D overview unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
+      onStats({ total: 0, approved: 0, generated: 0, missing: 0, stale: 1 });
+    } finally {
+      setBusy(false);
+    }
+  }, [onStats, onToast]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  const missingUnits = units.filter((unit) => !readyUnit(unit));
+
+  return (
+    <section className="model-admin model-overview">
+      <div className="model-overview__head">
+        <div>
+          <p className="eyebrow">3D overview</p>
+          <h2>Models and scenes</h2>
+        </div>
+        <button onClick={() => void refresh()} disabled={busy}>{busy ? 'Refreshing...' : 'Refresh'}</button>
+      </div>
+
+      <div className="model-overview__summary">
+        <span><strong>{units.length}</strong> units</span>
+        <span><strong>{units.length - missingUnits.length}</strong> unit GLBs</span>
+        <span><strong>{missingUnits.length}</strong> missing GLBs</span>
+        <span><strong>{[spaceship, lobby].filter((scene) => scene.updatedAt).length}</strong> saved scenes</span>
+      </div>
+
+      <div className="model-overview__grid">
+        <SceneOverviewCard scene={spaceship} liveUrl="/exterior" usedIn="/exterior" onOpen={onOpenTab} />
+        <SceneOverviewCard scene={lobby} liveUrl="/lobby" usedIn="/lobby and crate props" onOpen={onOpenTab} />
+        {units.map((unit) => <UnitOverviewCard key={unit.id} unit={unit} onOpen={onOpenTab} />)}
+      </div>
+    </section>
+  );
+}
+
+export function UnitsAdminPanel({ onStats, onToast, onDirtyChange }: Admin3DProps) {
   const [units, setUnits] = useState<UnitItem[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState<UnitDraft>(() => unitDraft(undefined));
@@ -395,6 +685,7 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
 
   const selected = useMemo(() => units.find((unit) => unit.id === selectedId) ?? units[0], [selectedId, units]);
   const selectedModelUrl = selected?.riggedUrl || selected?.glbUrl || '';
+  const dirty = useMemo(() => unitIsDirty(selected, draft), [draft, selected]);
   const reloadPreview = useCallback(() => setPreviewNonce((current) => current + 1), []);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -422,6 +713,17 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
   useEffect(() => {
     setDraft(unitDraft(selected));
   }, [selected]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
+  const selectUnit = (unitId: string): void => {
+    if (unitId === selected?.id) return;
+    if (dirty && !window.confirm('Discard unsaved unit changes?')) return;
+    setSelectedId(unitId);
+  };
 
   const save = async (): Promise<void> => {
     if (!selected) return;
@@ -487,11 +789,14 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
             <button
               className={unit.id === selected?.id ? 'active' : ''}
               key={unit.id}
-              onClick={() => setSelectedId(unit.id)}
+              onClick={() => selectUnit(unit.id)}
             >
-              <strong>{unit.name}</strong>
-              <span>{unit.id}</span>
-              <ModelStatusPill unit={unit} />
+              <UnitThumbnail unit={unit} />
+              <span className="model-list__copy">
+                <strong>{unit.name}</strong>
+                <span>{unit.id}</span>
+                <ModelStatusPill unit={unit} />
+              </span>
             </button>
           ))}
         </aside>
@@ -511,7 +816,7 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
               <div className="model-editor__head">
                 <div>
                   <p className="eyebrow">Unit editor</p>
-                  <h2>{selected.name}</h2>
+                  <h2>{selected.name}{dirty ? <span className="model-dirty">Unsaved</span> : null}</h2>
                 </div>
                 <div className="model-editor__actions">
                   {selectedModelUrl ? <a href={`/model?id=${selected.id}${selected.riggedUrl ? '&rig=1' : ''}`} target="_blank" rel="noreferrer">Open viewer</a> : null}
@@ -531,6 +836,34 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
                 <NumberField label="Position Y" value={draft.positionY} step={0.05} onChange={(positionY) => setDraft((current) => ({ ...current, positionY }))} />
                 <NumberField label="Collider radius" value={draft.colliderRadius} step={0.05} min={0.01} onChange={(colliderRadius) => setDraft((current) => ({ ...current, colliderRadius }))} />
                 <NumberField label="Collider height" value={draft.colliderHeight} step={0.05} min={0.01} onChange={(colliderHeight) => setDraft((current) => ({ ...current, colliderHeight }))} />
+                <SelectField<UnitPreviewState>
+                  label="Animation preview"
+                  value={draft.previewState}
+                  options={[
+                    { value: 'bench', label: 'Bench mix' },
+                    { value: 'idle', label: 'Idle' },
+                    { value: 'walk', label: 'Walk' },
+                    { value: 'run', label: 'Run' },
+                    { value: 'attack', label: 'Attack' },
+                    { value: 'death', label: 'Death' },
+                  ]}
+                  onChange={(previewState) => setDraft((current) => ({ ...current, previewState }))}
+                />
+                <label className="model-field model-field--check">
+                  <input type="checkbox" checked={draft.showCollider} onChange={(event) => setDraft((current) => ({ ...current, showCollider: event.target.checked }))} />
+                  <span>Show collider overlay</span>
+                </label>
+                <label className="model-field model-field--check">
+                  <input type="checkbox" checked={draft.materialEnabled} onChange={(event) => setDraft((current) => ({ ...current, materialEnabled: event.target.checked }))} />
+                  <span>Apply material tint</span>
+                </label>
+                <ColorField label="Material tint" value={draft.materialColor} onChange={(materialColor) => setDraft((current) => ({ ...current, materialColor, materialEnabled: true }))} />
+                <label className="model-field model-field--check">
+                  <input type="checkbox" checked={draft.emissiveEnabled} onChange={(event) => setDraft((current) => ({ ...current, emissiveEnabled: event.target.checked }))} />
+                  <span>Apply emissive tint</span>
+                </label>
+                <ColorField label="Emissive tint" value={draft.emissiveColor} onChange={(emissiveColor) => setDraft((current) => ({ ...current, emissiveColor, emissiveEnabled: true }))} />
+                <NumberField label="Emissive power" value={draft.emissiveIntensity} step={0.1} min={0} max={8} onChange={(emissiveIntensity) => setDraft((current) => ({ ...current, emissiveIntensity, emissiveEnabled: true }))} />
                 <label className="model-field model-field--check">
                   <input type="checkbox" checked={draft.uploadAsRigged} onChange={(event) => setDraft((current) => ({ ...current, uploadAsRigged: event.target.checked }))} />
                   <span>Upload as rigged model</span>
@@ -544,6 +877,8 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
                 {selected.sideUrl ? <a href={selected.sideUrl} target="_blank" rel="noreferrer">side view</a> : <span>side missing</span>}
                 {selected.glbUrl ? <a href={selected.glbUrl} target="_blank" rel="noreferrer">glb</a> : <span>glb missing</span>}
                 {selected.riggedUrl ? <a href={selected.riggedUrl} target="_blank" rel="noreferrer">rigged glb</a> : <span>rigged missing</span>}
+                <span>{formatOptionalBytes(unitModelSize(selected))}</span>
+                <span>{formatDate(unitModelUpdatedAt(selected))}</span>
               </div>
 
               <input
@@ -573,11 +908,13 @@ export function SceneAdminPanel(props: Admin3DProps & {
   copy: string;
   liveUrl: string;
 }) {
-  const { onStats, onToast, sceneId, title } = props;
+  const { onStats, onToast, onDirtyChange, sceneId, title } = props;
   const [settings, setSettings] = useState<SceneSettings>(() => SCENE_DEFAULTS[props.sceneId]);
+  const [savedSettings, setSavedSettings] = useState<SceneSettings>(() => SCENE_DEFAULTS[props.sceneId]);
   const [busy, setBusy] = useState(false);
   const [previewNonce, setPreviewNonce] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dirty = useMemo(() => sceneIsDirty(settings, savedSettings), [settings, savedSettings]);
   const reloadPreview = useCallback(() => setPreviewNonce((current) => current + 1), []);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -586,6 +923,7 @@ export function SceneAdminPanel(props: Admin3DProps & {
       const payload: unknown = await response.json();
       const scene = normalizeScene(props.sceneId, isRecord(payload) ? payload.scene : undefined);
       setSettings(scene);
+      setSavedSettings(scene);
       reloadPreview();
       onStats({
         total: 1,
@@ -604,6 +942,11 @@ export function SceneAdminPanel(props: Admin3DProps & {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
   const save = async (): Promise<void> => {
     setBusy(true);
     onToast(`Saving ${title}...`);
@@ -620,6 +963,7 @@ export function SceneAdminPanel(props: Admin3DProps & {
       }
       const scene = normalizeScene(props.sceneId, payload.scene);
       setSettings(scene);
+      setSavedSettings(scene);
       reloadPreview();
       onStats({ total: 1, approved: 1, generated: scene.modelUrl ? 1 : 0, missing: 0, stale: 0 });
       onToast(`Saved ${title}. Open scenes will use the new settings on reload.`);
@@ -672,7 +1016,7 @@ export function SceneAdminPanel(props: Admin3DProps & {
           <div className="model-editor__head">
             <div>
               <p className="eyebrow">Scene editor</p>
-              <h2>{props.title}</h2>
+              <h2>{props.title}{dirty ? <span className="model-dirty">Unsaved</span> : null}</h2>
               <p>{props.copy}</p>
             </div>
             <div className="model-editor__actions">

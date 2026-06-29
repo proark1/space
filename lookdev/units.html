@@ -42,15 +42,25 @@ import { animateAstronaut, makeAstronaut } from './units_alpha.js?v=5';
 
 const QUERY=new URLSearchParams(location.search);
 const ADMIN_UNIT=QUERY.get('adminUnit')||'unit-crew';
-let adminUnitSettings={height:1.85,scale:1,yaw:0,positionY:0};
+let adminUnitSettings={height:1.85,scale:1,yaw:0,positionY:0,colliderRadius:0.35,colliderHeight:1.85,materialEnabled:false,materialColor:'#d9d3c3',emissiveEnabled:false,emissiveColor:'#36e0d0',emissiveIntensity:0,previewState:'bench',showCollider:true};
 function finiteNumber(value,fallback){ const n=Number(value); return Number.isFinite(n)?n:fallback; }
 function normalizeUnitSettings(value,fallback=adminUnitSettings){
   const source=value&&typeof value==='object'?value:{};
+  const previewState=['bench','idle','walk','run','attack','death'].includes(source.previewState)?source.previewState:fallback.previewState;
   return {
     height:finiteNumber(source.height,fallback.height),
     scale:finiteNumber(source.scale,fallback.scale),
     yaw:finiteNumber(source.yaw,fallback.yaw),
-    positionY:finiteNumber(source.positionY,fallback.positionY)
+    positionY:finiteNumber(source.positionY,fallback.positionY),
+    colliderRadius:finiteNumber(source.colliderRadius,fallback.colliderRadius),
+    colliderHeight:finiteNumber(source.colliderHeight,fallback.colliderHeight),
+    materialEnabled:typeof source.materialEnabled==='boolean'?source.materialEnabled:!!source.materialColor,
+    materialColor:typeof source.materialColor==='string'?source.materialColor:fallback.materialColor,
+    emissiveEnabled:typeof source.emissiveEnabled==='boolean'?source.emissiveEnabled:!!source.emissiveColor,
+    emissiveColor:typeof source.emissiveColor==='string'?source.emissiveColor:fallback.emissiveColor,
+    emissiveIntensity:finiteNumber(source.emissiveIntensity,fallback.emissiveIntensity),
+    previewState,
+    showCollider:typeof source.showCollider==='boolean'?source.showCollider:fallback.showCollider
   };
 }
 async function loadAdminUnitSettings(){
@@ -143,6 +153,11 @@ for(let i=0;i<6;i++){
 
 // ---- the crew on a slow turntable ----
 const turntable=new THREE.Group(); scene.add(turntable);
+const colliderViz=new THREE.Mesh(
+  new THREE.CylinderGeometry(1,1,1,32,1,true),
+  new THREE.MeshBasicMaterial({color:0x36e0d0,transparent:true,opacity:0.22,wireframe:true,depthWrite:false})
+);
+colliderViz.renderOrder=10; scene.add(colliderViz);
 const TEAM=[0xc8552f,0x2f86c8,0x3fae5a,0xb58ad6];
 const EXPRESSIONS=['worried','focused','attack'];
 const MODES=['walk','run','attack'];
@@ -165,13 +180,46 @@ loadUnitModel('unit-crew', {height:1.85}).then(base=>{
     inst.play(MODES[i]);                                              // walk / run / attack
     turntable.add(inst.root); crewModels.push(inst);
   });
+  applyPreviewState();
+  applyMaterialSettings(turntable);
 });
 globalThis.__crew={ get models(){return crewModels;}, standing };     // inspect forged crew
+function applyPreviewState(){
+  const state=adminUnitSettings.previewState||'bench';
+  standing.forEach((a,i)=>{ a.userData.mode=state==='bench'?MODES[i]:state; });
+  crewModels.forEach((c,i)=>c.play(state==='bench'?MODES[i]:state));
+}
+function updateColliderViz(){
+  colliderViz.visible=adminUnitSettings.showCollider!==false;
+  colliderViz.scale.set(Math.max(0.01,adminUnitSettings.colliderRadius),Math.max(0.01,adminUnitSettings.colliderHeight),Math.max(0.01,adminUnitSettings.colliderRadius));
+  colliderViz.position.set(0,adminUnitSettings.positionY+Math.max(0.01,adminUnitSettings.colliderHeight)*0.5,0);
+}
+function applyMaterialSettings(root){
+  root.traverse(o=>{
+    if(!o.isMesh||!o.material)return;
+    const materials=Array.isArray(o.material)?o.material:[o.material];
+    for(const mat of materials){
+      if(mat.color){
+        if(!mat.userData.adminBaseColor)mat.userData.adminBaseColor=mat.color.clone();
+        if(adminUnitSettings.materialEnabled)mat.color.set(adminUnitSettings.materialColor);
+        else mat.color.copy(mat.userData.adminBaseColor);
+      }
+      if(mat.emissive){
+        if(!mat.userData.adminBaseEmissive)mat.userData.adminBaseEmissive=mat.emissive.clone();
+        if(adminUnitSettings.emissiveEnabled){ mat.emissive.set(adminUnitSettings.emissiveColor); mat.emissiveIntensity=adminUnitSettings.emissiveIntensity; }
+        else mat.emissive.copy(mat.userData.adminBaseEmissive);
+      }
+    }
+  });
+}
 function applyAdminUnitSettings(settings){
   adminUnitSettings=normalizeUnitSettings(settings,adminUnitSettings);
   const heightScale=adminUnitSettings.height/1.85;
   turntable.scale.setScalar(Math.max(0.05,heightScale*adminUnitSettings.scale));
   turntable.position.y=adminUnitSettings.positionY;
+  applyPreviewState();
+  updateColliderViz();
+  applyMaterialSettings(turntable);
 }
 void loadAdminUnitSettings().then(()=>applyAdminUnitSettings(adminUnitSettings));
 addEventListener('message',event=>{

@@ -194,6 +194,16 @@ def admin_model_path(model_id):
     return os.path.join(ADMIN_CONTENT_DIR, "models", safe_admin_model_id(model_id) + ".glb")
 
 
+def add_admin_model_file_meta(scene):
+    scene_id = safe_admin_scene_id(scene.get("id"))
+    path = admin_model_path(scene_id + "-model")
+    if os.path.isfile(path):
+        size, updated = stamp(path)
+        scene["modelSize"] = size
+        scene["modelUpdatedAt"] = updated
+    return scene
+
+
 def number_or(value, fallback, lo=None, hi=None):
     try:
         out = float(value)
@@ -229,7 +239,7 @@ def load_admin_scene(scene_id):
     except (OSError, ValueError):
         pass
     data["id"] = scene_id
-    return data
+    return add_admin_model_file_meta(data)
 
 
 def normalize_admin_scene(scene_id, body):
@@ -256,6 +266,8 @@ def normalize_admin_scene(scene_id, body):
 def save_admin_scene(scene_id, data):
     os.makedirs(os.path.dirname(admin_scene_path(scene_id)), exist_ok=True)
     data = dict(data)
+    data.pop("modelSize", None)
+    data.pop("modelUpdatedAt", None)
     data["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
     tmp = admin_scene_path(scene_id) + ".tmp"
     with open(tmp, "w") as handle:
@@ -939,6 +951,16 @@ class Handler(SimpleHTTPRequestHandler):
             meta["positionY"] = number_or(body.get("positionY"), meta.get("positionY", 0), -20, 20)
             meta["colliderRadius"] = number_or(body.get("colliderRadius"), meta.get("colliderRadius", 0.35), 0.01, 10)
             meta["colliderHeight"] = number_or(body.get("colliderHeight"), meta.get("colliderHeight", meta["height"]), 0.01, 20)
+            if body.get("materialEnabled") and isinstance(body.get("materialColor"), str):
+                meta["materialColor"] = hex_color_or(body.get("materialColor"), meta.get("materialColor") or "#ffffff")
+            else:
+                meta.pop("materialColor", None)
+            if body.get("emissiveEnabled") and isinstance(body.get("emissiveColor"), str):
+                meta["emissiveColor"] = hex_color_or(body.get("emissiveColor"), meta.get("emissiveColor") or "#36e0d0")
+                meta["emissiveIntensity"] = number_or(body.get("emissiveIntensity"), meta.get("emissiveIntensity", 0), 0, 8)
+            else:
+                meta.pop("emissiveColor", None)
+                meta.pop("emissiveIntensity", None)
             meta["adminUpdatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
             os.makedirs(UNITS_DIR, exist_ok=True)
             tf.save_unit(UNITS_DIR, meta)
@@ -965,11 +987,26 @@ class Handler(SimpleHTTPRequestHandler):
                 path = tf.unit_file(UNITS_DIR, uid + suffix)
                 return ("/u/" + uid + suffix + "?t=" + str(int(os.stat(path).st_mtime))) if os.path.isfile(path) else None
 
+            def file_meta(suffix, uid=uid):
+                path = tf.unit_file(UNITS_DIR, uid + suffix)
+                if not os.path.isfile(path):
+                    return None, None
+                size, updated = stamp(path)
+                return size, updated
+
             meta["frontUrl"] = url_if("_front.img")
             meta["backUrl"] = url_if("_back.img")
             meta["sideUrl"] = url_if("_side.img")
             meta["glbUrl"] = url_if(".glb")
             meta["riggedUrl"] = url_if("_rigged.glb")
+            glb_size, glb_updated = file_meta(".glb")
+            rigged_size, rigged_updated = file_meta("_rigged.glb")
+            if glb_size is not None:
+                meta["glbSize"] = glb_size
+                meta["glbUpdatedAt"] = glb_updated
+            if rigged_size is not None:
+                meta["riggedSize"] = rigged_size
+                meta["riggedUpdatedAt"] = rigged_updated
             items.append(meta)
         return items
 

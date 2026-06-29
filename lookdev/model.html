@@ -62,7 +62,7 @@ const id = q.get('id');
 const rigged = q.get('rig') === '1' || q.get('rig') === 'true';
 // explicit ?src= wins; otherwise build the volume path from ?id= (+ _rigged when ?rig=1)
 const src = q.get('src') || (id ? ('/u/' + id + (rigged ? '_rigged' : '') + '.glb') : null);
-let unitSettings = {height:1.7, scale:1, yaw:0, positionY:0};
+let unitSettings = {height:1.7, scale:1, yaw:0, positionY:0, colliderRadius:0.35, colliderHeight:1.7, materialEnabled:false, materialColor:'#d9d3c3', emissiveEnabled:false, emissiveColor:'#36e0d0', emissiveIntensity:0, previewState:'idle', showCollider:true};
 
 function finiteNumber(value, fallback){
   const n = Number(value);
@@ -70,11 +70,21 @@ function finiteNumber(value, fallback){
 }
 function normalizeUnitSettings(value, fallback=unitSettings){
   const source = value && typeof value === 'object' ? value : {};
+  const previewState = ['bench','idle','walk','run','attack','death'].includes(source.previewState) ? source.previewState : fallback.previewState;
   return {
     height: finiteNumber(source.height, fallback.height),
     scale: finiteNumber(source.scale, fallback.scale),
     yaw: finiteNumber(source.yaw, fallback.yaw),
     positionY: finiteNumber(source.positionY, fallback.positionY),
+    colliderRadius: finiteNumber(source.colliderRadius, fallback.colliderRadius),
+    colliderHeight: finiteNumber(source.colliderHeight, fallback.colliderHeight),
+    materialEnabled: typeof source.materialEnabled === 'boolean' ? source.materialEnabled : !!source.materialColor,
+    materialColor: typeof source.materialColor === 'string' ? source.materialColor : fallback.materialColor,
+    emissiveEnabled: typeof source.emissiveEnabled === 'boolean' ? source.emissiveEnabled : !!source.emissiveColor,
+    emissiveColor: typeof source.emissiveColor === 'string' ? source.emissiveColor : fallback.emissiveColor,
+    emissiveIntensity: finiteNumber(source.emissiveIntensity, fallback.emissiveIntensity),
+    previewState,
+    showCollider: typeof source.showCollider === 'boolean' ? source.showCollider : fallback.showCollider,
   };
 }
 async function loadUnitSettings(unitId){
@@ -150,11 +160,76 @@ function resize(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false)
   camera.aspect=w/h; camera.updateProjectionMatrix(); }
 
 const turntable = new THREE.Group(); scene.add(turntable);
-let spin = true, mixer = null, model = null, wire = false;
+let spin = true, mixer = null, model = null, wire = false, modelClips = [], currentAction = null, currentClip = null;
 let modelPivot = null, modelMetrics = null;
 const $ = s => document.querySelector(s);
 function showMsg(html){ const b=$('#msgbox'); if(b) b.innerHTML = html; document.getElementById('msg').style.display='grid'; }
 function setSub(t){ document.getElementById('sub').textContent = t; }
+
+const colliderViz = new THREE.Mesh(
+  new THREE.CylinderGeometry(1,1,1,32,1,true),
+  new THREE.MeshBasicMaterial({color:0x36e0d0,transparent:true,opacity:0.2,wireframe:true,depthWrite:false})
+);
+colliderViz.renderOrder = 10;
+turntable.add(colliderViz);
+
+function updateColliderViz(){
+  colliderViz.visible = unitSettings.showCollider !== false;
+  colliderViz.scale.set(Math.max(0.01,unitSettings.colliderRadius), Math.max(0.01,unitSettings.colliderHeight), Math.max(0.01,unitSettings.colliderRadius));
+  colliderViz.position.set(0, unitSettings.positionY + Math.max(0.01,unitSettings.colliderHeight) * 0.5, 0);
+}
+
+function clipForState(state){
+  const names = {
+    bench:['idle','breath','stand','rest'],
+    idle:['idle','breath','stand','rest'],
+    walk:['walk','creep'],
+    run:['run','sprint','chase'],
+    attack:['attack','lunge','punch','bite','melee','hit','swipe'],
+    death:['death','die','dead']
+  }[state] || ['idle'];
+  for(const needle of names){
+    const found = modelClips.find(clip => (clip.name || '').toLowerCase().includes(needle));
+    if(found) return found;
+  }
+  return modelClips[0] || null;
+}
+
+function playPreviewState(state){
+  if(!mixer || !modelClips.length) return;
+  const clip = clipForState(state);
+  if(!clip || clip === currentClip) return;
+  const next = mixer.clipAction(clip);
+  next.reset().setEffectiveWeight(1).fadeIn(0.15).play();
+  if(currentAction && currentAction !== next) currentAction.fadeOut(0.15);
+  currentAction = next; currentClip = clip;
+  document.querySelectorAll('#anims button').forEach(button => button.classList.toggle('on', button.dataset.clip === clip.name));
+}
+
+function applyMaterialSettings(root){
+  if(!root) return;
+  root.traverse(o=>{
+    if(!o.isMesh || !o.material) return;
+    const materials=Array.isArray(o.material)?o.material:[o.material];
+    for(const mat of materials){
+      if(!mat) continue;
+      if(mat.color){
+        if(!mat.userData.adminBaseColor) mat.userData.adminBaseColor=mat.color.clone();
+        if(unitSettings.materialEnabled) mat.color.set(unitSettings.materialColor);
+        else mat.color.copy(mat.userData.adminBaseColor);
+      }
+      if(mat.emissive){
+        if(!mat.userData.adminBaseEmissive) mat.userData.adminBaseEmissive=mat.emissive.clone();
+        if(unitSettings.emissiveEnabled){
+          mat.emissive.set(unitSettings.emissiveColor);
+          mat.emissiveIntensity=unitSettings.emissiveIntensity;
+        }else{
+          mat.emissive.copy(mat.userData.adminBaseEmissive);
+        }
+      }
+    }
+  });
+}
 
 function applyUnitSettings(settings, reframe=false){
   unitSettings = normalizeUnitSettings(settings, unitSettings);
@@ -164,6 +239,9 @@ function applyUnitSettings(settings, reframe=false){
   modelPivot.scale.setScalar(finalScale);
   modelPivot.rotation.y = unitSettings.yaw;
   modelPivot.position.y = unitSettings.positionY;
+  updateColliderViz();
+  playPreviewState(unitSettings.previewState);
+  applyMaterialSettings(model);
   if(reframe){
     controls.target.set(0, unitSettings.positionY + unitSettings.height * 0.52, 0);
     const radius = modelMetrics.radius * finalScale;
@@ -197,16 +275,18 @@ if (!src){
     settingsPromise.then(() => frameModel(model));
     const tris = countTris(model);
     const clips = gltf.animations || [];
+    modelClips = clips;
     setSub((rigged ? 'rigged · ' : '') + (id || ''));
     document.getElementById('spec').innerHTML =
       `Unit: <b>${id || '—'}</b><br>Triangles: ${tris.toLocaleString()}<br>Rig: ${clips.length ? ('yes · '+clips.length+' clip'+(clips.length>1?'s':'')) : (rigged?'yes (no clips)':'static mesh')}`;
     if (clips.length){
       mixer = new THREE.AnimationMixer(model);
-      let cur = mixer.clipAction(clips[0]); cur.play();
+      playPreviewState(unitSettings.previewState);
       const wrap = document.getElementById('anims');
       clips.forEach((cl, i) => { const b = document.createElement('button'); b.textContent = cl.name || ('clip '+(i+1));
-        if (i===0) b.classList.add('on');
-        b.onclick = () => { mixer.stopAllAction(); mixer.clipAction(cl).reset().play();
+        b.dataset.clip = cl.name || ('clip '+(i+1));
+        if (cl === currentClip || (!currentClip && i===0)) b.classList.add('on');
+        b.onclick = () => { unitSettings.previewState='idle'; mixer.stopAllAction(); currentAction=mixer.clipAction(cl); currentClip=cl; currentAction.reset().play();
           wrap.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); };
         wrap.appendChild(b); });
     }

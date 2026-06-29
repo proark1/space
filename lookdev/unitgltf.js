@@ -23,6 +23,25 @@ function finiteNumber(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function colorValue(value) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
+}
+
+function applyMaterialSettings(root, settings) {
+  if (!settings.materialColor && !settings.emissiveColor) return;
+  root.traverse(o => {
+    if (!o.isMesh || !o.material) return;
+    const materials = Array.isArray(o.material) ? o.material : [o.material];
+    for (const mat of materials) {
+      if (settings.materialColor && mat.color) mat.color.set(settings.materialColor);
+      if (settings.emissiveColor && mat.emissive) {
+        mat.emissive.set(settings.emissiveColor);
+        mat.emissiveIntensity = settings.emissiveIntensity;
+      }
+    }
+  });
+}
+
 async function unitMeta(id) {
   if (!_unitMetaPromise) {
     _unitMetaPromise = fetch('/api/units', { cache: 'no-store' })
@@ -37,6 +56,7 @@ async function unitMeta(id) {
 function buildInstance(srcScene, clips, norm, opts) {
   const inner = cloneSkeleton(srcScene);                 // SkeletonUtils handles skinned meshes correctly
   inner.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+  applyMaterialSettings(inner, norm.material);
   inner.position.copy(norm.pos);                          // center x/z + feet on the floor
   inner.position.y += norm.positionYOffset;
   if (opts.yaw) inner.rotation.y = opts.yaw;              // flip if the model faces the wrong way
@@ -86,6 +106,9 @@ export async function loadUnitModel(id, opts = {}) {
   const scaleMultiplier = finiteNumber(meta.scale, finiteNumber(opts.scale, 1));
   const yaw = finiteNumber(meta.yaw, finiteNumber(opts.yaw, 0));
   const positionY = finiteNumber(meta.positionY, finiteNumber(opts.positionY, 0));
+  const materialColor = colorValue(meta.materialColor);
+  const emissiveColor = colorValue(meta.emissiveColor);
+  const emissiveIntensity = finiteNumber(meta.emissiveIntensity, 0);
 
   const srcScene = gltf.scene, clips = gltf.animations || [];
   const box = new THREE.Box3().setFromObject(srcScene);   // measure the pristine model once
@@ -96,7 +119,8 @@ export async function loadUnitModel(id, opts = {}) {
     pos: new THREE.Vector3(-center.x, -box.min.y, -center.z),
     scale: baseScale,
     scaleMultiplier,
-    positionYOffset: positionY / Math.max(baseScale * scaleMultiplier, 0.0001)
+    positionYOffset: positionY / Math.max(baseScale * scaleMultiplier, 0.0001),
+    material: { materialColor, emissiveColor, emissiveIntensity }
   };
 
   const instanceOpts = {...opts, yaw};

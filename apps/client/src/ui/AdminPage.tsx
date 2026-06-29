@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
-import { SceneAdminPanel, UnitsAdminPanel, type PanelStats } from './Admin3D';
+import { Admin3DOverviewPanel, SceneAdminPanel, UnitsAdminPanel, type ModelAdminTab, type PanelStats } from './Admin3D';
 
-type AdminTab = 'audio' | 'image' | 'units' | 'spaceship' | 'lobby';
+type AdminTab = 'audio' | 'image' | 'overview' | 'units' | 'spaceship' | 'lobby';
 type AssetStatus = 'approved' | 'generated' | 'missing' | 'stale';
 type AssetUse = 'landing' | 'game' | 'shared' | 'admin';
 
@@ -681,6 +681,8 @@ export function AdminPage() {
   const [audioMessages, setAudioMessages] = useState<Record<string, string>>({});
   const [voicePreviewsById, setVoicePreviewsById] = useState<Record<string, VoicePreview[]>>({});
   const [panelStats, setPanelStats] = useState<Partial<Record<AdminTab, PanelStats>>>({});
+  const [dirtyTab, setDirtyTab] = useState<ModelAdminTab | null>(null);
+  const [pendingTab, setPendingTab] = useState<AdminTab | null>(null);
   const [toast, setToast] = useState('Checking for existing asset files...');
 
   const setAudioMessage = useCallback((assetId: string, message: string): void => {
@@ -731,9 +733,48 @@ export function AdminPage() {
   const updatePanelStats = useCallback((nextTab: AdminTab, stats: PanelStats): void => {
     setPanelStats((current) => ({ ...current, [nextTab]: stats }));
   }, []);
+  const updateOverviewStats = useCallback((stats: PanelStats): void => updatePanelStats('overview', stats), [updatePanelStats]);
   const updateUnitsStats = useCallback((stats: PanelStats): void => updatePanelStats('units', stats), [updatePanelStats]);
   const updateSpaceshipStats = useCallback((stats: PanelStats): void => updatePanelStats('spaceship', stats), [updatePanelStats]);
   const updateLobbyStats = useCallback((stats: PanelStats): void => updatePanelStats('lobby', stats), [updatePanelStats]);
+
+  const setDirtyFor = useCallback((nextTab: ModelAdminTab, dirty: boolean): void => {
+    setDirtyTab((current) => dirty ? nextTab : (current === nextTab ? null : current));
+  }, []);
+
+  const requestTab = useCallback((nextTab: AdminTab): void => {
+    if (nextTab === tab) return;
+    if (dirtyTab) {
+      setPendingTab(nextTab);
+      setToast('Save or discard the current 3D editor changes before switching tabs.');
+      return;
+    }
+    setDirtyTab(null);
+    setPendingTab(null);
+    setTab(nextTab);
+  }, [dirtyTab, tab]);
+
+  const discardAndSwitch = useCallback((): void => {
+    if (!pendingTab) return;
+    setDirtyTab(null);
+    setPendingTab(null);
+    setTab(pendingTab);
+    setToast('Discarded unsaved 3D editor changes.');
+  }, [pendingTab]);
+
+  const openModelTab = useCallback((nextTab: ModelAdminTab): void => {
+    requestTab(nextTab);
+  }, [requestTab]);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent): void => {
+      if (!dirtyTab) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [dirtyTab]);
 
   const connectVoices = useCallback(async (): Promise<void> => {
     setToast('Connecting to ElevenLabs...');
@@ -1099,11 +1140,12 @@ export function AdminPage() {
 
       <section className={`admin-toolbar ${assetTab ? '' : 'admin-toolbar--models'}`} aria-label="Admin controls">
         <div className="admin-tabs" role="tablist" aria-label="Asset type">
-          <button className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')} role="tab" aria-selected={tab === 'audio'}>Audio</button>
-          <button className={tab === 'image' ? 'active' : ''} onClick={() => setTab('image')} role="tab" aria-selected={tab === 'image'}>Image</button>
-          <button className={tab === 'units' ? 'active' : ''} onClick={() => setTab('units')} role="tab" aria-selected={tab === 'units'}>Units</button>
-          <button className={tab === 'spaceship' ? 'active' : ''} onClick={() => setTab('spaceship')} role="tab" aria-selected={tab === 'spaceship'}>Space Ship</button>
-          <button className={tab === 'lobby' ? 'active' : ''} onClick={() => setTab('lobby')} role="tab" aria-selected={tab === 'lobby'}>Lobby</button>
+          <button className={tab === 'audio' ? 'active' : ''} onClick={() => requestTab('audio')} role="tab" aria-selected={tab === 'audio'}>Audio</button>
+          <button className={tab === 'image' ? 'active' : ''} onClick={() => requestTab('image')} role="tab" aria-selected={tab === 'image'}>Image</button>
+          <button className={tab === 'overview' ? 'active' : ''} onClick={() => requestTab('overview')} role="tab" aria-selected={tab === 'overview'}>Overview</button>
+          <button className={tab === 'units' ? 'active' : ''} onClick={() => requestTab('units')} role="tab" aria-selected={tab === 'units'}>Units{dirtyTab === 'units' ? ' *' : ''}</button>
+          <button className={tab === 'spaceship' ? 'active' : ''} onClick={() => requestTab('spaceship')} role="tab" aria-selected={tab === 'spaceship'}>Space Ship{dirtyTab === 'spaceship' ? ' *' : ''}</button>
+          <button className={tab === 'lobby' ? 'active' : ''} onClick={() => requestTab('lobby')} role="tab" aria-selected={tab === 'lobby'}>Lobby{dirtyTab === 'lobby' ? ' *' : ''}</button>
         </div>
         {assetTab ? (
           <>
@@ -1119,9 +1161,19 @@ export function AdminPage() {
             <button className="admin-export" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
           </>
         ) : (
-          <div className="admin-toolbar__hint">3D changes save to the admin content store and are read by the live scenes on reload.</div>
+          <div className="admin-toolbar__hint">
+            {dirtyTab ? 'Unsaved 3D editor changes are active.' : '3D changes save to the admin content store and are read by the live scenes on reload.'}
+          </div>
         )}
       </section>
+
+      {pendingTab && dirtyTab ? (
+        <section className="admin-unsaved" aria-live="polite">
+          <span>Unsaved 3D changes in {dirtyTab}. Save before leaving, or discard them to continue.</span>
+          <button onClick={discardAndSwitch}>Discard and switch</button>
+          <button onClick={() => setPendingTab(null)}>Stay</button>
+        </section>
+      ) : null}
 
       {assetTab ? (
         <section className="admin-keybar" aria-label="Generation keys">
@@ -1185,10 +1237,20 @@ export function AdminPage() {
             onApprove={approveAsset}
           />
         )} />
+      ) : tab === 'overview' ? (
+        <Admin3DOverviewPanel
+          onStats={updateOverviewStats}
+          onToast={setToast}
+          onOpenTab={openModelTab}
+          onDirtyChange={(dirty) => {
+            if (!dirty) setDirtyTab(null);
+          }}
+        />
       ) : tab === 'units' ? (
         <UnitsAdminPanel
           onStats={updateUnitsStats}
           onToast={setToast}
+          onDirtyChange={(dirty) => setDirtyFor('units', dirty)}
         />
       ) : tab === 'spaceship' ? (
         <SceneAdminPanel
@@ -1198,6 +1260,7 @@ export function AdminPage() {
           liveUrl="/exterior"
           onStats={updateSpaceshipStats}
           onToast={setToast}
+          onDirtyChange={(dirty) => setDirtyFor('spaceship', dirty)}
         />
       ) : (
         <SceneAdminPanel
@@ -1207,6 +1270,7 @@ export function AdminPage() {
           liveUrl="/lobby"
           onStats={updateLobbyStats}
           onToast={setToast}
+          onDirtyChange={(dirty) => setDirtyFor('lobby', dirty)}
         />
       )}
     </main>
