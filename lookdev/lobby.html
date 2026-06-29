@@ -46,7 +46,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { makeAstronaut } from './units.js?v=6';
+import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 
@@ -197,7 +197,7 @@ const player=makeAstronaut({accent:0xc8552f}); scene.add(player);
 const TEAM=[0x2f86c8,0x3fae5a,0xb58ad6];
 const POS=[[-2.2,1.0,0.4],[2.4,-0.4,-0.7],[-0.6,2.6,1.2]];   // x, z, facing
 const aiCrew=[];
-POS.forEach((p,i)=>{ const a=makeAstronaut({accent:TEAM[i]}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
+POS.forEach((p,i)=>{ const a=makeAstronaut({accent:TEAM[i], tone:i+1}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
   aiCrew.push({a, from:new THREE.Vector3(p[0],0,p[1]), to:new THREE.Vector3((i-1)*0.5,0,-7.8), delay:i*0.4, s:Math.random()*9}); });
 // ==BUILD END==
 

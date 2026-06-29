@@ -47,7 +47,18 @@ const TICKER_ITEMS = [
   'THE CHORUS: listening',
 ] as const;
 
-const DEMO_URL = import.meta.env.VITE_LOOKDEV_DEMO_URL ?? 'http://127.0.0.1:8173/lobby?flow=1&auto=1';
+// The cold-open demo lives in the lookdev lobby. In production static_server.py
+// serves /lobby on this very origin, so a relative path is correct and portable.
+// Under local `vite dev` only this SPA is served here, so the lobby runs on the
+// standalone python lookdev server at :8173. VITE_LOOKDEV_DEMO_URL overrides both.
+function resolveDemoUrl(): string {
+  const override = import.meta.env.VITE_LOOKDEV_DEMO_URL;
+  if (typeof override === 'string' && override.length > 0) return override;
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (host === 'localhost' || host === '127.0.0.1') return 'http://127.0.0.1:8173/lobby?flow=1&auto=1';
+  return '/lobby?flow=1&auto=1';
+}
+const DEMO_URL = resolveDemoUrl();
 
 function scrollToLobby(): void {
   document.getElementById('capsule-lobby')?.scrollIntoView({ behavior: 'smooth', block: 'center' });

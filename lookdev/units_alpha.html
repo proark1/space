@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGNAL LOST — UNIT ALPHA (style test)</title>
+<style>
+  html,body{margin:0;height:100%;background:#c9cdd2;overflow:hidden;cursor:grab;font-family:ui-monospace,Menlo,monospace}
+  body.look{cursor:grabbing}
+  #c{width:100vw;height:100vh;display:block}
+  #title{position:fixed;left:16px;top:14px;font-weight:700;font-size:13px;letter-spacing:3px;color:#2a2f35;pointer-events:none}
+  #title small{display:block;font-weight:500;letter-spacing:1px;color:#5a626b;margin-top:3px;font-size:11px}
+  #spec{position:fixed;left:16px;bottom:14px;font-size:11px;line-height:1.55;color:#3a4047;pointer-events:none;
+        background:rgba(255,255,255,.45);border:1px solid rgba(40,46,54,.18);border-radius:7px;padding:9px 12px;backdrop-filter:blur(2px)}
+  #spec b{color:#b03426}
+  #hud{position:fixed;right:16px;bottom:14px;font-size:11px;color:#3a4047;pointer-events:none;text-align:right}
+  #nav{position:fixed;right:16px;top:14px;display:flex;gap:8px;font-size:12px}
+  #nav a,#nav button{color:#26323d;text-decoration:none;background:rgba(255,255,255,.6);border:1px solid rgba(40,46,54,.22);
+        border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit;font-size:12px}
+  #nav button.on{background:#26323d;color:#fff}
+  #ref{position:fixed;right:16px;top:96px;width:220px;border:1px solid rgba(40,46,54,.25);border-radius:7px;overflow:hidden;
+       background:rgba(255,255,255,.5);display:none}
+  #ref.show{display:block}
+  #ref .cap{font-size:10px;color:#3a4047;padding:4px 7px;letter-spacing:1px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">SIGNAL&nbsp;LOST · UNIT&nbsp;ALPHA<small>AU-01 low-poly style test — not shipped, side experiment</small></div>
+<div id="spec"></div>
+<div id="hud"><b>drag</b> orbit · <b>scroll</b> zoom</div>
+<div id="nav">
+  <button id="bIdle" class="on">idle</button>
+  <button id="bWalk">walk</button>
+  <button id="bSpin" class="on">spin</button>
+  <a href="/units">▸ shipped crew</a>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { makeUnitAlpha, makeTransportCase, animateUnitAlpha } from './units_alpha.js?v=5';
+
+const canvas = document.getElementById('c');
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(DPR); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+
+// ---- clean grey studio (matches the reference backdrop) ----
+const scene = new THREE.Scene();
+const bgC = document.createElement('canvas'); bgC.width = bgC.height = 64;
+{ const x = bgC.getContext('2d'); const g = x.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0, '#e2e5e8'); g.addColorStop(0.6, '#cdd1d6'); g.addColorStop(1, '#aeb4bb');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); }
+scene.background = new THREE.CanvasTexture(bgC);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200); camera.position.set(1.7, 1.55, 4.2);
+
+const composer = new EffectComposer(renderer); composer.setPixelRatio(DPR);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.7, 0.9); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const Grade = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader: `varying vec2 vUv; uniform sampler2D tDiffuse;
+   void main(){ vec2 d=vUv-0.5; vec3 c=texture2D(tDiffuse,vUv).rgb;
+    c*=mix(0.86,1.0,smoothstep(1.1,0.18,length(d))); gl_FragColor=vec4(c,1.0); }`
+});
+composer.addPass(Grade);
+function resize(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false); composer.setSize(w,h);
+  Grade.uniforms.uRes.value.set(w*DPR,h*DPR); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.06; controls.target.set(0, 1.05, 0);
+controls.minDistance = 2.0; controls.maxDistance = 9; controls.maxPolarAngle = Math.PI * 0.54;
+
+// ---- studio lighting: warm key, cool fill, crisp rim ----
+scene.add(new THREE.AmbientLight(0xdfe4ea, 0.55));
+scene.add(new THREE.HemisphereLight(0xeef2f6, 0x6a6f74, 0.7));
+const key = new THREE.DirectionalLight(0xfff3e2, 2.3); key.position.set(3.5, 5.5, 3.2); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.camera.near = 1; key.shadow.camera.far = 22;
+key.shadow.camera.left = -4; key.shadow.camera.right = 4; key.shadow.camera.top = 4; key.shadow.camera.bottom = -4;
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; scene.add(key);
+const fill = new THREE.DirectionalLight(0xbcd0e6, 0.6); fill.position.set(-4.5, 2.5, 1.5); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 1.4); rim.position.set(-2, 3.5, -5); scene.add(rim);
+
+// ---- seamless studio floor (soft contact shadow catcher) ----
+const floorC = document.createElement('canvas'); floorC.width = floorC.height = 256;
+{ const x = floorC.getContext('2d'); const g = x.createRadialGradient(128,128,10,128,128,150);
+  g.addColorStop(0,'#d7dade'); g.addColorStop(1,'#b3b8be'); x.fillStyle=g; x.fillRect(0,0,256,256); }
+const floorTex = new THREE.CanvasTexture(floorC); floorTex.colorSpace = THREE.SRGBColorSpace;
+const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 48),
+  new THREE.MeshStandardMaterial({ map: floorTex, color: 0xcfd3d8, roughness: 0.96, metalness: 0.0 }));
+floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+// low turntable dais the unit stands on
+const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.02, 0.06, 48),
+  new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.7, metalness: 0.2 }));
+dais.position.y = 0.03; dais.castShadow = dais.receiveShadow = true; scene.add(dais);
+const daisRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.015, 8, 64),
+  new THREE.MeshStandardMaterial({ color: 0xE8A33D, emissive: 0xE8A33D, emissiveIntensity: 0.5, roughness: 0.4 }));
+daisRing.rotation.x = -Math.PI/2; daisRing.position.y = 0.065; scene.add(daisRing);
+
+// ---- the test unit + transport case on a slow turntable ----
+const turntable = new THREE.Group(); turntable.position.y = 0.06; scene.add(turntable);
+const unit = makeUnitAlpha({ accent: 0xc0392b, expression: 'scared' });
+unit.position.set(-0.18, 0, 0); unit.rotation.y = 0.35; turntable.add(unit);
+const kase = makeTransportCase(); kase.position.set(0.66, 0, 0.16); kase.rotation.y = -0.4; turntable.add(kase);
+
+document.getElementById('spec').innerHTML =
+  'Unit&nbsp;ID: <b>AU-01</b><br>Geometry: Low-Poly (Hand-Textured)<br>Style: faceted · flat-shaded · matte<br>+ Transport Case prop';
+
+// ---- controls ----
+let mode = 'idle', spin = true;
+const bIdle=document.getElementById('bIdle'), bWalk=document.getElementById('bWalk'), bSpin=document.getElementById('bSpin');
+bIdle.onclick=()=>{ mode='idle'; bIdle.classList.add('on'); bWalk.classList.remove('on'); };
+bWalk.onclick=()=>{ mode='walk'; bWalk.classList.add('on'); bIdle.classList.remove('on'); };
+bSpin.onclick=()=>{ spin=!spin; bSpin.classList.toggle('on', spin); };
+
+// debug handle for headless turnaround capture (harmless; this is a test bench)
+globalThis.__alpha = {
+  camera, controls, unit, kase, turntable,
+  setSpin(v){ spin = v; bSpin.classList.toggle('on', spin); },
+  view(cx, cy, cz, ty = 1.05, rot = 0){ spin = false; bSpin.classList.remove('on');
+    turntable.rotation.y = rot; camera.position.set(cx, cy, cz);
+    controls.target.set(0, ty, 0); controls.update(); }
+};
+
+const clock = new THREE.Clock();
+function animate(){ requestAnimationFrame(animate); const t = clock.getElapsedTime();
+  if (spin) turntable.rotation.y = t * 0.35;
+  animateUnitAlpha(unit, mode, t, 1);
+  globalThis.__alphaReady = true;
+  controls.update(); composer.render();
+}
+addEventListener('pointerdown', ()=>document.body.classList.add('look'));
+addEventListener('pointerup', ()=>document.body.classList.remove('look'));
+addEventListener('resize', resize); resize(); animate();
+</script>
+</body>
+</html>
