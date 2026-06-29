@@ -20,5 +20,8 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY --from=build /app/apps/client/dist ./
 COPY --from=build /app/apps/client/static_server.py ./static_server.py
+COPY lookdev/audio.js lookdev/flow.js lookdev/hero.js lookdev/nav.js lookdev/units.js ./
+COPY lookdev/units.html lookdev/launch.html lookdev/lobby.html lookdev/pad.html lookdev/dock.html lookdev/exterior.html ./
+COPY lookdev/index.html ./game.html
 
 CMD ["python3", "static_server.py"]

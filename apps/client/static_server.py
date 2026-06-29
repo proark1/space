@@ -16,6 +16,32 @@ GEMINI_BASE = "https://generativelanguage.googleapis.com"
 GEMINI_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image")
 GEMINI_SIZE = os.environ.get("GEMINI_IMAGE_SIZE", "2K")
 CTX = ssl.create_default_context()
+GEMINI_ASPECT_RATIOS = ("1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9")
+LOOKDEV_ROUTES = {
+    "/game": "/game.html",
+    "/game/": "/game.html",
+    "/units": "/units.html",
+    "/units/": "/units.html",
+    "/crew": "/units.html",
+    "/launch": "/launch.html",
+    "/launch/": "/launch.html",
+    "/outbound": "/launch.html",
+    "/lobby": "/lobby.html",
+    "/lobby/": "/lobby.html",
+    "/waiting": "/lobby.html",
+    "/play": "/lobby.html",
+    "/start": "/lobby.html",
+    "/intro": "/lobby.html",
+    "/pad": "/pad.html",
+    "/pad/": "/pad.html",
+    "/launchpad": "/pad.html",
+    "/dock": "/dock.html",
+    "/dock/": "/dock.html",
+    "/docking": "/dock.html",
+    "/exterior": "/exterior.html",
+    "/exterior/": "/exterior.html",
+    "/outside": "/exterior.html",
+}
 
 MEDIA_MIME = {
     "mp3": "audio/mpeg",
@@ -80,6 +106,18 @@ def read_json(handler):
         return json.loads(handler.rfile.read(length).decode() or "{}")
     except Exception as exc:
         raise ValueError("bad request: " + str(exc)) from exc
+
+
+def http_error_message(exc):
+    raw = exc.read().decode()[:1200]
+    try:
+        data = json.loads(raw)
+        message = ((data.get("error") or {}).get("message") or data.get("message"))
+        if message:
+            return str(message)
+    except Exception:
+        pass
+    return raw or ("HTTP " + str(exc.code))
 
 
 def post_elevenlabs(endpoint, payload, key, accept):
@@ -186,6 +224,23 @@ def generate_gemini_image(prompt, key, aspect_ratio=None):
     raise RuntimeError("Gemini returned no image")
 
 
+def ratio_value(ratio):
+    left, _, right = ratio.partition(":")
+    try:
+        return float(left) / float(right)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def normalize_gemini_aspect_ratio(ratio):
+    if not ratio:
+        return None
+    value = ratio_value(ratio)
+    if value is None:
+        return None
+    return min(GEMINI_ASPECT_RATIOS, key=lambda candidate: abs((ratio_value(candidate) or value) - value))
+
+
 def duration_seconds(value, fallback):
     try:
         return max(0.5, min(30.0, float(value)))
@@ -249,7 +304,7 @@ class Handler(SimpleHTTPRequestHandler):
             ]
             return self._json({"ok": True, "voices": voices})
         except urllib.error.HTTPError as exc:
-            return self._json({"ok": False, "status": exc.code, "error": exc.read().decode()[:600]}, 200)
+            return self._json({"ok": False, "status": exc.code, "error": http_error_message(exc)}, 200)
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
@@ -305,7 +360,7 @@ class Handler(SimpleHTTPRequestHandler):
             saved = save_audio(asset_id, audio, content_type)
             return self._json({"ok": True, **saved, "contentType": content_type})
         except urllib.error.HTTPError as exc:
-            return self._json({"ok": False, "status": exc.code, "error": exc.read().decode()[:800]}, 200)
+            return self._json({"ok": False, "status": exc.code, "error": http_error_message(exc)}, 200)
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
@@ -321,7 +376,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         asset_id = str(body.get("id") or "image")
         prompt = str(body.get("prompt") or "").strip()
-        aspect_ratio = str(body.get("ratio") or "").strip() or None
+        aspect_ratio = normalize_gemini_aspect_ratio(str(body.get("ratio") or "").strip())
         if not prompt:
             return self._json({"ok": False, "error": "No image prompt was provided."}, 200)
 
@@ -332,7 +387,7 @@ class Handler(SimpleHTTPRequestHandler):
             saved = save_image(asset_id, image, content_type)
             return self._json({"ok": True, **saved, "model": GEMINI_MODEL, "contentType": content_type})
         except urllib.error.HTTPError as exc:
-            return self._json({"ok": False, "status": exc.code, "error": exc.read().decode()[:800]}, 200)
+            return self._json({"ok": False, "status": exc.code, "error": http_error_message(exc)}, 200)
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, 200)
 
@@ -348,6 +403,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._voices()
         if request_path.startswith("/audio/"):
             return self._serve_media(request_path)
+        if request_path in LOOKDEV_ROUTES:
+            self.path = LOOKDEV_ROUTES[request_path]
+            return super().do_GET()
 
         # Vite is a single-page app. Serve index.html for direct route loads
         # such as /admin, while preserving normal 404 behavior for asset files.
@@ -366,6 +424,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"items": manifest_items(), "audioDir": AUDIO_DIR}, send_body=False)
         if request_path.startswith("/audio/"):
             return self._serve_media(request_path, send_body=False)
+        if request_path in LOOKDEV_ROUTES:
+            self.path = LOOKDEV_ROUTES[request_path]
+            return super().do_HEAD()
 
         if request_path != "/" and not os.path.exists(local_path) and "." not in basename:
             self.path = "/index.html"

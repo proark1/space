@@ -1,5 +1,5 @@
-# Railway now deploys the Vite client landing page through Dockerfile.
-# Keep local caches, secrets, and unrelated look-dev prototypes out of CLI uploads.
+# Railway deploys the Vite client plus the static lookdev scenes through Dockerfile.
+# Keep local caches, secrets, and build-only tools out of CLI uploads.
 .git/
 .claude/
 node_modules/
@@ -12,6 +12,5 @@ node_modules/
 .env.*
 !.env.example
 docs/
-lookdev/
 tools/
 requirements.txt
