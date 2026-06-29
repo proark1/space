@@ -9,7 +9,6 @@ import {
   float,
   mix,
   clamp,
-  floor,
   pow,
   length,
   screenUV,
@@ -17,6 +16,7 @@ import {
   exp,
   oneMinus,
 } from 'three/tsl';
+import { bayerDither } from 'three/addons/tsl/math/Bayer.js';
 import type { SLRenderer } from './Renderer';
 import type { RenderProfile } from './RenderProfile';
 
@@ -80,8 +80,9 @@ export function createPostStack(
   const vignetteDist = length(screenUV.sub(vec2(0.5, 0.5)));
   c = c.mul(clamp(oneMinus(uniforms.vignette.mul(pow(vignetteDist, float(2.0)))), float(0), float(1)));
 
-  // posterize: quantise to N levels (the PS1 palette crush)
-  c = floor(c.mul(uniforms.posterizeLevels)).div(uniforms.posterizeLevels);
+  // posterize + ordered Bayer dither: quantise to N levels with a 4x4 dither that stipples the
+  // bands into the PS1 register (replaces the hard posterize + film grain, per the locked stack).
+  c = bayerDither(c, uniforms.posterizeLevels);
 
   const post = new PostProcessing(renderer.three, vec4(c, float(1)));
 
