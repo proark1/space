@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { createRoot } from 'react-dom/client';
 import heroImage from '../assets/signal-lost-hero.png';
 import { useNet } from './store';
 import { NetDebugHud } from './NetDebugHud';
@@ -48,7 +47,7 @@ function scrollToLobby(): void {
   document.getElementById('capsule-lobby')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function LandingPage() {
+export function LandingPage() {
   const { status, code, isHost, peers, log, host, join, leave, lostReason } = useNet();
   const [draft, setDraft] = useState('');
   const [panicIndex, setPanicIndex] = useState(0);
@@ -210,11 +209,4 @@ function LandingPage() {
       <NetDebugHud />
     </main>
   );
-}
-
-export function mountLandingPage(el: HTMLElement): void {
-  window.addEventListener('keydown', (event) => {
-    if (event.key === '`' || event.key === '~') useNet.getState().toggleDebug();
-  });
-  createRoot(el).render(<LandingPage />);
 }

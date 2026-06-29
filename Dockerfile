@@ -19,5 +19,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 COPY --from=build /app/apps/client/dist ./
+COPY --from=build /app/apps/client/static_server.py ./static_server.py
 
-CMD ["sh", "-c", "python3 -m http.server ${PORT:-8080} --bind 0.0.0.0 --directory /app"]
+CMD ["python3", "static_server.py"]
