@@ -5,6 +5,9 @@
     { "path": "packages/netcode" },
     { "path": "packages/ecs" },
     { "path": "packages/audio-content" },
+    { "path": "packages/render" },
+    { "path": "packages/engine" },
+    { "path": "packages/ui" },
     { "path": "tools/asset-pipeline" }
   ]
 }

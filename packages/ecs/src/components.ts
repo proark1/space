@@ -1,87 +1,88 @@
-import { defineComponent, Types } from 'bitecs';
+import { f32, f64, i32, ui32, ui16, ui8, eid, strided } from './storage';
 import { LIMB_SLOTS } from './enums';
 
 /**
- * The replicated + simulation component catalog (spec 03). bitECS 0.3.x SoA components: each
- * field is a typed array indexed by entity id; strided fields (Limb.hp) are accessed as
- * `Limb.hp[eid * LIMB_SLOTS + slot]`. APPEND-ONLY where it feeds the wire (see REPLICATED_REGISTRY).
+ * The replicated + simulation component catalog (spec 03). bitECS 0.4 SoA components: each field is
+ * a module-global typed array indexed by entity id; strided fields (`Limb.hp`) are 2D views, so
+ * `Limb.hp[eid][slot]`. Tags are empty objects (membership only). APPEND-ONLY where it feeds the
+ * wire (see REPLICATED_REGISTRY). `addComponent`/`hasComponent` use the 0.4 order: (world, eid, Comp).
  */
 
 // — transform —
-export const Transform = defineComponent({
-  x: Types.f32, y: Types.f32, z: Types.f32,
-  qx: Types.f32, qy: Types.f32, qz: Types.f32, qw: Types.f32,
-});
-export const PrevTransform = defineComponent({
-  x: Types.f32, y: Types.f32, z: Types.f32,
-  qx: Types.f32, qy: Types.f32, qz: Types.f32, qw: Types.f32,
-});
-export const Velocity = defineComponent({
-  x: Types.f32, y: Types.f32, z: Types.f32,
-  ax: Types.f32, ay: Types.f32, az: Types.f32,
-});
+export const Transform = {
+  x: f32(), y: f32(), z: f32(),
+  qx: f32(), qy: f32(), qz: f32(), qw: f32(),
+};
+export const PrevTransform = {
+  x: f32(), y: f32(), z: f32(),
+  qx: f32(), qy: f32(), qz: f32(), qw: f32(),
+};
+export const Velocity = {
+  x: f32(), y: f32(), z: f32(),
+  ax: f32(), ay: f32(), az: f32(),
+};
 
 // — network —
-export const NetworkId = defineComponent({ id: Types.ui32, ownerPeer: Types.ui8, archetype: Types.ui8 });
-export const Replicated = defineComponent({ dirty: Types.ui8, lastSentTick: Types.ui32 });
-export const Predicted = defineComponent({
-  lastAckedInput: Types.ui32, lastAckedX: Types.f32, lastAckedY: Types.f32, lastAckedZ: Types.f32,
-});
-export const Interpolated = defineComponent({ bufHead: Types.ui8 });
-export const SnapshotBuffer = defineComponent({
-  t0: Types.f64, x0: Types.f32, y0: Types.f32, z0: Types.f32, qx0: Types.f32, qy0: Types.f32, qz0: Types.f32, qw0: Types.f32,
-  t1: Types.f64, x1: Types.f32, y1: Types.f32, z1: Types.f32, qx1: Types.f32, qy1: Types.f32, qz1: Types.f32, qw1: Types.f32,
-});
+export const NetworkId = { id: ui32(), ownerPeer: ui8(), archetype: ui8() };
+export const Replicated = { dirty: ui8(), lastSentTick: ui32() };
+export const Predicted = {
+  lastAckedInput: ui32(), lastAckedX: f32(), lastAckedY: f32(), lastAckedZ: f32(),
+};
+export const Interpolated = { bufHead: ui8() };
+export const SnapshotBuffer = {
+  t0: f64(), x0: f32(), y0: f32(), z0: f32(), qx0: f32(), qy0: f32(), qz0: f32(), qw0: f32(),
+  t1: f64(), x1: f32(), y1: f32(), z1: f32(), qx1: f32(), qy1: f32(), qz1: f32(), qw1: f32(),
+};
 
 // — player —
-export const LocalPlayer = defineComponent();
-export const RemotePlayer = defineComponent();
-export const PlayerInput = defineComponent({
-  seq: Types.ui32, moveX: Types.f32, moveZ: Types.f32, yaw: Types.f32, pitch: Types.f32, buttons: Types.ui16, dt: Types.f32,
-});
-export const PlayerState = defineComponent({
-  health: Types.f32, resolve: Types.f32, battery: Types.f32, ammoMag: Types.ui16, ammoReserve: Types.ui16, status: Types.ui8, downedTimer: Types.f32,
-});
-export const Flashlight = defineComponent({
-  on: Types.ui8, intensity: Types.f32, range: Types.f32, coneCos: Types.f32, drainRate: Types.f32, noiseRadius: Types.f32,
-});
+export const LocalPlayer = {};
+export const RemotePlayer = {};
+export const PlayerInput = {
+  seq: ui32(), moveX: f32(), moveZ: f32(), yaw: f32(), pitch: f32(), buttons: ui16(), dt: f32(),
+};
+export const PlayerState = {
+  health: f32(), resolve: f32(), battery: f32(), ammoMag: ui16(), ammoReserve: ui16(), status: ui8(), downedTimer: f32(),
+};
+export const Flashlight = {
+  on: ui8(), intensity: f32(), range: f32(), coneCos: f32(), drainRate: f32(), noiseRadius: f32(),
+};
 
 // — enemy / AI —
-export const EnemyTag = defineComponent();
-export const Stalker = defineComponent({ pounceCooldown: Types.f32, aggression: Types.f32, legsSevered: Types.ui8 });
-export const Swarmer = defineComponent({ swarmGroup: Types.ui16 });
-export const AIState = defineComponent({
-  fsm: Types.ui8, target: Types.eid, lastKnownX: Types.f32, lastKnownY: Types.f32, lastKnownZ: Types.f32,
-  noiseHeard: Types.f32, noiseX: Types.f32, noiseY: Types.f32, noiseZ: Types.f32, alertness: Types.f32, stateTimer: Types.f32, fsmReplicated: Types.ui8,
-});
-export const NavAgent = defineComponent({
-  agentId: Types.i32, destX: Types.f32, destY: Types.f32, destZ: Types.f32, speed: Types.f32, radius: Types.f32, flags: Types.ui8, repathTimer: Types.f32,
-});
-export const Noise = defineComponent({ loudness: Types.f32, radius: Types.f32, ttl: Types.f32, sourcePeer: Types.ui8 });
+export const EnemyTag = {};
+export const Stalker = { pounceCooldown: f32(), aggression: f32(), legsSevered: ui8() };
+export const Swarmer = { swarmGroup: ui16() };
+export const AIState = {
+  fsm: ui8(), target: eid(), lastKnownX: f32(), lastKnownY: f32(), lastKnownZ: f32(),
+  noiseHeard: f32(), noiseX: f32(), noiseY: f32(), noiseZ: f32(), alertness: f32(), stateTimer: f32(), fsmReplicated: ui8(),
+};
+export const NavAgent = {
+  agentId: i32(), destX: f32(), destY: f32(), destZ: f32(), speed: f32(), radius: f32(), flags: ui8(), repathTimer: f32(),
+};
+export const Noise = { loudness: f32(), radius: f32(), ttl: f32(), sourcePeer: ui8() };
 
 // — combat —
-export const Weapon = defineComponent({
-  kind: Types.ui8, damage: Types.f32, fireRate: Types.f32, cooldown: Types.f32, range: Types.f32, spread: Types.f32, magSize: Types.ui16, reloadTime: Types.f32, reloadTimer: Types.f32, muzzleNoise: Types.f32,
-});
-export const Projectile = defineComponent({
-  damage: Types.f32, speed: Types.f32, ownerEid: Types.eid, ownerPeer: Types.ui8, ttl: Types.f32, hitscan: Types.ui8,
-});
-export const Health = defineComponent({ hp: Types.f32, max: Types.f32, dead: Types.ui8 });
-export const Limb = defineComponent({ hp: [Types.f32, LIMB_SLOTS], max: [Types.f32, LIMB_SLOTS], severed: Types.ui8 });
-export const Hitbox = defineComponent({ parent: Types.eid, slot: Types.ui8, multiplier: Types.f32 });
-export const DamageEvent = defineComponent({
-  victim: Types.eid, attackerPeer: Types.ui8, amount: Types.f32, slot: Types.ui8, killed: Types.ui8, severed: Types.ui8,
-});
+export const Weapon = {
+  kind: ui8(), damage: f32(), fireRate: f32(), cooldown: f32(), range: f32(), spread: f32(), magSize: ui16(), reloadTime: f32(), reloadTimer: f32(), muzzleNoise: f32(),
+};
+export const Projectile = {
+  damage: f32(), speed: f32(), ownerEid: eid(), ownerPeer: ui8(), ttl: f32(), hitscan: ui8(),
+};
+export const Health = { hp: f32(), max: f32(), dead: ui8() };
+export const Limb = { hp: strided(LIMB_SLOTS), max: strided(LIMB_SLOTS), severed: ui8() };
+export const Hitbox = { parent: eid(), slot: ui8(), multiplier: f32() };
+export const DamageEvent = {
+  victim: eid(), attackerPeer: ui8(), amount: f32(), slot: ui8(), killed: ui8(), severed: ui8(),
+};
 
 // — presentation (client-only) —
-export const RenderRef = defineComponent({ handle: Types.ui32, visible: Types.ui8 });
-export const AudioEmitter = defineComponent({ emitterId: Types.ui32, clipBank: Types.ui16, flags: Types.ui8 });
-export const Light = defineComponent({ handle: Types.ui32, color: Types.ui32, intensity: Types.f32, flicker: Types.f32, kind: Types.ui8 });
-export const LODState = defineComponent({ lod: Types.ui8, distSq: Types.f32, hysteresisTimer: Types.f32 });
-export const AnimState = defineComponent({ clip: Types.ui8, time: Types.f32, blend: Types.f32 });
+export const RenderRef = { handle: ui32(), visible: ui8() };
+export const AudioEmitter = { emitterId: ui32(), clipBank: ui16(), flags: ui8() };
+export const Light = { handle: ui32(), color: ui32(), intensity: f32(), flicker: f32(), kind: ui8() };
+export const LODState = { lod: ui8(), distSq: f32(), hysteresisTimer: f32() };
+export const AnimState = { clip: ui8(), time: f32(), blend: f32() };
 
 // — lifecycle / pooling —
-export const Lifetime = defineComponent({ remaining: Types.f32 });
-export const Pooled = defineComponent({ poolId: Types.ui8, active: Types.ui8 });
-export const Spawned = defineComponent();
-export const Despawn = defineComponent();
+export const Lifetime = { remaining: f32() };
+export const Pooled = { poolId: ui8(), active: ui8() };
+export const Spawned = {};
+export const Despawn = {};

@@ -9,18 +9,18 @@ import {
 import { LimbSlot, FsmState, PlayerStatus } from './enums';
 
 export function buildStalker(world: GameWorld, e: number): void {
-  addComponent(world, Transform, e);
-  addComponent(world, PrevTransform, e);
-  addComponent(world, Velocity, e);
-  addComponent(world, EnemyTag, e);
-  addComponent(world, Stalker, e);
-  addComponent(world, AIState, e);
-  addComponent(world, NavAgent, e);
-  addComponent(world, Health, e);
-  addComponent(world, Limb, e);
-  addComponent(world, NetworkId, e);
-  addComponent(world, Replicated, e);
-  addComponent(world, Pooled, e);
+  addComponent(world, e, Transform);
+  addComponent(world, e, PrevTransform);
+  addComponent(world, e, Velocity);
+  addComponent(world, e, EnemyTag);
+  addComponent(world, e, Stalker);
+  addComponent(world, e, AIState);
+  addComponent(world, e, NavAgent);
+  addComponent(world, e, Health);
+  addComponent(world, e, Limb);
+  addComponent(world, e, NetworkId);
+  addComponent(world, e, Replicated);
+  addComponent(world, e, Pooled);
   Health.max[e] = 120;
   Health.hp[e] = 120;
   Limb.max[e][LimbSlot.LLeg] = 30;
@@ -33,18 +33,18 @@ export function buildStalker(world: GameWorld, e: number): void {
 }
 
 export function buildSwarmer(world: GameWorld, e: number): void {
-  addComponent(world, Transform, e);
-  addComponent(world, PrevTransform, e);
-  addComponent(world, Velocity, e);
-  addComponent(world, EnemyTag, e);
-  addComponent(world, Swarmer, e);
-  addComponent(world, AIState, e);
-  addComponent(world, NavAgent, e);
-  addComponent(world, Health, e);
-  addComponent(world, Limb, e);
-  addComponent(world, NetworkId, e);
-  addComponent(world, Replicated, e);
-  addComponent(world, Pooled, e);
+  addComponent(world, e, Transform);
+  addComponent(world, e, PrevTransform);
+  addComponent(world, e, Velocity);
+  addComponent(world, e, EnemyTag);
+  addComponent(world, e, Swarmer);
+  addComponent(world, e, AIState);
+  addComponent(world, e, NavAgent);
+  addComponent(world, e, Health);
+  addComponent(world, e, Limb);
+  addComponent(world, e, NetworkId);
+  addComponent(world, e, Replicated);
+  addComponent(world, e, Pooled);
   Health.max[e] = 40;
   Health.hp[e] = 40;
   NavAgent.agentId[e] = -1;
@@ -53,14 +53,14 @@ export function buildSwarmer(world: GameWorld, e: number): void {
 }
 
 export function buildProjectile(world: GameWorld, e: number): void {
-  addComponent(world, Transform, e);
-  addComponent(world, PrevTransform, e);
-  addComponent(world, Velocity, e);
-  addComponent(world, Projectile, e);
-  addComponent(world, NetworkId, e);
-  addComponent(world, Replicated, e);
-  addComponent(world, Lifetime, e);
-  addComponent(world, Pooled, e);
+  addComponent(world, e, Transform);
+  addComponent(world, e, PrevTransform);
+  addComponent(world, e, Velocity);
+  addComponent(world, e, Projectile);
+  addComponent(world, e, NetworkId);
+  addComponent(world, e, Replicated);
+  addComponent(world, e, Lifetime);
+  addComponent(world, e, Pooled);
   Projectile.damage[e] = 0;
   Projectile.speed[e] = 0;
   Projectile.ttl[e] = 0;
@@ -70,10 +70,10 @@ export function buildProjectile(world: GameWorld, e: number): void {
 }
 
 export function buildNoise(world: GameWorld, e: number): void {
-  addComponent(world, Noise, e);
-  addComponent(world, Transform, e);
-  addComponent(world, Lifetime, e);
-  addComponent(world, Pooled, e);
+  addComponent(world, e, Noise);
+  addComponent(world, e, Transform);
+  addComponent(world, e, Lifetime);
+  addComponent(world, e, Pooled);
   Noise.loudness[e] = 0;
   Noise.radius[e] = 0;
   Noise.ttl[e] = 0;
@@ -81,16 +81,16 @@ export function buildNoise(world: GameWorld, e: number): void {
 }
 
 export function buildPlayer(world: GameWorld, e: number): void {
-  addComponent(world, Transform, e);
-  addComponent(world, PrevTransform, e);
-  addComponent(world, Velocity, e);
-  addComponent(world, LocalPlayer, e);
-  addComponent(world, PlayerInput, e);
-  addComponent(world, PlayerState, e);
-  addComponent(world, Flashlight, e);
-  addComponent(world, Health, e);
-  addComponent(world, NetworkId, e);
-  addComponent(world, Replicated, e);
+  addComponent(world, e, Transform);
+  addComponent(world, e, PrevTransform);
+  addComponent(world, e, Velocity);
+  addComponent(world, e, LocalPlayer);
+  addComponent(world, e, PlayerInput);
+  addComponent(world, e, PlayerState);
+  addComponent(world, e, Flashlight);
+  addComponent(world, e, Health);
+  addComponent(world, e, NetworkId);
+  addComponent(world, e, Replicated);
   PlayerState.health[e] = 100;
   PlayerState.resolve[e] = 100;
   PlayerState.battery[e] = 100;

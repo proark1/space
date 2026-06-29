@@ -37,7 +37,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { animateAstronaut, makeAstronaut } from './units.js?v=6';
+import { animateAstronaut, makeAstronaut } from './units_alpha.js?v=5';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -125,11 +125,11 @@ const TEAM=[0xc8552f,0x2f86c8,0x3fae5a,0xb58ad6];
 const EXPRESSIONS=['worried','focused','attack'];
 const MODES=['walk','run','attack'];
 const standing=[];
-[-1.0,0,1.0].forEach((x,i)=>{ const a=makeAstronaut({accent:TEAM[i],expression:EXPRESSIONS[i]}); a.position.set(x,0,0); a.rotation.y=-0.18+i*0.18; a.userData.mode=MODES[i]; turntable.add(a); standing.push(a); });
+[-1.0,0,1.0].forEach((x,i)=>{ const a=makeAstronaut({accent:TEAM[i],expression:EXPRESSIONS[i],tone:i}); a.position.set(x,0,0); a.rotation.y=-0.18+i*0.18; a.userData.mode=MODES[i]; turntable.add(a); standing.push(a); });
 // a seated crew member on a crate (how they ride in the capsule)
 const crate=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.8,0.95),new THREE.MeshStandardMaterial({color:0x2c3138,roughness:0.8,metalness:0.3,map:gridTex}));
 crate.position.set(0,0.4,-2.05); crate.castShadow=crate.receiveShadow=true; turntable.add(crate);
-const seated=makeAstronaut({accent:TEAM[3],seated:true,expression:'worried'}); seated.position.set(0,0.8,-2.05); seated.rotation.y=0.12; turntable.add(seated);
+const seated=makeAstronaut({accent:TEAM[3],seated:true,expression:'worried',tone:3}); seated.position.set(0,0.8,-2.05); seated.rotation.y=0.12; turntable.add(seated);
 
 const clock=new THREE.Clock();
 function animate(){ requestAnimationFrame(animate); const t=clock.getElapsedTime();

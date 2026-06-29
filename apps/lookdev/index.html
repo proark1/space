@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SIGNAL LOST — look-dev harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #05070a;
+        overflow: hidden;
+      }
+      #scene {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 14px;
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #5b7a93;
+        letter-spacing: 0.04em;
+        pointer-events: none;
+        text-shadow: 0 1px 2px #000;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="hud">SIGNAL LOST — booting renderer…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

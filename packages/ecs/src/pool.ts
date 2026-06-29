@@ -36,7 +36,7 @@ export class EntityPool {
     const e = this.freeList.pop();
     if (e === undefined) return -1;
     Pooled.active[e] = 1;
-    addComponent(this.world, Spawned, e);
+    addComponent(this.world, e, Spawned);
     return e;
   }
 
@@ -44,7 +44,7 @@ export class EntityPool {
   release(eid: number): void {
     if (Pooled.active[eid] === 0) return;
     Pooled.active[eid] = 0;
-    removeComponent(this.world, Spawned, eid);
+    removeComponent(this.world, eid, Spawned);
     this.reclaim?.(eid);
     this.freeList.push(eid);
   }
