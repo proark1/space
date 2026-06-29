@@ -52,7 +52,27 @@ import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
-const AUTO_START = new URLSearchParams(location.search).has('auto');
+const QUERY=new URLSearchParams(location.search);
+const AUTO_START = QUERY.has('auto');
+const ADMIN_UNIT = QUERY.get('adminUnit') || '';
+let adminUnitSettings={height:1.8,scale:1,yaw:0,positionY:0};
+function normalizeUnitSettings(value,fallback=adminUnitSettings){
+  const source=value&&typeof value==='object'?value:{};
+  return {
+    height:finiteNumber(source.height,fallback.height),
+    scale:finiteNumber(source.scale,fallback.scale),
+    yaw:finiteNumber(source.yaw,fallback.yaw),
+    positionY:finiteNumber(source.positionY,fallback.positionY)
+  };
+}
+async function loadAdminUnitSettings(){
+  if(!ADMIN_UNIT)return;
+  try{
+    const payload=await (await fetch('/api/units',{cache:'no-store'})).json();
+    const items=Array.isArray(payload.items)?payload.items:[];
+    adminUnitSettings=normalizeUnitSettings(items.find(item=>item&&item.id===ADMIN_UNIT),adminUnitSettings);
+  }catch(e){}
+}
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
@@ -163,9 +183,11 @@ part(BOX(3.62,0.2,0.24),new THREE.MeshStandardMaterial({map:hazTex,emissive:0x1a
 for(const sx of [-1,1]) part(BOX(0.1,2.3,0.26),M.strip,scene,1.82*sx,1.15,-7.72);   // cyan jamb light strips
 part(BOX(1.5,0.1,1.5),M.strip,scene,0,0.01,-5.6);                                   // floor marker — stand here to board
 // dressing
-part(BOX(3.2,0.18,0.7),M.crate,scene,-4.5,0.55,3,0,0.2,0); part(BOX(0.18,0.5,0.7),M.trim,scene,-5.9,0.3,3.3); part(BOX(0.18,0.5,0.7),M.trim,scene,-3.1,0.3,2.7);
+const adminCrateTargets=[];
+function trackAdminCrate(mesh){ adminCrateTargets.push({mesh,position:mesh.position.clone(),rotationY:mesh.rotation.y,scale:mesh.scale.clone()}); return mesh; }
+trackAdminCrate(part(BOX(3.2,0.18,0.7),M.crate,scene,-4.5,0.55,3,0,0.2,0)); part(BOX(0.18,0.5,0.7),M.trim,scene,-5.9,0.3,3.3); part(BOX(0.18,0.5,0.7),M.trim,scene,-3.1,0.3,2.7);
 for(let i=0;i<4;i++){ part(BOX(1.0,2.2,0.7),M.wall2,scene,-7.3,1.1,-3+i*1.3); part(BOX(0.84,0.05,0.5),M.strip,scene,-6.78,1.9,-3+i*1.3); }
-part(BOX(1.4,1.4,1.4),M.crate,scene,4.6,0.7,3.4); part(BOX(1.0,1.0,1.0),M.crate,scene,3.4,0.5,4.2,0,0.4,0);
+trackAdminCrate(part(BOX(1.4,1.4,1.4),M.crate,scene,4.6,0.7,3.4)); trackAdminCrate(part(BOX(1.0,1.0,1.0),M.crate,scene,3.4,0.5,4.2,0,0.4,0));
 // the airlock gets a small "BOARD" sign on the lintel (briefing + readiness now live on the big right-wall screen)
 const signC=document.createElement('canvas'); signC.width=512; signC.height=64; const sgx=signC.getContext('2d');
 sgx.fillStyle='#0a0d12'; sgx.fillRect(0,0,512,64);
@@ -260,6 +282,23 @@ void applyAdminLobby();
 addEventListener('message',event=>{
   if(!event.data||event.data.type!=='sl-admin-scene-preview'||event.data.sceneId!=='lobby')return;
   void applyAdminLobbyConfig(event.data.settings);
+});
+function applyAdminUnitSettings(settings){
+  if(ADMIN_UNIT&&ADMIN_UNIT!=='unit-crate')return;
+  adminUnitSettings=normalizeUnitSettings(settings,adminUnitSettings);
+  const scale=Math.max(0.05,adminUnitSettings.scale*(adminUnitSettings.height/1.8));
+  for(const target of adminCrateTargets){
+    target.mesh.position.copy(target.position);
+    target.mesh.position.y+=adminUnitSettings.positionY;
+    target.mesh.rotation.y=target.rotationY+adminUnitSettings.yaw;
+    target.mesh.scale.copy(target.scale).multiplyScalar(scale);
+  }
+}
+void loadAdminUnitSettings().then(()=>applyAdminUnitSettings(adminUnitSettings));
+addEventListener('message',event=>{
+  if(!event.data||event.data.type!=='sl-admin-unit-preview')return;
+  if(event.data.unitId&&event.data.unitId!==ADMIN_UNIT)return;
+  applyAdminUnitSettings(event.data.settings);
 });
 
 // ---- FP / TP controller ----

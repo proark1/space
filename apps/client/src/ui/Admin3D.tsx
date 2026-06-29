@@ -30,6 +30,7 @@ interface UnitItem {
   height?: number;
   scale?: number;
   yaw?: number;
+  positionY?: number;
   colliderRadius?: number;
   colliderHeight?: number;
 }
@@ -42,6 +43,7 @@ interface UnitDraft {
   height: number;
   scale: number;
   yaw: number;
+  positionY: number;
   colliderRadius: number;
   colliderHeight: number;
   uploadAsRigged: boolean;
@@ -191,6 +193,7 @@ function normalizeUnit(item: unknown): UnitItem | undefined {
     height: numberValue(item.height, 1.8),
     scale: numberValue(item.scale, 1),
     yaw: numberValue(item.yaw, 0),
+    positionY: numberValue(item.positionY, 0),
     colliderRadius: numberValue(item.colliderRadius, 0.35),
     colliderHeight: numberValue(item.colliderHeight, numberValue(item.height, 1.8)),
   };
@@ -218,6 +221,7 @@ function unitDraft(unit: UnitItem | undefined): UnitDraft {
     height: unit?.height ?? 1.8,
     scale: unit?.scale ?? 1,
     yaw: unit?.yaw ?? 0,
+    positionY: unit?.positionY ?? 0,
     colliderRadius: unit?.colliderRadius ?? 0.35,
     colliderHeight: unit?.colliderHeight ?? unit?.height ?? 1.8,
     uploadAsRigged: false,
@@ -270,12 +274,13 @@ function unitPreviewUrl(unit: UnitItem | undefined): string {
   if (!unit) return '/units';
   const modelUrl = unit.riggedUrl || unit.glbUrl;
   if (modelUrl) return `/model?id=${encodeURIComponent(unit.id)}${unit.riggedUrl ? '&rig=1' : ''}`;
+  const adminUnit = encodeURIComponent(unit.id);
   const kind = unit.kind.toLowerCase();
   if (unit.id === 'unit-chorus' || unit.id === 'unit-swarmer' || kind === 'monster' || kind === 'enemy') {
-    return '/game?showcase=monster';
+    return `/game?showcase=monster&adminUnit=${adminUnit}`;
   }
-  if (unit.id === 'unit-crate' || kind === 'prop') return '/lobby';
-  return '/units';
+  if (unit.id === 'unit-crate' || kind === 'prop') return `/lobby?adminUnit=${adminUnit}`;
+  return `/units?adminUnit=${adminUnit}`;
 }
 
 function LivePreviewFrame(props: {
@@ -284,16 +289,27 @@ function LivePreviewFrame(props: {
   nonce: number;
   sceneId?: SceneSettings['id'];
   settings?: SceneSettings;
+  unitId?: string;
+  unitSettings?: UnitDraft;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const postSettings = useCallback((): void => {
-    if (!props.sceneId || !props.settings) return;
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'sl-admin-scene-preview', sceneId: props.sceneId, settings: props.settings },
-      window.location.origin,
-    );
-  }, [props.sceneId, props.settings]);
+    const target = iframeRef.current?.contentWindow;
+    if (!target) return;
+    if (props.sceneId && props.settings) {
+      target.postMessage(
+        { type: 'sl-admin-scene-preview', sceneId: props.sceneId, settings: props.settings },
+        window.location.origin,
+      );
+    }
+    if (props.unitId && props.unitSettings) {
+      target.postMessage(
+        { type: 'sl-admin-unit-preview', unitId: props.unitId, settings: props.unitSettings },
+        window.location.origin,
+      );
+    }
+  }, [props.sceneId, props.settings, props.unitId, props.unitSettings]);
 
   useEffect(() => {
     postSettings();
@@ -486,6 +502,8 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
               src={unitPreviewUrl(selected)}
               title={selected ? `${selected.name} live preview` : 'Units live preview'}
               nonce={previewNonce}
+              unitId={selected?.id}
+              unitSettings={draft}
             />
           </div>
           {selected ? (
@@ -508,8 +526,9 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
                 <TextField label="Kind" value={draft.kind} onChange={(kind) => setDraft((current) => ({ ...current, kind }))} />
                 <TextField label="Gameplay role" value={draft.role} onChange={(role) => setDraft((current) => ({ ...current, role }))} />
                 <NumberField label="Height" value={draft.height} step={0.05} min={0.1} onChange={(height) => setDraft((current) => ({ ...current, height, colliderHeight: current.colliderHeight || height }))} />
-                <NumberField label="Preview scale" value={draft.scale} step={0.05} min={0.05} onChange={(scale) => setDraft((current) => ({ ...current, scale }))} />
+                <NumberField label="Model scale" value={draft.scale} step={0.05} min={0.05} onChange={(scale) => setDraft((current) => ({ ...current, scale }))} />
                 <NumberField label="Yaw" value={draft.yaw} step={0.05} onChange={(yaw) => setDraft((current) => ({ ...current, yaw }))} />
+                <NumberField label="Position Y" value={draft.positionY} step={0.05} onChange={(positionY) => setDraft((current) => ({ ...current, positionY }))} />
                 <NumberField label="Collider radius" value={draft.colliderRadius} step={0.05} min={0.01} onChange={(colliderRadius) => setDraft((current) => ({ ...current, colliderRadius }))} />
                 <NumberField label="Collider height" value={draft.colliderHeight} step={0.05} min={0.01} onChange={(colliderHeight) => setDraft((current) => ({ ...current, colliderHeight }))} />
                 <label className="model-field model-field--check">

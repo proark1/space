@@ -7,6 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 
 const _loader = new GLTFLoader();
+let _unitMetaPromise = null;
 
 // game state -> ordered clip-name substrings to look for (case-insensitive). First match wins.
 const STATE_CLIPS = {
@@ -18,14 +19,30 @@ const STATE_CLIPS = {
 };
 
 // Build one independent, normalized, animatable instance from a (pristine) source scene + clips.
+function finiteNumber(value, fallback) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+async function unitMeta(id) {
+  if (!_unitMetaPromise) {
+    _unitMetaPromise = fetch('/api/units', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : {items:[]})
+      .catch(() => ({items:[]}));
+  }
+  const payload = await _unitMetaPromise;
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  return items.find(item => item && item.id === id) || {};
+}
+
 function buildInstance(srcScene, clips, norm, opts) {
   const inner = cloneSkeleton(srcScene);                 // SkeletonUtils handles skinned meshes correctly
   inner.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
   inner.position.copy(norm.pos);                          // center x/z + feet on the floor
+  inner.position.y += norm.positionYOffset;
   if (opts.yaw) inner.rotation.y = opts.yaw;              // flip if the model faces the wrong way
   const root = new THREE.Group();
   root.add(inner);
-  root.scale.setScalar(norm.scale);                       // scale to the requested height
+  root.scale.setScalar(norm.scale * norm.scaleMultiplier); // scale to the requested height + admin multiplier
 
   const mixer = clips.length ? new THREE.AnimationMixer(inner) : null;
   const clipFor = state => {
@@ -64,14 +81,26 @@ export async function loadUnitModel(id, opts = {}) {
   try { gltf = await _loader.loadAsync(src); }
   catch (e) { return null; }                              // 404 / not forged yet -> caller keeps its fallback
 
+  const meta = await unitMeta(id);
+  const targetHeight = finiteNumber(meta.height, finiteNumber(opts.height, 1.8));
+  const scaleMultiplier = finiteNumber(meta.scale, finiteNumber(opts.scale, 1));
+  const yaw = finiteNumber(meta.yaw, finiteNumber(opts.yaw, 0));
+  const positionY = finiteNumber(meta.positionY, finiteNumber(opts.positionY, 0));
+
   const srcScene = gltf.scene, clips = gltf.animations || [];
   const box = new THREE.Box3().setFromObject(srcScene);   // measure the pristine model once
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const targetH = opts.height || 1.8;
-  const norm = { pos: new THREE.Vector3(-center.x, -box.min.y, -center.z), scale: targetH / (size.y || 1) };
+  const baseScale = targetHeight / (size.y || 1);
+  const norm = {
+    pos: new THREE.Vector3(-center.x, -box.min.y, -center.z),
+    scale: baseScale,
+    scaleMultiplier,
+    positionYOffset: positionY / Math.max(baseScale * scaleMultiplier, 0.0001)
+  };
 
-  const first = buildInstance(srcScene, clips, norm, opts);
-  first.instance = () => buildInstance(srcScene, clips, norm, opts);
+  const instanceOpts = {...opts, yaw};
+  const first = buildInstance(srcScene, clips, norm, instanceOpts);
+  first.instance = () => buildInstance(srcScene, clips, norm, instanceOpts);
   return first;
 }

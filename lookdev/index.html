@@ -63,7 +63,28 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
-const SHOWCASE = new URLSearchParams(location.search).get('showcase');
+const QUERY = new URLSearchParams(location.search);
+const SHOWCASE = QUERY.get('showcase');
+const ADMIN_UNIT = QUERY.get('adminUnit') || 'unit-chorus';
+let adminUnitSettings = {height:2.35, scale:1, yaw:0, positionY:0};
+function finiteNumber(value, fallback){ const n=Number(value); return Number.isFinite(n)?n:fallback; }
+function normalizeUnitSettings(value, fallback=adminUnitSettings){
+  const source=value&&typeof value==='object'?value:{};
+  return {
+    height:finiteNumber(source.height,fallback.height),
+    scale:finiteNumber(source.scale,fallback.scale),
+    yaw:finiteNumber(source.yaw,fallback.yaw),
+    positionY:finiteNumber(source.positionY,fallback.positionY)
+  };
+}
+async function loadAdminUnitSettings(){
+  if(SHOWCASE!=='monster')return;
+  try{
+    const payload=await (await fetch('/api/units',{cache:'no-store'})).json();
+    const items=Array.isArray(payload.items)?payload.items:[];
+    adminUnitSettings=normalizeUnitSettings(items.find(item=>item&&item.id===ADMIN_UNIT),adminUnitSettings);
+  }catch(e){}
+}
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
 renderer.setPixelRatio(1);
@@ -314,6 +335,22 @@ mp(new THREE.ConeGeometry(0.055,0.27,6), mClaw, 0,0.48,-0.68, 1.18);  // tail bl
 const MOB_SCALE=1.28;
 mob.position.set(0.5,0,-LEN-4.6); mob.scale.setScalar(MOB_SCALE); scene.add(mob);
 let mActive=false, caught=false, restored=false, enraged=false, won=false;
+function adminMobScale(){
+  return Math.max(0.05,(adminUnitSettings.height/2.35)*adminUnitSettings.scale);
+}
+function applyAdminUnitSettings(settings){
+  adminUnitSettings=normalizeUnitSettings(settings,adminUnitSettings);
+  if(SHOWCASE==='monster'){
+    mob.scale.setScalar(MOB_SCALE*adminMobScale());
+    mob.rotation.y=adminUnitSettings.yaw;
+  }
+}
+void loadAdminUnitSettings().then(()=>applyAdminUnitSettings(adminUnitSettings));
+addEventListener('message',event=>{
+  if(!event.data||event.data.type!=='sl-admin-unit-preview')return;
+  if(event.data.unitId&&event.data.unitId!==ADMIN_UNIT)return;
+  applyAdminUnitSettings(event.data.settings);
+});
 
 // If a CHORUS model has been made in the Unit Forge (/u/unit-chorus.glb), use it instead of the
 // procedural body — driven by the SAME mob group, so all the stalk/lunge logic still applies.
@@ -410,7 +447,7 @@ if(SHOWCASE==='monster'){
   camera.position.set(0.08,1.48,-LEN-2.0);
   camera.lookAt(0,1.52,-LEN-4.7);
   mob.position.set(0.15,0,-LEN-4.85);
-  mob.rotation.y=0;
+  mob.rotation.y=adminUnitSettings.yaw;
   flashOn=true;
   lightFactor=0.28;
   mThroat.material.emissiveIntensity=2.0;
@@ -476,7 +513,9 @@ function animate(){ requestAnimationFrame(animate);
     for(let i=0;i<bioStrips.length;i++) bioStrips[i].material.emissiveIntensity=pulse*(0.48+0.16*Math.sin(t*7+i));
     for(let i=0;i<tendrils.length;i++){ tendrils[i].rotation.z=Math.sin(t*2.2+tendrils[i].userData.wiggle)*0.16; tendrils[i].rotation.x=Math.cos(t*1.6+i)*0.06; }
     mGlow.intensity=pulse*0.9;
-    mob.position.y=Math.sin(t*1.25)*0.035;
+    mob.position.y=adminUnitSettings.positionY+Math.sin(t*1.25)*0.035;
+    mob.scale.setScalar(MOB_SCALE*adminMobScale());
+    mob.rotation.y=adminUnitSettings.yaw;
   }
   if(stalkNode){ if(!caught){ setPanPos(stalkNode,mob.position); stalkNode.g.gain.value=Math.max(0,Math.min(0.8,1.2-dM/13)); } else { stalkNode.g.gain.value=Math.max(0,stalkNode.g.gain.value-dt*0.5); } }
   if(!mActive && controls.isLocked && camera.position.z<-7){ mActive=true; playClip3D('crt-call',mob.position,0.65); }   // it wakes once you are inside

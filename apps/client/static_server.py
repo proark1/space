@@ -936,6 +936,7 @@ class Handler(SimpleHTTPRequestHandler):
             meta["height"] = number_or(body.get("height"), meta.get("height", 1.8), 0.1, 20)
             meta["scale"] = number_or(body.get("scale"), meta.get("scale", 1.0), 0.05, 20)
             meta["yaw"] = number_or(body.get("yaw"), meta.get("yaw", 0), -6.2832, 6.2832)
+            meta["positionY"] = number_or(body.get("positionY"), meta.get("positionY", 0), -20, 20)
             meta["colliderRadius"] = number_or(body.get("colliderRadius"), meta.get("colliderRadius", 0.35), 0.01, 10)
             meta["colliderHeight"] = number_or(body.get("colliderHeight"), meta.get("colliderHeight", meta["height"]), 0.01, 20)
             meta["adminUpdatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
