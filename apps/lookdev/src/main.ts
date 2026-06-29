@@ -2,7 +2,7 @@
 // Default scene is the Phase B chaos-stress harness: `n` dynamic Rapier boxes (300 by default)
 // rendered as one InstancedMesh — the perf-headroom probe for the low-poly GREEN bar (B3). Query
 // params: ?n=N body count, ?gl=2 forces the WebGL2 fallback, ?tier=low|mid|high|ultra quality tier.
-import { createRenderer } from '@sl/render';
+import { createRenderer, createPostStack } from '@sl/render';
 import { GameLoop } from '@sl/engine';
 import { createChaosScene } from './chaosScene';
 
@@ -17,6 +17,7 @@ async function main(): Promise<void> {
 
   const renderer = await createRenderer({ canvas, forceBackend, tier });
   const chaos = await createChaosScene(count);
+  const post = createPostStack(renderer, chaos.scene, chaos.camera, renderer.profile);
 
   const resize = (): void => {
     const w = window.innerWidth || canvas.clientWidth || 960;
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
     fixedUpdate: () => chaos.step(),
     render: () => {
       chaos.syncInstances();
-      renderer.render(chaos.scene, chaos.camera);
+      post.render();
       const now = performance.now();
       acc += now - lastT;
       lastT = now;
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
     renderer,
     loop,
     chaos,
+    post,
     backend: renderer.backend,
     profile: renderer.profile,
     benchmark: (f = 180) => {
