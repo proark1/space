@@ -158,6 +158,7 @@ const rl=(c,x,y,z)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8),ne
 rl(0xff3030,-7,0,-46); rl(0x30ff60,7,0,-46); const beacon=rl(0xffffff,0,11.4,-28);
 bx(5,4,0.6,new THREE.MeshBasicMaterial({color:0x000000}),6.8,1,16); for(let i=0;i<9;i++) bx(0.25,0.25,1+Math.random()*2.5,M.metal,6.7,(Math.random()-0.5)*3,16+(Math.random()-0.5)*4,null,Math.random(),Math.random(),Math.random());
 let adminShipOffsetY=0, adminShipRotationY=0.15;
+let adminShipModel=null, adminShipModelUrl='';
 ship.rotation.y=adminShipRotationY;
 
 // ===== REAL DOCKING PORT (recessed bay + guidance funnel + collar + petals + ring lights + approach ladder) =====
@@ -208,8 +209,8 @@ cap.traverse(o=>{if(o.isMesh)o.castShadow=true;}); cap.scale.setScalar(1.35); sc
 const _p1=new THREE.Vector3(),_p2=new THREE.Vector3(),_p3=new THREE.Vector3(),_p4=new THREE.Vector3(),_p5=new THREE.Vector3(),_aim=new THREE.Vector3(),_m=new THREE.Matrix4();
 const capEl=document.getElementById('cap'); const ez=k=>1-Math.pow(1-k,3);
 
-async function applyAdminSpaceship(){
-  const cfg=await loadAdminScene('spaceship'); if(!cfg)return;
+async function applyAdminSpaceshipConfig(cfg){
+  if(!cfg)return;
   applyMaterialTuning({
     base:[M.hull,M.hull2,M.dark,M.rust,M.metal,M.panel],
     emissive:[M.amber,M.cyan,M.engine]
@@ -220,10 +221,25 @@ async function applyAdminSpaceship(){
   adminShipOffsetY=finiteNumber(cfg.positionY,0);
   adminShipRotationY=finiteNumber(cfg.rotationY,adminShipRotationY);
   ship.scale.setScalar(finiteNumber(cfg.scale,1));
-  const model=await attachAdminModel(THREE,GLTFLoader,ship,cfg,{targetSize:24});
-  if(model){ model.position.z-=4; model.position.y+=1; }
+  const modelUrl=typeof cfg.modelUrl==='string'?cfg.modelUrl.trim():'';
+  if(modelUrl!==adminShipModelUrl){
+    if(adminShipModel){ ship.remove(adminShipModel); adminShipModel=null; }
+    adminShipModelUrl=modelUrl;
+    if(modelUrl){
+      adminShipModel=await attachAdminModel(THREE,GLTFLoader,ship,cfg,{targetSize:24});
+      if(adminShipModel){ adminShipModel.position.z-=4; adminShipModel.position.y+=1; }
+    }
+  }
+}
+async function applyAdminSpaceship(){
+  const cfg=await loadAdminScene('spaceship');
+  await applyAdminSpaceshipConfig(cfg);
 }
 void applyAdminSpaceship();
+addEventListener('message',event=>{
+  if(!event.data||event.data.type!=='sl-admin-scene-preview'||event.data.sceneId!=='spaceship')return;
+  void applyAdminSpaceshipConfig(event.data.settings);
+});
 
 const clock=new THREE.Clock(); const T=18;
 function animate(){ requestAnimationFrame(animate); const dt=clock.getDelta(), t=clock.elapsedTime; controls.update();

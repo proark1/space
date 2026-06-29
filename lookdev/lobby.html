@@ -217,8 +217,17 @@ const key=new THREE.DirectionalLight(0xeaf2ff,1.5); key.position.set(6,9,6); key
 key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=1; key.shadow.camera.far=50; key.shadow.camera.left=-12; key.shadow.camera.right=12; key.shadow.camera.top=12; key.shadow.camera.bottom=-12; key.shadow.bias=-0.0004; scene.add(key);
 const eg=new THREE.DirectionalLight(0x6fa8e0,0.5); eg.position.set(12,1,-3); scene.add(eg);   // Earth glow through the viewport
 
-async function applyAdminLobby(){
-  const cfg=await loadAdminScene('lobby'); if(!cfg)return;
+let adminLobbyModel=null, adminLobbyModelUrl='', adminLobbyModelBase=null;
+function tuneAdminLobbyModel(cfg){
+  if(!adminLobbyModel||!adminLobbyModelBase)return;
+  adminLobbyModel.scale.copy(adminLobbyModelBase.scale).multiplyScalar(finiteNumber(cfg.scale,1));
+  adminLobbyModel.rotation.y=adminLobbyModelBase.rotationY+finiteNumber(cfg.rotationY,0);
+  adminLobbyModel.position.copy(adminLobbyModelBase.position);
+  adminLobbyModel.position.y+=finiteNumber(cfg.positionY,0);
+  adminLobbyModel.position.z-=1.5;
+}
+async function applyAdminLobbyConfig(cfg){
+  if(!cfg)return;
   applyMaterialTuning({
     base:[M.floor,M.wall,M.wall2,M.trim,M.door,M.crate],
     emissive:[M.strip,M.amber]
@@ -226,15 +235,32 @@ async function applyAdminLobby(){
   ambientLight.intensity=finiteNumber(cfg.ambientIntensity,ambientLight.intensity);
   key.intensity=finiteNumber(cfg.keyIntensity,key.intensity);
   if(scene.fog) scene.fog.density=finiteNumber(cfg.fogDensity,scene.fog.density);
-  const model=await attachAdminModel(THREE,GLTFLoader,scene,cfg,{targetSize:5});
-  if(model){
-    model.scale.multiplyScalar(finiteNumber(cfg.scale,1));
-    model.rotation.y=finiteNumber(cfg.rotationY,0);
-    model.position.y+=finiteNumber(cfg.positionY,0);
-    model.position.z-=1.5;
+  const modelUrl=typeof cfg.modelUrl==='string'?cfg.modelUrl.trim():'';
+  if(modelUrl!==adminLobbyModelUrl){
+    if(adminLobbyModel){ scene.remove(adminLobbyModel); adminLobbyModel=null; adminLobbyModelBase=null; }
+    adminLobbyModelUrl=modelUrl;
+    if(modelUrl){
+      adminLobbyModel=await attachAdminModel(THREE,GLTFLoader,scene,cfg,{targetSize:5});
+      if(adminLobbyModel){
+        adminLobbyModelBase={
+          position:adminLobbyModel.position.clone(),
+          rotationY:adminLobbyModel.rotation.y,
+          scale:adminLobbyModel.scale.clone()
+        };
+      }
+    }
   }
+  tuneAdminLobbyModel(cfg);
+}
+async function applyAdminLobby(){
+  const cfg=await loadAdminScene('lobby');
+  await applyAdminLobbyConfig(cfg);
 }
 void applyAdminLobby();
+addEventListener('message',event=>{
+  if(!event.data||event.data.type!=='sl-admin-scene-preview'||event.data.sceneId!=='lobby')return;
+  void applyAdminLobbyConfig(event.data.settings);
+});
 
 // ---- FP / TP controller ----
 const EYE=1.95, SPEED=3.4, BACK=3.6;

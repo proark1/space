@@ -101,6 +101,8 @@ const UNIT_SEED: UnitItem[] = [
   },
 ];
 
+const LIVE_FALLBACK_UNIT_IDS = new Set(UNIT_SEED.map((unit) => unit.id));
+
 const SCENE_DEFAULTS: Record<SceneSettings['id'], SceneSettings> = {
   spaceship: {
     id: 'spaceship',
@@ -257,205 +259,56 @@ function previewStats(units: UnitItem[]): PanelStats {
   };
 }
 
-const PREVIEW_DOC = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#05070a;font-family:ui-monospace,Menlo,monospace}
-  #c{width:100%;height:100%;display:block}
-  #label{position:fixed;left:12px;bottom:10px;color:#9fb0bd;font:11px ui-monospace,Menlo,monospace;pointer-events:none}
-</style>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-</head>
-<body>
-<canvas id="c"></canvas>
-<div id="label">drag orbit · scroll zoom</div>
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-
-const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-renderer.shadowMap.enabled = true;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070a);
-scene.fog = new THREE.FogExp2(0x05070a, 0.02);
-const camera = new THREE.PerspectiveCamera(46, 1, 0.05, 500);
-camera.position.set(4, 3, 6);
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.target.set(0, 1, 0);
-const ambient = new THREE.AmbientLight(0x9fb0c8, 0.8);
-scene.add(ambient);
-const key = new THREE.DirectionalLight(0xfff0d6, 2.4);
-key.position.set(5, 8, 4);
-key.castShadow = true;
-scene.add(key);
-const fill = new THREE.DirectionalLight(0x7fd2ff, 0.55);
-fill.position.set(-5, 2, -3);
-scene.add(fill);
-const grid = new THREE.GridHelper(12, 12, 0x33414d, 0x17202a);
-scene.add(grid);
-
-const baseMat = new THREE.MeshStandardMaterial({ color: 0x717a86, roughness: 0.72, metalness: 0.36 });
-const trimMat = new THREE.MeshStandardMaterial({ color: 0x20242b, roughness: 0.6, metalness: 0.5 });
-const glowMat = new THREE.MeshStandardMaterial({ color: 0x06131a, emissive: 0x36e0d0, emissiveIntensity: 1.8, roughness: 1 });
-const root = new THREE.Group();
-scene.add(root);
-const placeholder = new THREE.Group();
-root.add(placeholder);
-
-function mesh(geo, mat, x, y, z, rx=0, ry=0, rz=0) {
-  const out = new THREE.Mesh(geo, mat);
-  out.position.set(x, y, z);
-  out.rotation.set(rx, ry, rz);
-  out.castShadow = true;
-  out.receiveShadow = true;
-  placeholder.add(out);
-  return out;
+function appendPreviewNonce(src: string, nonce: number): string {
+  const hashIndex = src.indexOf('#');
+  const base = hashIndex >= 0 ? src.slice(0, hashIndex) : src;
+  const hash = hashIndex >= 0 ? src.slice(hashIndex) : '';
+  return `${base}${base.includes('?') ? '&' : '?'}adminPreview=${nonce}${hash}`;
 }
 
-function buildFallback(kind) {
-  placeholder.clear();
-  if (kind === 'spaceship') {
-    for (let i = 0; i < 6; i += 1) mesh(new THREE.BoxGeometry(1.8, 1.1, 1.8), i % 2 ? trimMat : baseMat, 0, 1, -4 + i * 1.65);
-    mesh(new THREE.BoxGeometry(3.5, 0.18, 1.8), trimMat, 2.8, 1.7, 3, 0, 0, -0.35);
-    mesh(new THREE.BoxGeometry(3.5, 0.18, 1.8), trimMat, -2.8, 1.7, 3, 0, 0, 0.35);
-    for (const x of [-0.8, 0, 0.8]) mesh(new THREE.CylinderGeometry(0.28, 0.42, 0.7, 16), glowMat, x, 1, 5.2, Math.PI / 2, 0, 0);
-  } else if (kind === 'lobby') {
-    mesh(new THREE.BoxGeometry(6, 0.15, 6), baseMat, 0, 0, 0);
-    mesh(new THREE.BoxGeometry(6, 3, 0.15), baseMat, 0, 1.5, -3);
-    mesh(new THREE.BoxGeometry(0.15, 3, 6), baseMat, -3, 1.5, 0);
-    mesh(new THREE.BoxGeometry(0.15, 3, 6), baseMat, 3, 1.5, 0);
-    mesh(new THREE.BoxGeometry(2.4, 1.2, 0.08), glowMat, 2.92, 1.8, 0, 0, Math.PI / 2, 0);
-    mesh(new THREE.BoxGeometry(1.4, 2, 0.12), trimMat, 0, 1, -2.92);
-  } else {
-    mesh(new THREE.CapsuleGeometry(0.32, 0.9, 6, 16), baseMat, 0, 1.2, 0);
-    mesh(new THREE.SphereGeometry(0.32, 20, 16), trimMat, 0, 1.92, 0);
-    mesh(new THREE.BoxGeometry(0.88, 0.2, 0.18), glowMat, 0, 1.9, -0.26);
-    mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), baseMat, -0.48, 1.22, 0);
-    mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), baseMat, 0.48, 1.22, 0);
-    mesh(new THREE.BoxGeometry(0.18, 0.72, 0.18), trimMat, -0.18, 0.45, 0);
-    mesh(new THREE.BoxGeometry(0.18, 0.72, 0.18), trimMat, 0.18, 0.45, 0);
+function unitPreviewUrl(unit: UnitItem | undefined): string {
+  if (!unit) return '/units';
+  const modelUrl = unit.riggedUrl || unit.glbUrl;
+  if (modelUrl) return `/model?id=${encodeURIComponent(unit.id)}${unit.riggedUrl ? '&rig=1' : ''}`;
+  const kind = unit.kind.toLowerCase();
+  if (unit.id === 'unit-chorus' || unit.id === 'unit-swarmer' || kind === 'monster' || kind === 'enemy') {
+    return '/game?showcase=monster';
   }
+  if (unit.id === 'unit-crate' || kind === 'prop') return '/lobby';
+  return '/units';
 }
 
-const loader = new GLTFLoader();
-let settings = {};
-let loaded = null;
-let loadedUrl = '';
-
-function validHex(value, fallback) {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-}
-
-function num(value, fallback) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function normalizeModel(object) {
-  const box = new THREE.Box3().setFromObject(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  object.position.set(-center.x, -box.min.y, -center.z);
-  const maxAxis = Math.max(size.x, size.y, size.z, 1);
-  object.scale.setScalar(2.2 / maxAxis);
-  object.traverse((node) => {
-    if (node.isMesh) {
-      node.castShadow = true;
-      node.receiveShadow = true;
-    }
-  });
-}
-
-function loadModel(url) {
-  if (!url) {
-    if (loaded) loaded.visible = false;
-    placeholder.visible = true;
-    loadedUrl = '';
-    return;
-  }
-  if (url === loadedUrl) return;
-  loadedUrl = url;
-  loader.load(url, (gltf) => {
-    if (loaded) root.remove(loaded);
-    loaded = gltf.scene;
-    normalizeModel(loaded);
-    root.add(loaded);
-    placeholder.visible = false;
-  }, undefined, () => {
-    loadedUrl = '';
-    if (loaded) loaded.visible = false;
-    placeholder.visible = true;
-  });
-}
-
-function applySettings() {
-  buildFallback(settings.previewKind || 'unit');
-  baseMat.color.set(validHex(settings.baseColor, '#717a86'));
-  glowMat.emissive.set(validHex(settings.emissiveColor, '#36e0d0'));
-  glowMat.emissiveIntensity = num(settings.emissiveIntensity, 1.8);
-  ambient.intensity = num(settings.ambientIntensity, 0.8);
-  key.intensity = num(settings.keyIntensity, 2.4);
-  scene.fog.density = num(settings.fogDensity, 0.02);
-  root.scale.setScalar(num(settings.scale, 1));
-  root.position.y = num(settings.positionY, 0);
-  root.rotation.y = num(settings.rotationY, num(settings.yaw, 0));
-  loadModel(settings.modelUrl || '');
-}
-
-addEventListener('message', (event) => {
-  if (!event.data || event.data.type !== 'sl-admin-preview') return;
-  settings = event.data.settings || {};
-  applySettings();
-});
-
-function resize() {
-  const w = Math.max(1, canvas.clientWidth || innerWidth);
-  const h = Math.max(1, canvas.clientHeight || innerHeight);
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-addEventListener('resize', resize);
-resize();
-buildFallback('unit');
-function tick() {
-  requestAnimationFrame(tick);
-  controls.update();
-  renderer.render(scene, camera);
-}
-tick();
-parent.postMessage({ type: 'sl-admin-preview-ready' }, '*');
-</script>
-</body>
-</html>`;
-
-function ThreePreviewFrame(props: { settings: Record<string, unknown> }) {
+function LivePreviewFrame(props: {
+  src: string;
+  title: string;
+  nonce: number;
+  sceneId?: SceneSettings['id'];
+  settings?: SceneSettings;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [ready, setReady] = useState(false);
+
+  const postSettings = useCallback((): void => {
+    if (!props.sceneId || !props.settings) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'sl-admin-scene-preview', sceneId: props.sceneId, settings: props.settings },
+      window.location.origin,
+    );
+  }, [props.sceneId, props.settings]);
 
   useEffect(() => {
-    const onMessage = (event: MessageEvent): void => {
-      if (event.source === iframeRef.current?.contentWindow && isRecord(event.data) && event.data.type === 'sl-admin-preview-ready') {
-        setReady(true);
-      }
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+    postSettings();
+  }, [postSettings]);
 
-  useEffect(() => {
-    if (!ready) return;
-    iframeRef.current?.contentWindow?.postMessage({ type: 'sl-admin-preview', settings: props.settings }, '*');
-  }, [props.settings, ready]);
-
-  return <iframe ref={iframeRef} className="model-preview-frame" title="3D editor preview" srcDoc={PREVIEW_DOC} />;
+  return (
+    <iframe
+      ref={iframeRef}
+      className="model-preview-frame"
+      title={props.title}
+      src={appendPreviewNonce(props.src, props.nonce)}
+      allow="autoplay; fullscreen"
+      onLoad={postSettings}
+    />
+  );
 }
 
 function NumberField(props: {
@@ -512,6 +365,7 @@ function ModelStatusPill(props: { unit: UnitItem }) {
   if (props.unit.riggedUrl) return <span className="model-pill model-pill--ready">rigged model</span>;
   if (props.unit.glbUrl) return <span className="model-pill model-pill--ready">model ready</span>;
   if (props.unit.model_status === 'running' || props.unit.rig_status === 'running') return <span className="model-pill model-pill--work">building</span>;
+  if (LIVE_FALLBACK_UNIT_IDS.has(props.unit.id)) return <span className="model-pill">live fallback</span>;
   return <span className="model-pill">missing model</span>;
 }
 
@@ -520,10 +374,12 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState<UnitDraft>(() => unitDraft(undefined));
   const [busy, setBusy] = useState(false);
+  const [previewNonce, setPreviewNonce] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selected = useMemo(() => units.find((unit) => unit.id === selectedId) ?? units[0], [selectedId, units]);
   const selectedModelUrl = selected?.riggedUrl || selected?.glbUrl || '';
+  const reloadPreview = useCallback(() => setPreviewNonce((current) => current + 1), []);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -534,13 +390,14 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
       setUnits(merged);
       onStats(previewStats(merged));
       if (!selectedId && merged[0]) setSelectedId(merged[0].id);
+      reloadPreview();
     } catch (error) {
       const fallback = mergeUnits([]);
       setUnits(fallback);
       onStats(previewStats(fallback));
       onToast(`Units endpoint unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
-  }, [onStats, onToast, selectedId]);
+  }, [onStats, onToast, reloadPreview, selectedId]);
 
   useEffect(() => {
     void refresh();
@@ -567,6 +424,7 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
       }
       onToast(`Saved ${selected.id}. New games will load this unit metadata.`);
       await refresh();
+      reloadPreview();
     } catch (error) {
       onToast(`Unit save failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     } finally {
@@ -593,27 +451,13 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
       const size = numberValue(payload.size, 0);
       onToast(`Uploaded ${selected.id}${size ? ` (${formatBytes(size)})` : ''}.`);
       await refresh();
+      reloadPreview();
     } catch (error) {
       onToast(`GLB upload failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     } finally {
       setBusy(false);
     }
   };
-
-  const previewSettings = useMemo(() => ({
-    previewKind: 'unit',
-    modelUrl: selectedModelUrl,
-    scale: draft.scale,
-    yaw: draft.yaw,
-    rotationY: draft.yaw,
-    positionY: 0,
-    baseColor: '#b7b4a9',
-    emissiveColor: '#7fd2ff',
-    emissiveIntensity: 1.3,
-    ambientIntensity: 0.9,
-    keyIntensity: 2.4,
-    fogDensity: 0.018,
-  }), [draft.scale, draft.yaw, selectedModelUrl]);
 
   return (
     <section className="model-admin">
@@ -638,7 +482,11 @@ export function UnitsAdminPanel({ onStats, onToast }: Admin3DProps) {
 
         <div className="model-workspace">
           <div className="model-workspace__preview">
-            <ThreePreviewFrame settings={previewSettings} />
+            <LivePreviewFrame
+              src={unitPreviewUrl(selected)}
+              title={selected ? `${selected.name} live preview` : 'Units live preview'}
+              nonce={previewNonce}
+            />
           </div>
           {selected ? (
             <div className="model-editor">
@@ -709,7 +557,9 @@ export function SceneAdminPanel(props: Admin3DProps & {
   const { onStats, onToast, sceneId, title } = props;
   const [settings, setSettings] = useState<SceneSettings>(() => SCENE_DEFAULTS[props.sceneId]);
   const [busy, setBusy] = useState(false);
+  const [previewNonce, setPreviewNonce] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const reloadPreview = useCallback(() => setPreviewNonce((current) => current + 1), []);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -717,6 +567,7 @@ export function SceneAdminPanel(props: Admin3DProps & {
       const payload: unknown = await response.json();
       const scene = normalizeScene(props.sceneId, isRecord(payload) ? payload.scene : undefined);
       setSettings(scene);
+      reloadPreview();
       onStats({
         total: 1,
         approved: scene.updatedAt ? 1 : 0,
@@ -728,7 +579,7 @@ export function SceneAdminPanel(props: Admin3DProps & {
       onStats({ total: 1, approved: 0, generated: 0, missing: 0, stale: 1 });
       onToast(`${title} settings unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
-  }, [onStats, onToast, props.sceneId, title]);
+  }, [onStats, onToast, props.sceneId, reloadPreview, title]);
 
   useEffect(() => {
     void refresh();
@@ -750,6 +601,7 @@ export function SceneAdminPanel(props: Admin3DProps & {
       }
       const scene = normalizeScene(props.sceneId, payload.scene);
       setSettings(scene);
+      reloadPreview();
       onStats({ total: 1, approved: 1, generated: scene.modelUrl ? 1 : 0, missing: 0, stale: 0 });
       onToast(`Saved ${title}. Open scenes will use the new settings on reload.`);
     } catch (error) {
@@ -785,16 +637,17 @@ export function SceneAdminPanel(props: Admin3DProps & {
     }
   };
 
-  const previewSettings = useMemo(() => ({
-    ...settings,
-    previewKind: props.sceneId,
-  }), [props.sceneId, settings]);
-
   return (
     <section className="model-admin">
       <div className="model-scene">
         <div className="model-workspace__preview">
-          <ThreePreviewFrame settings={previewSettings} />
+          <LivePreviewFrame
+            src={props.liveUrl}
+            title={`${props.title} live preview`}
+            nonce={previewNonce}
+            sceneId={sceneId}
+            settings={settings}
+          />
         </div>
         <div className="model-editor">
           <div className="model-editor__head">
