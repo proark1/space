@@ -12,6 +12,7 @@ GBASE  = "https://generativelanguage.googleapis.com"            # Gemini image g
 GMODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image")  # Nano Banana Pro — best likeness for a hero master
 GASPECT = os.environ.get("GEMINI_ASPECT", "3:4")               # portrait, fits the lobby frame
 GSIZE   = os.environ.get("GEMINI_IMAGE_SIZE", "2K")            # 1K | 2K | 4K  (set "" to let the model default)
+SL_VOICE_PREFIX = "SL ·"
 os.makedirs(AUDIO, exist_ok=True)
 os.chdir(ROOT)
 CTX = ssl.create_default_context()
@@ -54,6 +55,30 @@ def el_post(endpoint, payload, key, accept):
         headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": accept})
     with urllib.request.urlopen(req, context=CTX, timeout=300) as r:
         return r.read(), r.headers.get("Content-Type", "")
+
+def el_voices(key):
+    req = urllib.request.Request(EL + "/v1/voices", headers={"xi-api-key": key})
+    with urllib.request.urlopen(req, context=CTX, timeout=30) as r:
+        return json.loads(r.read().decode())
+
+def sl_voices(data):
+    return [
+        {"voice_id": v.get("voice_id"), "name": v.get("name")}
+        for v in data.get("voices", [])
+        if v.get("voice_id") and v.get("name") and str(v.get("name")).strip().startswith(SL_VOICE_PREFIX)
+    ]
+
+def tts_voice_id(endpoint):
+    marker = "/v1/text-to-speech/"
+    if marker not in endpoint:
+        return None
+    return endpoint.split(marker, 1)[1].split("/", 1)[0].split("?", 1)[0]
+
+def require_sl_voice(key, voice_id):
+    for voice in sl_voices(el_voices(key)):
+        if voice.get("voice_id") == voice_id:
+            return voice
+    raise ValueError("Use one of the SL · voices for voice generation.")
 
 def stamp(path):
     st = os.stat(path)
@@ -208,10 +233,7 @@ class H(http.server.SimpleHTTPRequestHandler):
             k = key_of(self)
             if not k: return self._json({"ok": False, "error": "no api key"}, 200)
             try:
-                req = urllib.request.Request(EL + "/v1/voices", headers={"xi-api-key": k})
-                with urllib.request.urlopen(req, context=CTX, timeout=30) as r:
-                    data = json.loads(r.read().decode())
-                vs = [{"voice_id": v.get("voice_id"), "name": v.get("name")} for v in data.get("voices", [])]
+                vs = sl_voices(el_voices(k))
                 return self._json({"ok": True, "voices": vs})
             except urllib.error.HTTPError as e:
                 return self._json({"ok": False, "status": e.code, "error": e.read().decode()[:400]}, 200)
@@ -283,10 +305,13 @@ class H(http.server.SimpleHTTPRequestHandler):
                 ep = body.get("endpoint", "")
                 if not ep.startswith("/v1/"): return self._json({"ok": False, "error": "bad endpoint"}, 200)
                 payload = body.get("payload", {})
+                requested_voice = tts_voice_id(ep)
+                if requested_voice:
+                    require_sl_voice(k, requested_voice)
                 audio, ct = el_post(ep, payload, k, "audio/mpeg")
                 ext = ".wav" if "wav" in ct else ".mp3"
                 saved = self._save(body.get("id", "clip"), audio, ext)
-                vid = ep.split("/v1/text-to-speech/")[-1] if "text-to-speech" in ep else None
+                vid = requested_voice
                 record(saved["id"], kind_of(ep), body.get("category"),
                        payload.get("text") or payload.get("prompt"), vid,
                        saved["file"], saved["size"], saved["createdAt"])

@@ -228,17 +228,17 @@ const CATALOG = [
   {id:'sfx-ui-error', type:'sfx', dur:0.6, label:'UI error', prompt:'A harsh denied error buzzer, sci-fi interface, short'},
  ]},
  {c:'Scripted lines (v3 audio tags · pick the voice above)', items:[
-  {id:'vox-control-brief', type:'voice', label:'Earth Control — briefing', prompt:'[clipped, radio static] Capsule, this is Control. You are go for the derelict. [tense] Mission is contact and recovery. You put her comms back online, that is the whole job. [grim] Bring her voice back.'},
-  {id:'vox-control-count', type:'voice', label:'Earth Control — countdown', prompt:'[tense] Ignition sequence start. Five. Four. [static] Three. Two. [grim] Godspeed. One.'},
-  {id:'vox-control-wrong', type:'voice', label:'Earth Control — the wrong note', prompt:'[steady] Telemetry is nominal, you are looking good, looking good, looking... [a fainter second voice underneath, a half beat late] looking good. [static] Control out.'},
-  {id:'vox-crew-banter', type:'voice', label:'Crew — capsule banter', prompt:'[tired chuckle] So. Did anybody actually read the brief? [beat] No? [dry] Cool. Cool cool cool. [exhales] We are going to be fine.'},
-  {id:'vox-vesta-1', type:'voice', label:'VESTA — the signal', prompt:'[calm] Correction. One signal active. [pause] It is not on our manifest.'},
-  {id:'vox-vesta-2', type:'voice', label:'VESTA — breach', prompt:'[urgent] Warning. Hull breach detected. [pause] Decompression imminent. [firmly] Brace.'},
-  {id:'vox-vesta-3', type:'voice', label:'VESTA — do not answer', prompt:'[whispering] Do not restore communications. [pause] Whatever asks you to... [slowly] do not answer it.'},
-  {id:'vox-distress', type:'voice', label:'Captain — distress log', prompt:'[shaky breath] If anyone receives this... [scared] do not dock. [whispering] Do not answer it. [trembling] It learns your voice. [exhales] It is already using mine.'},
-  {id:'vox-captain-log', type:'voice', label:'Captain — final log', prompt:'[weary] Captain log, final entry. [shaky breath] We restored the comms array like they asked. [whisper] God help me, we answered it. [trembling] It has our voices now. All of them.'},
-  {id:'vox-chorus-1', type:'voice', label:'THE CHORUS — the lure', prompt:'[hollow] I am the rescue you called for. [whisper] Restore the signal. Open the channel. [mimicking] I sound like your friend because I am your friend now.'},
-  {id:'vox-chorus-2', type:'voice', label:'THE CHORUS — come closer', prompt:'[wet, distorted] Come closer. [echoing] Let me speak to the others. [softly] Do not be afraid of me.'},
+  {id:'vox-control-brief', type:'voice', voice:'Earth Control', label:'Earth Control — briefing', prompt:'[clipped, radio static] Capsule, this is Control. You are go for the derelict. [tense] Mission is contact and recovery. You put her comms back online, that is the whole job. [grim] Bring her voice back.'},
+  {id:'vox-control-count', type:'voice', voice:'Earth Control', label:'Earth Control — countdown', prompt:'[tense] Ignition sequence start. Five. Four. [static] Three. Two. [grim] Godspeed. One.'},
+  {id:'vox-control-wrong', type:'voice', voice:'Earth Control', label:'Earth Control — the wrong note', prompt:'[steady] Telemetry is nominal, you are looking good, looking good, looking... [a fainter second voice underneath, a half beat late] looking good. [static] Control out.'},
+  {id:'vox-crew-banter', type:'voice', voice:'Crew', label:'Crew — capsule banter', prompt:'[tired chuckle] So. Did anybody actually read the brief? [beat] No? [dry] Cool. Cool cool cool. [exhales] We are going to be fine.'},
+  {id:'vox-vesta-1', type:'voice', voice:'VESTA', label:'VESTA — the signal', prompt:'[calm] Correction. One signal active. [pause] It is not on our manifest.'},
+  {id:'vox-vesta-2', type:'voice', voice:'VESTA', label:'VESTA — breach', prompt:'[urgent] Warning. Hull breach detected. [pause] Decompression imminent. [firmly] Brace.'},
+  {id:'vox-vesta-3', type:'voice', voice:'VESTA', label:'VESTA — do not answer', prompt:'[whispering] Do not restore communications. [pause] Whatever asks you to... [slowly] do not answer it.'},
+  {id:'vox-distress', type:'voice', voice:'Captain', label:'Captain — distress log', prompt:'[shaky breath] If anyone receives this... [scared] do not dock. [whispering] Do not answer it. [trembling] It learns your voice. [exhales] It is already using mine.'},
+  {id:'vox-captain-log', type:'voice', voice:'Captain', label:'Captain — final log', prompt:'[weary] Captain log, final entry. [shaky breath] We restored the comms array like they asked. [whisper] God help me, we answered it. [trembling] It has our voices now. All of them.'},
+  {id:'vox-chorus-1', type:'voice', voice:'The Chorus', label:'THE CHORUS — the lure', prompt:'[hollow] I am the rescue you called for. [whisper] Restore the signal. Open the channel. [mimicking] I sound like your friend because I am your friend now.'},
+  {id:'vox-chorus-2', type:'voice', voice:'The Chorus', label:'THE CHORUS — come closer', prompt:'[wet, distorted] Come closer. [echoing] Let me speak to the others. [softly] Do not be afraid of me.'},
  ]},
 ];
 
@@ -246,10 +246,56 @@ const $=s=>document.querySelector(s);
 const keyEl=$('#key'), voiceEl=$('#voice'), modelEl=$('#model'), vdModelEl=$('#vdmodel'), connstat=$('#connstat');
 keyEl.value=localStorage.getItem('elKey')||'';
 let manifest={};
+let slVoices=[];
+const SL_VOICE_PREFIX='SL ·';
+const SL_VOICE_TARGETS={
+  'earth-control':['SL · Earth — mission control'],
+  captain:['SL · Captain — distress log'],
+  chorus:['SL · THE CHORUS — the mimic'],
+  crew:['SL · Crew — panic'],
+  vesta:['SL · VESTA — ship AI'],
+};
 const fmt=b=> b>=1048576 ? (b/1048576).toFixed(2)+' MB' : (b/1024).toFixed(1)+' KB';
 const mmss=s=>{ if(!isFinite(s)||s<0) s=0; s=Math.round(s); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
 const tidy=d=>(d||'').replace('T',' ').replace(/:\d\d$/,'');   // 2026-06-28T05:43:01 -> 2026-06-28 05:43
 function hdrs(){ return {'Content-Type':'application/json','x-eleven-key':keyEl.value.trim()}; }
+const normVoice=s=>(s||'').toLowerCase().replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();
+const isSLVoice=v=>v && v.voice_id && v.name && v.name.trim().startsWith(SL_VOICE_PREFIX);
+function voiceRoleKey(role){
+  const n=normVoice(role);
+  if(!n) return '';
+  if(n.includes('vesta')) return 'vesta';
+  if(n.includes('chorus')) return 'chorus';
+  if(n.includes('captain')) return 'captain';
+  if(n.includes('crew')) return 'crew';
+  if(n.includes('earth') || n.includes('control')) return 'earth-control';
+  return '';
+}
+function expectedVoice(role){
+  const k=voiceRoleKey(role);
+  return (k && SL_VOICE_TARGETS[k] && SL_VOICE_TARGETS[k][0]) || (SL_VOICE_PREFIX+' voice');
+}
+function findSLVoice(role){
+  const k=voiceRoleKey(role);
+  if(!k) return null;
+  const targets=new Set((SL_VOICE_TARGETS[k]||[]).map(normVoice));
+  const exact=slVoices.find(v=>targets.has(normVoice(v.name)));
+  if(exact) return exact;
+  return slVoices.find(v=>{
+    const n=normVoice(v.name);
+    if(!n.startsWith(normVoice(SL_VOICE_PREFIX))) return false;
+    if(k==='earth-control') return n.includes('earth') && n.includes('mission control');
+    return n.includes(k);
+  }) || null;
+}
+function resolveVoiceForItem(it){
+  const key=voiceRoleKey(it.voice);
+  const roleVoice=findSLVoice(it.voice);
+  if(key && !roleVoice) return {error:'missing '+expectedVoice(it.voice)};
+  const selected=slVoices.find(v=>v.voice_id===voiceEl.value);
+  const voice=roleVoice || selected;
+  return voice ? {voice} : {error:'connect voices first; no '+SL_VOICE_PREFIX+' voice is available'};
+}
 
 // Custom audio player: themed, compact, and it shows the REAL clip duration (current / total).
 // Relies on the server's Range support so preload="metadata" only pulls the header bytes.
@@ -319,8 +365,9 @@ function render(){
       const dur = it.type==='music' ? (it.len/1000) : (it.dur||4);
       const durCtl = it.type==='voice' ? '' :
         `<label class="stat">${it.type==='music'?'length':'duration'} <input class="dur" type="number" step="0.5" min="0.5" value="${dur}"> s</label>`;
+      const voiceTag=it.voice ? `<span class="tag">${expectedVoice(it.voice)}</span>` : '';
       el.innerHTML=`
-        <div class="head"><span class="name">${it.label}</span><span class="tag">${it.type}</span>${it.loop?'<span class="tag">loop</span>':''}<span class="id">${it.id}</span></div>
+        <div class="head"><span class="name">${it.label}</span><span class="tag">${it.type}</span>${voiceTag}${it.loop?'<span class="tag">loop</span>':''}<span class="id">${it.id}</span></div>
         <textarea class="prompt">${it.prompt}</textarea>
         <div class="row"><button class="gen">Generate ▸</button>${durCtl}<span class="stat status">not generated</span><span class="meta result"></span></div>`;
       el.querySelector('.gen').onclick=()=>gen(it, el);
@@ -347,7 +394,12 @@ async function gen(it, el){
   const prompt=el.querySelector('.prompt').value; let endpoint, payload;
   if(it.type==='sfx'){ const d=Math.min(30,Math.max(0.5,Number(el.querySelector('.dur').value)||it.dur)); endpoint='/v1/sound-generation'; payload={text:prompt,duration_seconds:d,prompt_influence:0.5,loop:!!it.loop}; }
   else if(it.type==='music'){ const ms=Math.min(600000,Math.max(3000,(Number(el.querySelector('.dur').value)||(it.len/1000))*1000)); endpoint='/v1/music'; payload={prompt,music_length_ms:Math.round(ms)}; }
-  else { const v=voiceEl.value; if(!v){ status.textContent='⚠ pick a voice (Connect first)'; status.className='stat status err'; return; } endpoint='/v1/text-to-speech/'+v; payload={text:prompt,model_id:modelEl.value,voice_settings:{stability:0.4,similarity_boost:0.75,style:0.5,use_speaker_boost:true}}; }
+  else {
+    const resolved=resolveVoiceForItem(it);
+    if(resolved.error){ status.textContent='⚠ '+resolved.error; status.className='stat status err'; return; }
+    endpoint='/v1/text-to-speech/'+resolved.voice.voice_id;
+    payload={text:prompt,model_id:modelEl.value,voice_settings:{stability:0.4,similarity_boost:0.75,style:0.5,use_speaker_boost:true}};
+  }
   status.textContent='generating…'; status.className='stat status'; btn.disabled=true;
   try{ const j=await (await fetch('/api/generate',{method:'POST',headers:hdrs(),body:JSON.stringify({id:it.id,endpoint,payload,category:it.type})})).json();
     if(!j.ok){ status.textContent='✗ '+(j.error||('HTTP '+(j.status||'?'))); status.className='stat status err'; }
@@ -413,8 +465,12 @@ $('#genall').onclick=async()=>{
 async function refreshVoices(){
   const j=await (await fetch('/api/voices',{headers:hdrs()})).json();
   if(!j.ok) return j;
-  voiceEl.innerHTML='<option value="">— pick a voice —</option>'+j.voices.map(v=>`<option value="${v.voice_id}">${v.name}</option>`).join('');
-  const saved=localStorage.getItem('elVoice'); if(saved) voiceEl.value=saved;
+  slVoices=(j.voices||[]).filter(isSLVoice);
+  voiceEl.innerHTML='<option value="">— auto SL voice by row —</option>'+slVoices.map(v=>`<option value="${v.voice_id}">${v.name}</option>`).join('');
+  const saved=localStorage.getItem('elVoice');
+  if(saved && slVoices.some(v=>v.voice_id===saved)) voiceEl.value=saved;
+  else localStorage.removeItem('elVoice');
+  j.voices=slVoices;
   return j;
 }
 $('#connect').onclick=async()=>{ const key=keyEl.value.trim(); localStorage.setItem('elKey',key); if(!key){ connstat.textContent='Paste a key first.'; return; }

@@ -15,6 +15,7 @@ ELEVENLABS_BASE = "https://api.elevenlabs.io"
 GEMINI_BASE = "https://generativelanguage.googleapis.com"
 GEMINI_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image")
 GEMINI_SIZE = os.environ.get("GEMINI_IMAGE_SIZE", "2K")
+SIGNAL_LOST_VOICE_PREFIX = "SL ·"
 CTX = ssl.create_default_context()
 GEMINI_ASPECT_RATIOS = ("1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9")
 LOOKDEV_ROUTES = {
@@ -139,6 +140,24 @@ def get_elevenlabs(endpoint, key):
     req = urllib.request.Request(ELEVENLABS_BASE + endpoint, headers={"xi-api-key": key})
     with urllib.request.urlopen(req, context=CTX, timeout=30) as response:
         return json.loads(response.read().decode())
+
+
+def signal_lost_voices(data):
+    return [
+        {"voice_id": voice.get("voice_id"), "name": voice.get("name")}
+        for voice in data.get("voices", [])
+        if voice.get("voice_id")
+        and voice.get("name")
+        and str(voice.get("name")).strip().startswith(SIGNAL_LOST_VOICE_PREFIX)
+    ]
+
+
+def require_signal_lost_voice(key, voice_id):
+    voices = signal_lost_voices(get_elevenlabs("/v1/voices", key))
+    for voice in voices:
+        if voice.get("voice_id") == voice_id:
+            return voice
+    raise ValueError("Use one of the SL · voices for voice generation.")
 
 
 def save_audio(asset_id, data, content_type):
@@ -297,11 +316,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"ok": False, "error": "Paste an ElevenLabs API key first."}, 200)
         try:
             data = get_elevenlabs("/v1/voices", key)
-            voices = [
-                {"voice_id": voice.get("voice_id"), "name": voice.get("name")}
-                for voice in data.get("voices", [])
-                if voice.get("voice_id") and voice.get("name")
-            ]
+            voices = signal_lost_voices(data)
             return self._json({"ok": True, "voices": voices})
         except urllib.error.HTTPError as exc:
             return self._json({"ok": False, "status": exc.code, "error": http_error_message(exc)}, 200)
@@ -335,6 +350,7 @@ class Handler(SimpleHTTPRequestHandler):
                 voice_id = str(body.get("voiceId") or "").strip()
                 if not voice_id:
                     return self._json({"ok": False, "error": "Select an ElevenLabs voice before generating voice lines."}, 200)
+                require_signal_lost_voice(key, voice_id)
                 endpoint = "/v1/text-to-speech/" + voice_id
                 payload = {
                     "text": prompt,

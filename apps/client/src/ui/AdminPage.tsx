@@ -99,6 +99,14 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
 
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
+const SIGNAL_LOST_VOICE_PREFIX = 'SL ·';
+const SIGNAL_LOST_VOICE_TARGETS: Record<string, string[]> = {
+  'earth-control': ['SL · Earth — mission control'],
+  captain: ['SL · Captain — distress log'],
+  chorus: ['SL · THE CHORUS — the mimic'],
+  crew: ['SL · Crew — panic'],
+  vesta: ['SL · VESTA — ship AI'],
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -305,6 +313,61 @@ function normalizeVoiceOptions(payload: unknown): VoiceOption[] {
     .filter((voice) => voice.voice_id && voice.name);
 }
 
+function normalizedVoiceName(value: string): string {
+  return value.toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+function isSignalLostVoice(voice: VoiceOption): boolean {
+  return voice.name.trim().startsWith(SIGNAL_LOST_VOICE_PREFIX);
+}
+
+function voiceRoleKey(role?: string): string | undefined {
+  const normalized = normalizedVoiceName(role ?? '');
+  if (!normalized) return undefined;
+  if (normalized.includes('vesta')) return 'vesta';
+  if (normalized.includes('chorus')) return 'chorus';
+  if (normalized.includes('captain')) return 'captain';
+  if (normalized.includes('crew')) return 'crew';
+  if (normalized.includes('earth') || normalized.includes('control')) return 'earth-control';
+  return undefined;
+}
+
+function expectedSignalLostVoiceName(role?: string): string {
+  const key = voiceRoleKey(role);
+  return key ? SIGNAL_LOST_VOICE_TARGETS[key]?.[0] ?? `${SIGNAL_LOST_VOICE_PREFIX} voice` : `${SIGNAL_LOST_VOICE_PREFIX} voice`;
+}
+
+function findSignalLostVoice(voices: VoiceOption[], role?: string): VoiceOption | undefined {
+  const key = voiceRoleKey(role);
+  if (!key) return undefined;
+
+  const targets = new Set((SIGNAL_LOST_VOICE_TARGETS[key] ?? []).map(normalizedVoiceName));
+  const exact = voices.find((voice) => targets.has(normalizedVoiceName(voice.name)));
+  if (exact) return exact;
+
+  return voices.find((voice) => {
+    const name = normalizedVoiceName(voice.name);
+    if (!name.startsWith(normalizedVoiceName(SIGNAL_LOST_VOICE_PREFIX))) return false;
+    if (key === 'earth-control') return name.includes('earth') && name.includes('mission control');
+    return name.includes(key);
+  });
+}
+
+function resolveSignalLostVoice(asset: AudioAsset, voices: VoiceOption[], selectedVoiceId: string): { voice?: VoiceOption; error?: string } {
+  if (asset.kind !== 'voice') return {};
+
+  const key = voiceRoleKey(asset.voice);
+  const roleVoice = findSignalLostVoice(voices, asset.voice);
+  if (key && !roleVoice) {
+    return { error: `Connect voices first; missing ${expectedSignalLostVoiceName(asset.voice)}.` };
+  }
+
+  const selectedVoice = voices.find((voice) => voice.voice_id === selectedVoiceId);
+  const voice = roleVoice ?? selectedVoice;
+  if (!voice) return { error: `Connect voices first; choose one of the ${SIGNAL_LOST_VOICE_PREFIX} voices.` };
+  return { voice };
+}
+
 function generationHeaders(apiKey: string): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey.trim()) headers['x-eleven-key'] = apiKey.trim();
@@ -389,13 +452,13 @@ export function AdminPage() {
         setToast(`ElevenLabs connection failed: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
         return;
       }
-      const nextVoices = normalizeVoiceOptions(payload);
+      const nextVoices = normalizeVoiceOptions(payload).filter(isSignalLostVoice);
       setVoices(nextVoices);
-      if (!voiceId && nextVoices[0]) {
-        setVoiceId(nextVoices[0].voice_id);
-        writeStorage('sl-eleven-voice', nextVoices[0].voice_id);
+      if (voiceId && !nextVoices.some((voice) => voice.voice_id === voiceId)) {
+        setVoiceId('');
+        writeStorage('sl-eleven-voice', '');
       }
-      setToast(`Connected to ElevenLabs. Loaded ${nextVoices.length} voice${nextVoices.length === 1 ? '' : 's'}.`);
+      setToast(`Connected to ElevenLabs. Loaded ${nextVoices.length} Signal Lost voice${nextVoices.length === 1 ? '' : 's'}.`);
     } catch (error) {
       setToast(`ElevenLabs connection failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
@@ -405,6 +468,12 @@ export function AdminPage() {
     setBusyId(asset.id);
     setToast(`${asset.file ? 'Regenerating' : 'Generating'} ${asset.id}...`);
     try {
+      const resolvedVoice = resolveSignalLostVoice(asset, voices, voiceId);
+      if (resolvedVoice.error) {
+        setToast(`Generation failed for ${asset.id}: ${resolvedVoice.error}`);
+        return;
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: generationHeaders(apiKey),
@@ -414,7 +483,7 @@ export function AdminPage() {
           prompt: asset.prompt,
           durationSeconds: parseDurationSeconds(asset),
           loop: asset.duration === 'loop',
-          voiceId,
+          voiceId: resolvedVoice.voice?.voice_id ?? '',
           modelId,
         }),
       });
@@ -540,8 +609,8 @@ export function AdminPage() {
           aria-label="Gemini API key"
         />
         <button className="admin-export" onClick={() => void connectVoices()}>Connect voices</button>
-        <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Voice for voice assets">
-          <option value="">Voice for spoken rows</option>
+        <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Fallback Signal Lost voice">
+          <option value="">Auto SL voice by row</option>
           {voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
         </select>
         <select value={modelId} onChange={(event) => setStoredModel(event.target.value)} aria-label="Text to speech model">
