@@ -55,6 +55,7 @@
 <script type="module">
 import * as THREE from 'three';
 import './nav.js?v=2';
+import { loadUnitModel } from './unitgltf.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -314,6 +315,16 @@ const MOB_SCALE=1.28;
 mob.position.set(0.5,0,-LEN-4.6); mob.scale.setScalar(MOB_SCALE); scene.add(mob);
 let mActive=false, caught=false, restored=false, enraged=false, won=false;
 
+// If a CHORUS model has been made in the Unit Forge (/u/unit-chorus.glb), use it instead of the
+// procedural body — driven by the SAME mob group, so all the stalk/lunge logic still applies.
+// Animation (if the GLB has clips) is driven by state below: idle when frozen, run when advancing, attack on the kill.
+let mobUnit=null, _mpx=0, _mpz=0;
+loadUnitModel('unit-chorus', {height:2.35}).then(u=>{
+  if(!u) return;                                                       // none forged yet -> keep the procedural monster
+  mob.children.slice().forEach(c=>{ if(c!==mGlow) c.visible=false; }); // hide procedural body, keep the glow light
+  mob.add(u.root); mobUnit=u;
+});
+
 // ---------- audio (procedural) ----------
 let A=null;
 function initAudio(){ if(A) return; try{
@@ -492,6 +503,12 @@ function animate(){ requestAnimationFrame(animate);
     if(dM<13){ heart-=dt; const iv=THREE.MathUtils.lerp(0.4,1.05,Math.min(1,(dM-3)/10)); if(heart<=0){ thump(); if(dM<7)setTimeout(thump,165); heart=iv; } }
     if(dM<1.5) die();
   }
+  // drive the forged CHORUS model's animation by state (no-op for the procedural monster)
+  if(mobUnit){
+    mobUnit.update(dt);
+    const dx=mob.position.x-_mpx, dz=mob.position.z-_mpz; _mpx=mob.position.x; _mpz=mob.position.z;
+    mobUnit.play((caught||won||enraged) ? 'attack' : (Math.hypot(dx,dz)>0.0025 ? 'run' : 'idle'));
+  }
   // objective prompt + the escape
   promptEl.style.display=(!restored && !caught && !won && camera.position.distanceTo(CONSOLE)<3.4)?'block':'none';
   if(restored && !won && !caught && camera.position.z>-2.6){ won=true; showDebrief('win'); }
@@ -502,6 +519,7 @@ function animate(){ requestAnimationFrame(animate);
   const ox=(moving?Math.cos(bob*0.5)*0.016:0)+(Math.random()-0.5)*shake*0.35, oy=(Math.random()-0.5)*shake*0.35;
   camera.position.x+=ox; camera.position.y+=oy; composer.render(); camera.position.x-=ox; camera.position.y-=oy;
 }
+window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE};   // inspect the forged CHORUS model
 addEventListener('resize',resize); resize(); animate();
 </script>
 </body>

@@ -23,8 +23,9 @@ COPY --from=build /app/apps/client/static_server.py ./static_server.py
 COPY lookdev/audio.js lookdev/flow.js lookdev/hero.js lookdev/nav.js lookdev/units.js lookdev/units_alpha.js ./
 COPY lookdev/units.html lookdev/launch.html lookdev/lobby.html lookdev/pad.html lookdev/dock.html lookdev/exterior.html lookdev/units_alpha.html ./
 COPY lookdev/index.html ./game.html
-# Unit Forge: the shared Tripo3D backend (imported by static_server.py), the /forge page, the /model viewer
+# Unit Forge: the shared Tripo3D backend (imported by static_server.py), the /forge page, the /model viewer,
+# and unitgltf.js (the game loads forged unit GLBs via it)
 COPY lookdev/tripo_forge.py ./tripo_forge.py
-COPY lookdev/unitforge.js lookdev/units_forge.html lookdev/model.html ./
+COPY lookdev/unitforge.js lookdev/units_forge.html lookdev/model.html lookdev/unitgltf.js ./
 
 CMD ["python3", "static_server.py"]
