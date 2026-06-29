@@ -252,6 +252,91 @@ h1 {
 .button--danger {
   border-color: rgba(255, 61, 46, 0.76);
   color: #ffd8d3;
+  background: linear-gradient(180deg, rgba(255, 61, 46, 0.2), rgba(13, 8, 8, 0.86));
+  animation: danger-flicker 4.8s linear infinite;
+}
+
+/* Distressed-horror button treatment: ship-UI scanlines, chromatic jitter, flicker. */
+.button {
+  position: relative;
+  isolation: isolate;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
+  opacity: 0.3;
+  mix-blend-mode: multiply;
+}
+
+.button--glitch:hover {
+  text-shadow: 0.05em 0 rgba(255, 61, 46, 0.92), -0.05em 0 rgba(84, 242, 255, 0.92);
+  animation: button-jitter 240ms steps(2, end) infinite;
+}
+
+.button--danger:hover {
+  border-color: rgba(255, 61, 46, 0.96);
+  box-shadow: 0 0 18px rgba(255, 30, 12, 0.45), 0 14px 36px rgba(0, 0, 0, 0.3);
+}
+
+.button--art {
+  min-height: 3.5rem;
+  background-size: cover;
+  background-position: center;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.92);
+  border-color: rgba(244, 239, 228, 0.5);
+}
+
+.hero__panic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.hero__panic-label {
+  color: var(--red);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.hero__panic .button {
+  min-height: 2.4rem;
+  padding: 0 0.8rem;
+  font-size: 0.82rem;
+}
+
+@keyframes button-jitter {
+  0% { transform: translate(0, -1px); }
+  33% { transform: translate(-0.6px, -1px) skewX(-0.5deg); }
+  66% { transform: translate(0.6px, -1px) skewX(0.5deg); }
+  100% { transform: translate(0, -1px); }
+}
+
+@keyframes danger-flicker {
+  0%, 92%, 100% { opacity: 1; }
+  93% { opacity: 0.74; }
+  94.5% { opacity: 1; }
+  96% { opacity: 0.6; }
+  97.5% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button--glitch:hover,
+  .button--danger { animation: none; }
 }
 
 .hero__readout {
@@ -457,26 +542,35 @@ h1 {
     var(--panel-solid);
 }
 
-.section--keyart {
-  background:
-    radial-gradient(circle at 80% 18%, rgba(84, 242, 255, 0.08), transparent 26rem),
-    radial-gradient(circle at 14% 82%, rgba(255, 61, 46, 0.08), transparent 26rem),
-    #060809;
-  border-top: 1px solid rgba(244, 239, 228, 0.12);
-}
-
-.key-art {
-  margin: 0;
+.feature-card {
+  position: relative;
   overflow: hidden;
-  border: 1px solid rgba(244, 239, 228, 0.14);
-  border-radius: 12px;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.key-art img {
-  display: block;
-  width: 100%;
-  height: auto;
+.feature-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 61, 46, 0.5);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.5), 0 0 26px rgba(255, 30, 12, 0.12);
+}
+
+.feature-card--art {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 18rem;
+  background-size: cover;
+  background-position: center;
+  border-color: rgba(244, 239, 228, 0.22);
+}
+
+.feature-card--art h3 {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.92);
+}
+
+.feature-card--art p {
+  color: rgba(244, 239, 228, 0.86);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.95);
 }
 
 .section--lobby {

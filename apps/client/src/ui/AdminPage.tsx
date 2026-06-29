@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
 
 type AdminTab = 'audio' | 'image';
@@ -37,6 +37,7 @@ interface ManifestItem {
   prompt?: string;
   size?: number;
   createdAt?: string;
+  approved?: boolean;
 }
 
 interface VoiceOption {
@@ -145,6 +146,15 @@ const IMAGE_ASSETS: ImageAsset[] = [
   { id: 'landing-hero', name: 'Landing Page Hero', kind: 'landing', group: 'Landing Page', status: 'approved', use: 'landing', ratio: '21:9', preview: heroImage, file: 'apps/client/src/assets/signal-lost-hero.png', prompt: 'Four salvage astronauts sprint through a derelict corridor while The Chorus emerges behind them.' },
   { id: 'landing-social-card', name: 'Social Share Card', kind: 'landing', group: 'Landing Page', status: 'missing', use: 'landing', ratio: '1.91:1', prompt: 'Readable SIGNAL LOST social card using the hero key art, no tiny text, strong monster silhouette.' },
   { id: 'landing-key-art-clean', name: 'Clean Key Art', kind: 'landing', group: 'Landing Page', status: 'missing', use: 'landing', ratio: '16:9', prompt: 'Key art without overlaid UI, suitable for store capsules and trailers.' },
+  { id: 'landing-clip-1', name: 'Clip — Wet Floor, Dry Screams', kind: 'landing', group: 'Landing Clips', status: 'missing', use: 'landing', ratio: '4:3', prompt: 'Cinematic funny-scary key-art still from a co-op space horror game: a salvage astronaut in a worn white-and-grey suit slips and wipes out on a wet grated derelict-ship floor, flashlight spinning out of their hand mid-air, two crewmates recoiling in alarm behind, dark cargo corridor, cold cyan emergency light, slick reflections, slapstick-horror tone, dramatic lighting.' },
+  { id: 'landing-clip-2', name: 'Clip — It Learned Your Voice', kind: 'landing', group: 'Landing Clips', status: 'missing', use: 'landing', ratio: '4:3', prompt: 'Cinematic horror still from a co-op space horror game: a lone salvage astronaut frozen in a pitch-black derelict ship corridor, turning toward a ceiling vent where a wrong, mouth-shaped bioluminescent glow mimics a human voice, claustrophobic dread, single cold flashlight beam, eerie and funny-scary.' },
+  { id: 'landing-clip-3', name: 'Clip — Winning Was The Trap', kind: 'landing', group: 'Landing Clips', status: 'missing', use: 'landing', ratio: '4:3', prompt: 'Cinematic horror still from a co-op space horror game: two salvage astronauts restoring a glowing broken transmitter array in a derelict command room, CRT monitors flickering and cables everywhere, while the eyeless silhouette of THE CHORUS creature with a bioluminescent throat emerges from the shadows behind them, ominous green-cyan glow, dread.' },
+  { id: 'landing-system-sound', name: 'System — Sound Is The Monster', kind: 'scene', group: 'Landing Systems', status: 'missing', use: 'landing', ratio: '3:4', prompt: 'Vertical cinematic horror key art: close on a salvage astronaut clamping a gloved hand over their helmet mic inside a pitch-black derelict spaceship, faint menacing sound-wave ripples in the dark air, an eyeless creature listening just out of the light, cold cyan rim light, tense funny-scary space horror tone.' },
+  { id: 'landing-system-light', name: 'System — Light Is Bait', kind: 'scene', group: 'Landing Systems', status: 'missing', use: 'landing', ratio: '3:4', prompt: 'Vertical cinematic horror key art: a lone flashlight cone cutting through a derelict ship corridor and painting a bright runway straight onto a lurking eyeless wet-chitin creature silhouette at the far end, dust in the beam, cold dread, space horror, dramatic chiaroscuro.' },
+  { id: 'landing-system-coop', name: 'System — Co-op Goes Sideways', kind: 'scene', group: 'Landing Systems', status: 'missing', use: 'landing', ratio: '3:4', prompt: 'Vertical cinematic funny-scary key art: four low-poly salvage contractors jammed and panicking in a half-closed bulkhead doorway of a dark derelict ship, a heavy battery pack rolling away across the grated floor, flashlights crossing chaotically, comedic chaos during a horror moment, cold lighting.' },
+  { id: 'landing-system-signal', name: 'System — One Signal Lies', kind: 'scene', group: 'Landing Systems', status: 'missing', use: 'landing', ratio: '3:4', prompt: 'Vertical cinematic horror key art: a lonely glowing automated distress beacon mounted on the hull of a vast dead spaceship in deep space, a single wrong extra signal pulse rippling out into cold black emptiness, distant stars, ominous and isolating, space horror tone.' },
+  { id: 'landing-btn-demo', name: 'Button Art — Play Demo', kind: 'ui', group: 'Landing Buttons', status: 'missing', use: 'landing', ratio: '4:1', prompt: 'Wide dark sci-fi UI button background plate for a horror game: the depths of a derelict ship corridor receding into black with a subtle cold cyan flashlight glow on the left, plenty of dark negative space for overlaid button text, low detail, cinematic, no text.' },
+  { id: 'landing-btn-host', name: 'Button Art — Host Game', kind: 'ui', group: 'Landing Buttons', status: 'missing', use: 'landing', ratio: '4:1', prompt: 'Wide dark sci-fi UI button background plate for a horror game: a capsule lobby and launch gantry bathed in warm amber emergency light fading into darkness, plenty of dark negative space for overlaid button text, low detail, cinematic, no text.' },
   { id: 'capsule-cockpit', name: 'Capsule Cockpit Plate', kind: 'scene', group: 'Cold Open', status: 'missing', use: 'game', ratio: '16:9', prompt: 'Low-poly cramped capsule cockpit, four seats, rain-streaked launch pad through the window.' },
   { id: 'launch-pad', name: 'Launch Pad Concept', kind: 'scene', group: 'Cold Open', status: 'missing', use: 'game', ratio: '21:9', prompt: 'Overcast industrial night launch pad, patched rocket, floodlights, steam and rain.' },
   { id: 'docking-berth', name: 'Docking Berth Concept', kind: 'scene', group: 'Cold Open', status: 'stale', use: 'game', ratio: '16:9', prompt: 'Derelict docking collar with guidance funnel, hazard chevrons, orange approach ladder lights.' },
@@ -233,6 +243,7 @@ function normalizeManifestItems(payload: unknown): ManifestItem[] {
       prompt: stringValue(item.prompt),
       size: numberValue(item.size),
       createdAt: stringValue(item.createdAt) ?? stringValue(item.created_at) ?? stringValue(item.updatedAt),
+      approved: item.approved === true,
     });
   }
   return normalized.sort((a, b) => a.id.localeCompare(b.id));
@@ -273,7 +284,7 @@ function mergeAudioAssets(catalog: AudioAsset[], manifest: ManifestItem[]): Audi
     used.add(item.id);
     return {
       ...asset,
-      status: asset.status === 'approved' ? asset.status : 'generated',
+      status: asset.status === 'approved' || item.approved ? 'approved' : 'generated',
       file: item.file,
       prompt: item.prompt ?? asset.prompt,
       size: item.size,
@@ -287,7 +298,7 @@ function mergeAudioAssets(catalog: AudioAsset[], manifest: ManifestItem[]): Audi
       name: titleFromId(item.id),
       kind: audioKind(item),
       group: 'Detected Files',
-      status: 'generated',
+      status: item.approved ? 'approved' : 'generated',
       use: 'shared',
       duration: 'file',
       prompt: item.prompt ?? 'Existing audio file found on the asset server.',
@@ -308,7 +319,7 @@ function mergeImageAssets(catalog: ImageAsset[], manifest: ManifestItem[]): Imag
     used.add(item.id);
     return {
       ...asset,
-      status: asset.status === 'approved' ? asset.status : 'generated',
+      status: asset.status === 'approved' || item.approved ? 'approved' : 'generated',
       file: item.file,
       preview: item.file,
       prompt: item.prompt ?? asset.prompt,
@@ -323,7 +334,7 @@ function mergeImageAssets(catalog: ImageAsset[], manifest: ManifestItem[]): Imag
       name: titleFromId(item.id),
       kind: imageKind(item),
       group: 'Detected Files',
-      status: 'generated',
+      status: item.approved ? 'approved' : 'generated',
       use: 'shared',
       ratio: 'file',
       prompt: item.prompt ?? 'Existing image file found on the asset server.',
@@ -599,7 +610,16 @@ function cutOutWhiteBackground(canvas: HTMLCanvasElement): HTMLCanvasElement {
   return trimTransparentCanvas(canvas);
 }
 
-async function processImageAsset(asset: ImageAsset, maxEdge: number, cutout: boolean): Promise<string> {
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function processImageAsset(asset: ImageAsset, maxEdge: number, cutout: boolean, quality = 0.86): Promise<string> {
   const src = imageSource(asset);
   if (!src) throw new Error('Generate or upload this image before saving it.');
   const image = await loadProcessImage(src);
@@ -621,7 +641,7 @@ async function processImageAsset(asset: ImageAsset, maxEdge: number, cutout: boo
   }
   context.drawImage(image, 0, 0, width, height);
   const output = cutout ? cutOutWhiteBackground(canvas) : canvas;
-  return output.toDataURL(cutout || isIconAsset(asset) ? 'image/png' : 'image/jpeg', 0.86);
+  return output.toDataURL(cutout || isIconAsset(asset) ? 'image/png' : 'image/jpeg', quality);
 }
 
 function statusCount<T extends BaseAsset>(items: T[], status: AssetStatus): number {
@@ -955,8 +975,87 @@ export function AdminPage() {
     writeStorage('sl-eleven-model', value);
   };
 
-  const action = (asset: BaseAsset, verb: string): void => {
-    setToast(`${verb} queued for ${asset.id}. Server-side approvals will attach here next.`);
+  const uploadImage = async (asset: ImageAsset, file: File): Promise<void> => {
+    setBusyId(asset.id);
+    setToast(`Uploading ${file.name} for ${asset.id}...`);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const response = await fetch('/api/save-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: asset.id, dataUrl }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`Upload failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      const saved = normalizeManifestItems({ items: [payload] });
+      setManifest((items) => [...items.filter((item) => item.id !== asset.id), ...saved]);
+      const size = numberValue(payload.size);
+      setToast(`Uploaded ${asset.id}${size ? ` (${formatBytes(size)})` : ''}.`);
+      void refreshManifest();
+    } catch (error) {
+      setToast(`Upload failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const compressImage = async (asset: ImageAsset): Promise<void> => {
+    const maxEdge = imageSizeById[asset.id] ?? defaultImageSize(asset);
+    setBusyId(asset.id);
+    setToast(`Compressing ${asset.id}...`);
+    try {
+      const dataUrl = await processImageAsset(asset, maxEdge, false, 0.5);
+      const response = await fetch('/api/save-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: asset.id, dataUrl }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`Compress failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      const saved = normalizeManifestItems({ items: [payload] });
+      setManifest((items) => [...items.filter((item) => item.id !== asset.id), ...saved]);
+      const size = numberValue(payload.size);
+      setToast(`Compressed ${asset.id}${size ? ` → ${formatBytes(size)}` : ''} at ${maxEdge}px max edge.`);
+      void refreshManifest();
+    } catch (error) {
+      setToast(`Compress failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const approveAsset = async (asset: BaseAsset): Promise<void> => {
+    if (!asset.file) {
+      setToast(`Generate, save, or upload ${asset.id} before approving it.`);
+      return;
+    }
+    setBusyId(asset.id);
+    setToast(`Approving ${asset.id}...`);
+    try {
+      const response = await fetch('/api/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: asset.id, file: asset.file }),
+      });
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || payload.ok !== true) {
+        setToast(`Approve failed for ${asset.id}: ${stringValue(isRecord(payload) ? payload.error : undefined) ?? 'unknown error'}`);
+        return;
+      }
+      setManifest((items) => items.map((item) => (item.id === asset.id ? { ...item, approved: true } : item)));
+      setToast(`Approved ${asset.id}. It is now the published version.`);
+      void refreshManifest();
+    } catch (error) {
+      setToast(`Approve failed for ${asset.id}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   return (
@@ -1038,7 +1137,7 @@ export function AdminPage() {
             onGenerate={generateAudio}
             onCheckVoice={checkVoiceDesign}
             onSaveVoicePreview={saveVoicePreview}
-            onAction={action}
+            onApprove={approveAsset}
           />
         )} />
       ) : (
@@ -1051,7 +1150,9 @@ export function AdminPage() {
             onGenerate={generateImage}
             onSave={(item) => saveImage(item, false)}
             onCutout={(item) => saveImage(item, true)}
-            onAction={action}
+            onCompress={compressImage}
+            onUpload={uploadImage}
+            onApprove={approveAsset}
           />
         )} />
       )}
@@ -1087,7 +1188,7 @@ function AudioRow(props: {
   onGenerate: (asset: AudioAsset) => Promise<void>;
   onCheckVoice: (asset: AudioAsset) => Promise<void>;
   onSaveVoicePreview: (asset: AudioAsset, preview: VoicePreview) => Promise<void>;
-  onAction: (asset: BaseAsset, verb: string) => void;
+  onApprove: (asset: BaseAsset) => Promise<void>;
 }) {
   const { asset } = props;
   const isVoiceDesign = isVoiceDesignAsset(asset);
@@ -1134,7 +1235,7 @@ function AudioRow(props: {
       <div className="asset-actions">
         <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{generateLabel}</button>
         {isVoiceDesign ? <button disabled={props.busy} onClick={() => void props.onCheckVoice(asset)}>Check SL voice</button> : null}
-        <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
+        <button disabled={props.busy || !asset.file} onClick={() => void props.onApprove(asset)}>{asset.status === 'approved' ? 'Approved' : 'Approve'}</button>
       </div>
     </article>
   );
@@ -1148,10 +1249,13 @@ function ImageRow(props: {
   onGenerate: (asset: ImageAsset) => Promise<void>;
   onSave: (asset: ImageAsset) => Promise<void>;
   onCutout: (asset: ImageAsset) => Promise<void>;
-  onAction: (asset: BaseAsset, verb: string) => void;
+  onCompress: (asset: ImageAsset) => Promise<void>;
+  onUpload: (asset: ImageAsset, file: File) => Promise<void>;
+  onApprove: (asset: BaseAsset) => Promise<void>;
 }) {
   const { asset } = props;
   const hasImage = Boolean(imageSource(asset));
+  const fileInputRef = useRef<HTMLInputElement>(null);
   return (
     <article className="asset-row">
       <div className={`asset-thumb ${isIconAsset(asset) ? 'asset-thumb--icon' : ''}`} aria-label={`${asset.name} preview`}>
@@ -1183,8 +1287,21 @@ function ImageRow(props: {
         </label>
         <button disabled={props.busy || !hasImage} onClick={() => void props.onSave(asset)}>Save</button>
         <button disabled={props.busy || !hasImage} onClick={() => void props.onCutout(asset)}>Cut out</button>
-        <button onClick={() => props.onAction(asset, 'Upload')}>Upload</button>
-        <button onClick={() => props.onAction(asset, 'Approve')}>Approve</button>
+        <button disabled={props.busy || !hasImage} onClick={() => void props.onCompress(asset)} title="Re-encode smaller and show the new file size">Compress</button>
+        <button disabled={props.busy} onClick={() => fileInputRef.current?.click()}>Upload</button>
+        <button disabled={props.busy || !asset.file} onClick={() => void props.onApprove(asset)}>{asset.status === 'approved' ? 'Approved' : 'Approve'}</button>
+        <input
+          ref={fileInputRef}
+          className="asset-upload-input"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void props.onUpload(asset, file);
+          }}
+        />
       </div>
     </article>
   );
