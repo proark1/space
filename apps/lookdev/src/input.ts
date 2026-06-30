@@ -22,6 +22,8 @@ export interface FirstPersonControls {
   consumeJump(): boolean;
   /** Set the heading directly (scripted cameras / headless tests). */
   setLook(yaw: number, pitch: number): void;
+  /** Override movement for scripted/headless tests; pass undefined to return to keyboard input. */
+  setMoveOverride(move: { x: number; z: number } | undefined): void;
   dispose(): void;
 }
 
@@ -42,6 +44,7 @@ export function createFirstPersonControls(
   let pitch = 0;
   let locked = false;
   let jumpLatched = false;
+  let moveOverride: { x: number; z: number } | undefined;
 
   const onKeyDown = (e: KeyboardEvent): void => {
     pressed.add(e.code);
@@ -81,6 +84,7 @@ export function createFirstPersonControls(
       return locked;
     },
     moveVector() {
+      if (moveOverride) return moveOverride;
       const z = (pressed.has('KeyW') ? 1 : 0) - (pressed.has('KeyS') ? 1 : 0);
       const x = (pressed.has('KeyD') ? 1 : 0) - (pressed.has('KeyA') ? 1 : 0);
       return { x, z };
@@ -94,7 +98,11 @@ export function createFirstPersonControls(
       yaw = nextYaw;
       pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, nextPitch));
     },
+    setMoveOverride(move) {
+      moveOverride = move;
+    },
     dispose() {
+      moveOverride = undefined;
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       canvas.removeEventListener('click', onClick);

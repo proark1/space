@@ -55,6 +55,7 @@ export interface CreateGameplaySessionOptions extends GameplayNetDriverOptions {
   readonly code: string;
   readonly isHost: boolean;
   readonly iceServers: RTCIceServer[];
+  readonly iceTransportPolicy?: RTCIceTransportPolicy;
   readonly events: SessionEvents;
   readonly signalingUrl?: string;
   readonly now?: () => number;
@@ -96,10 +97,16 @@ export interface LocalReconcileResult {
 const REMOTE_INTERP_DELAY_MS = 100;
 const REMOTE_FREEZE_GAP_MS = 300;
 const SLOT_ANNOUNCE_INTERVAL_MS = 1000;
-const DEFAULT_SLOT_X = [0, 0.8, -0.8, 1.6] as const;
+const DEFAULT_SLOT_SPAWNS = [
+  { x: -1.2, z: 12 },
+  { x: 1.2, z: 12 },
+  { x: 0, z: 10.8 },
+  { x: -1.2, z: 10.8 },
+] as const;
 
 function defaultPeerSpawn(slot: number): { x: number; y: number; z: number } {
-  return { x: DEFAULT_SLOT_X[slot - 1] ?? 0, y: 1, z: 12 };
+  const spawn = DEFAULT_SLOT_SPAWNS[slot - 1] ?? { x: 0, z: 10.8 };
+  return { x: spawn.x, y: 1, z: spawn.z };
 }
 
 function defaultNowMs(): number {
@@ -431,6 +438,7 @@ export function createGameplaySession(opts: CreateGameplaySessionOptions): Gamep
     code: opts.code,
     isHost: opts.isHost,
     iceServers: opts.iceServers,
+    iceTransportPolicy: opts.iceTransportPolicy,
     now: opts.now,
     signalingUrl: opts.signalingUrl,
     events: {

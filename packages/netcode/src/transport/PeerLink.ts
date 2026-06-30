@@ -24,6 +24,19 @@ export interface PeerLinkEvents {
   onIce?: (candidate: RTCIceCandidateInit) => void;
 }
 
+export interface PeerLinkOptions {
+  readonly iceTransportPolicy?: RTCIceTransportPolicy;
+}
+
+export function buildPeerConnectionConfig(
+  iceServers: RTCIceServer[],
+  opts: PeerLinkOptions = {},
+): RTCConfiguration {
+  const config: RTCConfiguration = { iceServers, bundlePolicy: 'max-bundle' };
+  if (opts.iceTransportPolicy) config.iceTransportPolicy = opts.iceTransportPolicy;
+  return config;
+}
+
 export class PeerLink {
   readonly pc: RTCPeerConnection;
   readonly reliable: RTCDataChannel;
@@ -37,8 +50,9 @@ export class PeerLink {
   constructor(
     iceServers: RTCIceServer[],
     private readonly ev: PeerLinkEvents,
+    opts: PeerLinkOptions = {},
   ) {
-    this.pc = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle' });
+    this.pc = new RTCPeerConnection(buildPeerConnectionConfig(iceServers, opts));
     this.reliable = this.pc.createDataChannel(CHANNELS.reliable.label, {
       negotiated: true,
       id: CHANNELS.reliable.id,

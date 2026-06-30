@@ -112,6 +112,9 @@ class DelayedNetwork {
   }
 }
 
+const SLOT1_SPAWN = { x: -1.2, y: 1, z: 12 } as const;
+const SLOT2_SPAWN = { x: 1.2, y: 1, z: 12 } as const;
+
 describe('GameplayNetDriver', () => {
   it('moves an authoritative host player from client input and replicates it back', async () => {
     const hostGame = await Game.create({ role: 'host' });
@@ -141,7 +144,7 @@ describe('GameplayNetDriver', () => {
 
   it('reconciles the local client player from owner-slot snapshots', async () => {
     const hostGame = await Game.create({ role: 'host' });
-    const clientGame = await Game.create({ role: 'client', initialPlayerPosition: { x: 0, y: 1, z: 12 } });
+    const clientGame = await Game.create({ role: 'client', initialPlayerPosition: SLOT1_SPAWN });
     const hostSession = new FakeSession('ROOM01', true, ['client-a']);
     const clientSession = new FakeSession('ROOM01', false, ['host']);
     const reconciles: Array<{ inputAck: number; pendingInputs: number }> = [];
@@ -172,8 +175,8 @@ describe('GameplayNetDriver', () => {
 
   it('assigns distinct owner slots so multiple clients reconcile only their own avatars', async () => {
     const hostGame = await Game.create({ role: 'host' });
-    const clientAGame = await Game.create({ role: 'client', initialPlayerPosition: { x: 0, y: 1, z: 12 } });
-    const clientBGame = await Game.create({ role: 'client', initialPlayerPosition: { x: 0, y: 1, z: 12 } });
+    const clientAGame = await Game.create({ role: 'client', initialPlayerPosition: SLOT1_SPAWN });
+    const clientBGame = await Game.create({ role: 'client', initialPlayerPosition: SLOT2_SPAWN });
     const hostSession = new FakeSession('ROOM01', true, ['client-a', 'client-b']);
     const clientASession = new FakeSession('ROOM01', false, ['host']);
     const clientBSession = new FakeSession('ROOM01', false, ['host']);
@@ -220,7 +223,7 @@ describe('GameplayNetDriver', () => {
 
   it('keeps local reconciliation bounded under 100ms latency and unreliable loss', async () => {
     const hostGame = await Game.create({ role: 'host' });
-    const clientGame = await Game.create({ role: 'client', initialPlayerPosition: { x: 0, y: 1, z: 12 } });
+    const clientGame = await Game.create({ role: 'client', initialPlayerPosition: SLOT1_SPAWN });
     const network = new DelayedNetwork(100, 10);
     const hostSession = new FakeSession('ROOM01', true, ['client-a']);
     const clientSession = new FakeSession('ROOM01', false, ['host']);

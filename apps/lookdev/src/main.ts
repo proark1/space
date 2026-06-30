@@ -5,8 +5,9 @@
 // dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
 import { createRenderer, createPostStack } from '@sl/render';
 import { createGameplaySession, GameLoop, type GameplayNetDriver } from '@sl/engine';
-import { buildIceServers, Buttons, generateRoomCode, isValidRoomCode } from '@sl/netcode';
+import { buildIceServers, Buttons, fetchTurnIceEnv, generateRoomCode, isValidRoomCode } from '@sl/netcode';
 import { useHudStore } from '@sl/ui';
+import { queryRemotePlayers, Transform, type GameWorld } from '@sl/ecs';
 import { createChaosScene } from './chaosScene';
 import { createCorridorScene } from './corridorScene';
 import { createWalkScene } from './walkScene';
@@ -27,6 +28,17 @@ function turnUrls(): string[] | undefined {
   return raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
 }
 
+function envFlag(name: string): boolean {
+  const raw = envString(name);
+  return raw === '1' || raw === 'true';
+}
+
+function iceTransportPolicy(): RTCIceTransportPolicy | undefined {
+  const raw = envString('VITE_ICE_TRANSPORT_POLICY');
+  if (envFlag('VITE_FORCE_RELAY') || raw === 'relay') return 'relay';
+  return raw === 'all' ? 'all' : undefined;
+}
+
 function buttonsFromMove(move: { x: number; z: number }): number {
   let buttons = 0;
   if (move.z > 0) buttons |= Buttons.Fwd;
@@ -38,6 +50,15 @@ function buttonsFromMove(move: { x: number; z: number }): number {
 
 function isWalkScene(scene: HarnessScene): scene is WalkSceneHandle {
   return 'game' in scene && 'controls' in scene && 'setRemoteWorld' in scene;
+}
+
+function remotePlayerPositions(world: GameWorld | undefined): Array<{ x: number; y: number; z: number }> {
+  if (!world) return [];
+  return [...queryRemotePlayers(world)].map((eid) => ({
+    x: Transform.x[eid] ?? 0,
+    y: Transform.y[eid] ?? 0,
+    z: Transform.z[eid] ?? 0,
+  }));
 }
 
 async function main(): Promise<void> {
@@ -59,6 +80,7 @@ async function main(): Promise<void> {
   let netMode: 'offline' | 'host' | 'client' = 'offline';
   let netPeers = 0;
   let netState = 'offline';
+  const hostInputStats = new Map<string, { packets: number; cmds: number; fwd: number }>();
 
   // Internal-res crunch — the dominant PS1 cue (the lookdev's own technique): render at a fraction
   // and let CSS upscale with nearest (#scene { image-rendering: pixelated }). pixelRatio 1 so the
@@ -102,41 +124,66 @@ async function main(): Promise<void> {
     updateHud();
   };
 
-  const startNet = (mode: 'host' | 'client', code: string): void => {
+  const startNet = async (mode: 'host' | 'client', code: string): Promise<void> => {
     if (!isWalkScene(harness)) {
       setNetPanelStatus('walk scene required');
       return;
     }
     if (netDriver) netDriver.leave();
+    hostInputStats.clear();
     netMode = mode;
     netState = 'signaling';
     netPeers = 0;
-    const iceServers = buildIceServers({
+    const signalingUrl = envString('VITE_SIGNALING_URL');
+    const transportPolicy = iceTransportPolicy();
+    const requireTurn = envFlag('VITE_REQUIRE_TURN') || transportPolicy === 'relay';
+    const useTurnEndpoint = Boolean(signalingUrl) && (requireTurn || envFlag('VITE_TURN_FROM_SIGNALING'));
+    let iceEnv = {
       turnUrls: turnUrls(),
       turnHost: envString('VITE_TURN_HOST'),
       turnUsername: envString('VITE_TURN_USERNAME'),
       turnCredential: envString('VITE_TURN_CREDENTIAL'),
-    });
-    netDriver = createGameplaySession({
-      code,
-      isHost: mode === 'host',
-      iceServers,
-      signalingUrl: envString('VITE_SIGNALING_URL'),
-      hostGame: mode === 'host' ? harness.game : undefined,
-      localGame: mode === 'client' ? harness.game : undefined,
-      events: {
-        onState: (state) => {
-          netState = state;
-          setNetPanelStatus(`${mode} ${code} · ${state} · peers ${netPeers}`);
+    };
+    try {
+      if (useTurnEndpoint && signalingUrl) {
+        iceEnv = { ...iceEnv, ...(await fetchTurnIceEnv(signalingUrl, code)) };
+      }
+      const iceServers = buildIceServers(iceEnv, { requireTurn });
+      netDriver = createGameplaySession({
+        code,
+        isHost: mode === 'host',
+        iceServers,
+        iceTransportPolicy: transportPolicy,
+        signalingUrl,
+        hostGame: mode === 'host' ? harness.game : undefined,
+        localGame: mode === 'client' ? harness.game : undefined,
+        onHostInput: (peerId, cmds) => {
+          const stats = hostInputStats.get(peerId) ?? { packets: 0, cmds: 0, fwd: 0 };
+          stats.packets += 1;
+          stats.cmds += cmds.length;
+          stats.fwd += cmds.filter((cmd) => (cmd.buttons & Buttons.Fwd) !== 0).length;
+          hostInputStats.set(peerId, stats);
         },
-        onPeers: (peers) => {
-          netPeers = peers.length;
-          setNetPanelStatus(`${mode} ${code} · ${netState} · peers ${netPeers}`);
+        events: {
+          onState: (state) => {
+            netState = state;
+            setNetPanelStatus(`${mode} ${code} · ${state} · peers ${netPeers}`);
+          },
+          onPeers: (peers) => {
+            netPeers = peers.length;
+            setNetPanelStatus(`${mode} ${code} · ${netState} · peers ${netPeers}`);
+          },
+          onHostLost: () => setNetPanelStatus('host lost'),
+          onLog: (msg) => console.info(`[net] ${msg}`),
         },
-        onHostLost: () => setNetPanelStatus('host lost'),
-        onLog: (msg) => console.info(`[net] ${msg}`),
-      },
-    });
+      });
+    } catch (err) {
+      netMode = 'offline';
+      netState = 'failed';
+      setNetPanelStatus(`net setup failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error('[net] setup failed', err);
+      return;
+    }
     harness.setRemoteWorld(mode === 'host' ? harness.game.world : netDriver.clientWorld);
     setNetPanelStatus(`${mode} ${code} · ${netState} · peers ${netPeers}`);
   };
@@ -155,7 +202,7 @@ async function main(): Promise<void> {
     document.getElementById('netHost')?.addEventListener('click', () => {
       const code = generateRoomCode();
       if (codeInput) codeInput.value = code;
-      startNet('host', code);
+      void startNet('host', code);
     });
     document.getElementById('netJoin')?.addEventListener('click', () => {
       const code = codeInput?.value.trim().toUpperCase() ?? '';
@@ -163,7 +210,7 @@ async function main(): Promise<void> {
         setNetPanelStatus('invalid code');
         return;
       }
-      startNet('client', code);
+      void startNet('client', code);
     });
     document.getElementById('netLeave')?.addEventListener('click', () => {
       netDriver?.leave();
@@ -171,30 +218,33 @@ async function main(): Promise<void> {
       netMode = 'offline';
       netState = 'offline';
       netPeers = 0;
+      hostInputStats.clear();
       harness.setRemoteWorld(undefined);
       setNetPanelStatus('offline');
     });
-    if (params.get('host') === '1') startNet('host', initialCode);
-    else if (params.get('join') === '1' && paramsCode) startNet('client', initialCode);
+    if (params.get('host') === '1') void startNet('host', initialCode);
+    else if (params.get('join') === '1' && paramsCode) void startNet('client', initialCode);
   } else if (netPanel) {
     netPanel.style.display = 'none';
   }
 
+  const fixedUpdate = (dt: number): void => {
+    if (netDriver && netMode === 'client' && isWalkScene(harness)) {
+      const move = harness.controls.moveVector();
+      netDriver.sendClientInput({
+        buttons: buttonsFromMove(move),
+        yaw: harness.controls.yaw,
+        pitch: harness.controls.pitch,
+        dtMs: Math.round(dt * 1000),
+      });
+    }
+    harness.fixedStep(dt);
+    netDriver?.tick();
+  };
+
   const loop = new GameLoop({
     fixedHz: 60,
-    fixedUpdate: (dt) => {
-      if (netDriver && netMode === 'client' && isWalkScene(harness)) {
-        const move = harness.controls.moveVector();
-        netDriver.sendClientInput({
-          buttons: buttonsFromMove(move),
-          yaw: harness.controls.yaw,
-          pitch: harness.controls.pitch,
-          dtMs: Math.round(dt * 1000),
-        });
-      }
-      harness.fixedStep(dt);
-      netDriver?.tick();
-    },
+    fixedUpdate,
     render: () => {
       const now = performance.now();
       const dt = Math.min((now - lastT) / 1000, 0.1);
@@ -226,6 +276,18 @@ async function main(): Promise<void> {
     profile: renderer.profile,
     hudState: () => useHudStore.getState(),
     netDriver: () => netDriver,
+    netInfo: () => ({ mode: netMode, state: netState, peers: netPeers, driverPeers: netDriver?.session.peerIds.length ?? 0 }),
+    hostInputStats: () => Object.fromEntries(hostInputStats.entries()),
+    localPlayerPosition: () => (isWalkScene(harness) ? harness.playerPosition() : null),
+    remotePlayerPositions: () => {
+      if (!isWalkScene(harness)) return [];
+      return remotePlayerPositions(netMode === 'host' ? harness.game.world : netDriver?.clientWorld);
+    },
+    stepForSmoke: (move: { x: number; z: number } | undefined, dt = 1 / 60) => {
+      if (isWalkScene(harness)) harness.controls.setMoveOverride(move);
+      fixedUpdate(dt);
+      if (isWalkScene(harness)) harness.controls.setMoveOverride(undefined);
+    },
   };
 }
 

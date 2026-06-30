@@ -47,6 +47,7 @@ export function createSession(opts: {
   code: string;
   isHost: boolean;
   iceServers: RTCIceServer[];
+  iceTransportPolicy?: RTCIceTransportPolicy;
   events: SessionEvents;
   /** Optional Worker/DO base URL. When omitted, Trystero's public relay path is used. */
   signalingUrl?: string;
@@ -122,32 +123,36 @@ export function createSession(opts: {
   function linkFor(peerId: string): PeerLink {
     const existing = links.get(peerId);
     if (existing) return existing;
-    const link = new PeerLink(iceServers, {
-      onIce: (candidate) => signaler.send(peerId, { t: 'ice', candidate }),
-      onState: (s) => {
-        machine.onPcState(s);
-        if (s === 'failed' || s === 'closed') {
-          links.delete(peerId);
-          pingers.delete(peerId);
-          announce();
-        }
+    const link = new PeerLink(
+      iceServers,
+      {
+        onIce: (candidate) => signaler.send(peerId, { t: 'ice', candidate }),
+        onState: (s) => {
+          machine.onPcState(s);
+          if (s === 'failed' || s === 'closed') {
+            links.delete(peerId);
+            pingers.delete(peerId);
+            announce();
+          }
+        },
+        onOpen: () => {
+          machine.connected();
+          if (!isHost) hostLoss.heard(now());
+          const hello = new ByteWriter(16);
+          writeHeader(hello, { msgType: MsgType.Hello, serverTick: 0, channelKind: Channel.Reliable });
+          hello.u32(PROTOCOL_VERSION);
+          link.sendReliable(hello.bytes());
+          log(`peer ${short(peerId)} connected`);
+        },
+        onReliable: (data) => handleReliable(peerId, data),
+        onUnreliable: (data) => {
+          if (!isHost) hostLoss.heard(now());
+          recordWireStats(data);
+          events.onUnreliable?.(peerId, data);
+        },
       },
-      onOpen: () => {
-        machine.connected();
-        if (!isHost) hostLoss.heard(now());
-        const hello = new ByteWriter(16);
-        writeHeader(hello, { msgType: MsgType.Hello, serverTick: 0, channelKind: Channel.Reliable });
-        hello.u32(PROTOCOL_VERSION);
-        link.sendReliable(hello.bytes());
-        log(`peer ${short(peerId)} connected`);
-      },
-      onReliable: (data) => handleReliable(peerId, data),
-      onUnreliable: (data) => {
-        if (!isHost) hostLoss.heard(now());
-        recordWireStats(data);
-        events.onUnreliable?.(peerId, data);
-      },
-    });
+      { iceTransportPolicy: opts.iceTransportPolicy },
+    );
     links.set(peerId, link);
     pingers.set(peerId, new PingTracker());
     announce();

@@ -12,13 +12,19 @@
     "test": "turbo run test",
     "build": "turbo run build",
     "clean": "turbo run clean",
-    "asset:build": "tsx tools/asset-pipeline/src/cli.ts"
+    "asset:build": "tsx tools/asset-pipeline/src/cli.ts",
+    "smoke:net": "tsx tools/net-smoke/lookdev-smoke.ts",
+    "smoke:net:room": "LOOKDEV_SMOKE_CLIENTS=3 LOOKDEV_SMOKE_SOAK_MS=5000 LOOKDEV_SMOKE_DELIVERY_MS=25 tsx tools/net-smoke/lookdev-smoke.ts",
+    "smoke:net:turn": "LOOKDEV_SMOKE_EXPECT_TURN=1 VITE_TURN_FROM_SIGNALING=1 VITE_REQUIRE_TURN=1 tsx tools/net-smoke/lookdev-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.18.1",
+    "playwright": "^1.61.1",
     "tsx": "^4.19.2",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "ws": "^8.21.0"
   }
 }

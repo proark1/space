@@ -3,6 +3,12 @@ import { mintTurnCredentials } from './turn';
 
 export { SignalingRoom };
 
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, OPTIONS',
+  'access-control-allow-headers': 'accept, content-type',
+} as const;
+
 export interface Env {
   SIGNALING_ROOM: DurableObjectNamespace;
   TURN_SECRET: string;
@@ -13,6 +19,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
     // GET /turn?room=CODE -> short-lived TURN credentials for that room.
     if (url.pathname === '/turn') {
       const roomId = url.searchParams.get('room') ?? 'lobby';
@@ -22,7 +32,7 @@ export default {
         turnHost: env.TURN_HOST,
         nowSeconds: Date.now() / 1000,
       });
-      return Response.json(creds);
+      return Response.json(creds, { headers: CORS_HEADERS });
     }
 
     // /room/CODE -> WebSocket into that room's Durable Object.

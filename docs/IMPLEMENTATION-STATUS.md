@@ -1,6 +1,6 @@
 # SIGNAL LOST — Implementation Status
 
-> Current audit: 2026-06-29. This file reconciles the original M0→M4 backlog with the code that
+> Current audit: 2026-06-30. This file reconciles the original M0→M4 backlog with the code that
 > exists now. It is intentionally practical: green means implemented and tested in repo; partial
 > means a useful piece exists but the backlog acceptance gate is not yet satisfied.
 
@@ -9,7 +9,11 @@
 - `pnpm test` passes after rebuilding changed packages.
 - `pnpm typecheck` passes.
 - `pnpm build` passes.
-- The worktree was clean before this status/update pass.
+- `pnpm smoke:net` passes: local WebSocket signaling + two browser pages + WebRTC gameplay movement.
+- `pnpm smoke:net:room` passes: local WebSocket signaling + host + 3 clients + 5s fixed-step room soak.
+- `pnpm smoke:net:turn` passes: local signaling `/turn` credential fetch path + two browser pages.
+- Verification above was run after the local browser smoke harness, peer-spawn spacing, TURN CORS,
+  and relay-control updates.
 
 ## Where We Are
 
@@ -44,12 +48,16 @@ probe, and room-code net controls.
 
 - **T05/T07/T08 live room networking:** WebRTC `PeerLink`, `Session`, room codes, connection state,
   ping/stats and HUD shell exist. Trystero/Nostr remains the default signaling path; the Cloudflare
-  Durable Object WebSocket path is selectable with `VITE_SIGNALING_URL`.
+  Durable Object WebSocket path is selectable with `VITE_SIGNALING_URL`. The signaling Worker `/turn`
+  credential endpoint can now feed lookdev ICE config with `VITE_TURN_FROM_SIGNALING=1` or
+  `VITE_REQUIRE_TURN=1`; `VITE_FORCE_RELAY=1` / `VITE_ICE_TRANSPORT_POLICY=relay` can force relay-only
+  ICE once real TURN credentials exist. Deployed TURN relay verification is still open.
 - **T11/T12/T48 live gameplay networking:** client input, host application, ACKs, host-assigned
   lobby owner slots, full/delta ECS snapshots, input-ack metadata, 20 Hz snapshot cadence,
   render-path remote interpolation, and lookdev client local reconciliation are wired in
-  `GameplayNetDriver`/`apps/lookdev`. Still missing: full soak metrics, snapshot byte budget
-  enforcement, live 3-4 player browser verification, and cross-network verification.
+  `GameplayNetDriver`/`apps/lookdev`. Local browser smoke now covers host + 1 client movement and
+  host + 3 clients with a short fixed-step soak. Still missing: longer soak metrics, snapshot byte
+  budget enforcement, and cross-network/TURN relay verification.
 - **T13/T14 prediction/interp:** pure Predictor and InterpBuffer exist and are tested. Remote entity
   interpolation is integrated into the lookdev client render path. Local-player reconcile now uses
   authoritative owner-slot snapshots plus unacked input replay in the browser lookdev path, with a
@@ -70,7 +78,8 @@ probe, and room-code net controls.
 ## Open
 
 - **T06/T17 M0 green-light:** deploy/select the final signaling strategy, configure TURN, verify two
-  browsers on different networks including relay path for 10+ minutes.
+  browsers on different networks including relay path for 10+ minutes. Local WebSocket browser smoke
+  exists for two-browser and 4-player same-machine regression coverage.
 - **T26/T38/T39/T40 real content:** no committed GLB/KTX2 modular kit, trim sheets, sockets, colliders,
   LevelDoc exporter, or baked-lightmap corridor yet.
 - **T31 flicker panels:** no TSL emissive flicker panel system yet.
@@ -87,8 +96,8 @@ probe, and room-code net controls.
 
 ## Recommended Next Order
 
-1. Finish M0 networking green-light: final signaling path, TURN config, live two-browser plus 3-4
-   player room tests, relay diagnostics, and live 100 ms latency/prediction verification.
+1. Finish M0 networking green-light: final signaling path, TURN config, cross-network relay diagnostics,
+   10+ minute soak, and live 100 ms latency/prediction verification.
 2. Finish the M-LOOK/M1 render gate: real low-poly corridor assets, baked lightmaps, full post stack,
    WebGPU/WebGL2 screenshots, BudgetMonitor/GpuTimer.
 3. Build the content pipeline before enemy work: optimized kit assets, LevelDoc, collision/navmesh.
