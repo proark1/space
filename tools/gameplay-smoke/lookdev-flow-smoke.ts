@@ -1,13 +1,82 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createServer, type Server } from 'node:http';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, type Browser, type Page } from 'playwright';
+import WebSocket, { WebSocketServer } from 'ws';
 
 const LOOKDEV_PORT = Number(process.env.LOOKDEV_FLOW_SMOKE_PORT ?? 4181);
 const TIMEOUT_MS = Number(process.env.LOOKDEV_FLOW_SMOKE_TIMEOUT_MS ?? 75_000);
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+interface SignalMsg {
+  readonly t: string;
+  readonly to?: string;
+  readonly from?: string;
+  readonly self?: string;
+  readonly peers?: string[];
+  readonly peerId?: string;
+  readonly data?: unknown;
+}
+
+function sendSignal(ws: WebSocket, msg: SignalMsg): void {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+async function startLocalSignaling(): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain', 'access-control-allow-origin': '*' });
+    res.end('signal-lost local flow signaling');
+  });
+  const wss = new WebSocketServer({ noServer: true });
+  const rooms = new Map<string, Map<string, WebSocket>>();
+  let nextId = 0;
+  const roomFor = (id: string): Map<string, WebSocket> => {
+    let room = rooms.get(id);
+    if (!room) { room = new Map(); rooms.set(id, room); }
+    return room;
+  };
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+    const match = url.pathname.match(/^\/room\/([0-9A-Za-z-]+)$/);
+    if (!match) { socket.destroy(); return; }
+    wss.handleUpgrade(req, socket, head, ws => {
+      const room = roomFor(match[1]!);
+      const id = `p${++nextId}`;
+      const peers = [...room.keys()];
+      room.set(id, ws);
+      sendSignal(ws, { t: 'welcome', self: id, peers });
+      for (const [peerId, peer] of room) if (peerId !== id) sendSignal(peer, { t: 'peer-join', peerId: id });
+      ws.on('message', raw => {
+        let msg: SignalMsg;
+        try { msg = JSON.parse(raw.toString()) as SignalMsg; } catch { return; }
+        if (msg.t !== 'signal' || !msg.to) return;
+        const target = room.get(msg.to);
+        if (target) sendSignal(target, { ...msg, from: id });
+      });
+      const close = (): void => {
+        if (!room.delete(id)) return;
+        for (const peer of room.values()) sendSignal(peer, { t: 'peer-leave', peerId: id });
+        if (room.size === 0) rooms.delete(match[1]!);
+      };
+      ws.on('close', close);
+      ws.on('error', close);
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('failed to bind local signaling');
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      for (const room of rooms.values()) for (const ws of room.values()) ws.close();
+      await new Promise<void>(resolve => wss.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => (server as Server).close(err => (err ? reject(err) : resolve())));
+    },
+  };
 }
 
 async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
@@ -241,6 +310,30 @@ async function checkStationHideMechanic(page: Page, baseUrl: string): Promise<vo
   await assertNoPageErrors(errors, 'station hide');
 }
 
+async function checkStationMultiplayer(browser: Browser, baseUrl: string, signalUrl: string): Promise<void> {
+  const room = 'FLOWMP';
+  const host = await browser.newPage({ viewport: { width: 960, height: 540 } });
+  const client = await browser.newPage({ viewport: { width: 960, height: 540 } });
+  const hostErrors = collectPageErrors(host);
+  const clientErrors = collectPageErrors(client);
+  const qs = `smoke=1&room=${room}&signal=${encodeURIComponent(signalUrl)}`;
+  await host.goto(`${baseUrl}/?${qs}&name=host`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await client.goto(`${baseUrl}/?${qs}&name=client`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await host.waitForFunction(() => (window as any).__chorus?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
+  await client.waitForFunction(() => (window as any).__chorus?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
+  await host.evaluate(() => (window as any).__chorus.camera.position.set(1.1, 1.6, -18.25));
+  await client.waitForFunction(() => {
+    const poses = Object.values((window as any).__chorus.state.remotePoses || {}) as Array<{ x: number; z: number }>;
+    return poses.some(pose => Math.abs(pose.x - 1.1) < 0.35 && Math.abs(pose.z + 18.25) < 0.35);
+  }, null, { timeout: TIMEOUT_MS });
+  const liveCrew = await client.evaluate(() => (window as any).__chorus.state.liveCrew);
+  assert(liveCrew.some((member: { remote: boolean; name: string }) => member.remote && member.name === 'HOST'), `expected HOST to replace an NPC slot, got ${JSON.stringify(liveCrew)}`);
+  await assertNoPageErrors(hostErrors, 'station multiplayer host');
+  await assertNoPageErrors(clientErrors, 'station multiplayer client');
+  await host.close();
+  await client.close();
+}
+
 async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<void> {
   const errors = collectPageErrors(page);
   await page.goto(`${baseUrl}/`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
@@ -284,8 +377,10 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
 
 async function main(): Promise<void> {
   let server: ChildProcessWithoutNullStreams | undefined;
+  let signaling: Awaited<ReturnType<typeof startLocalSignaling>> | undefined;
   let browser: Browser | undefined;
   try {
+    signaling = await startLocalSignaling();
     server = startLookdev();
     const baseUrl = `http://127.0.0.1:${LOOKDEV_PORT}`;
     await waitForHttp(baseUrl, TIMEOUT_MS);
@@ -297,10 +392,12 @@ async function main(): Promise<void> {
     await checkDockingHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     await checkStationFlowEntry(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     await checkStationHideMechanic(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkStationMultiplayer(browser, baseUrl, signaling.baseUrl);
     await checkStationObjectivePath(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     console.log('lookdev full-loop smoke passed');
   } finally {
     await browser?.close().catch(() => undefined);
+    await signaling?.close().catch(() => undefined);
     stopLookdev(server);
   }
 }

@@ -62,6 +62,7 @@ import { loadUnitModel } from './unitgltf.js';
 import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
 import { crewLine } from './crew.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
+import { createLookdevMultiplayer } from './multiplayer.js';
 import { FLOW, fadeIn } from './flow.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -75,6 +76,7 @@ const SHOWCASE = QUERY.get('showcase');
 const ADMIN_UNIT = QUERY.get('adminUnit') || 'unit-chorus';
 const SMOKE_MODE = QUERY.get('smoke') === '1';
 const FLOW_ARRIVAL = FLOW && SHOWCASE !== 'monster';
+const MULTI = createLookdevMultiplayer({scene:'station', enabled: SHOWCASE !== 'monster'});
 const CREW_SLOTS = buildCrewSlots({search: location.search});
 const ACTIVE_CREW = CREW_SLOTS.slice(1);
 const CREW_SUMMARY = crewSummary(CREW_SLOTS);
@@ -334,6 +336,31 @@ const crewMates=ACTIVE_CREW.map((c,i)=>{
   world.add(root);
   return {...c,root,panic:0,phase:Math.random()*9};
 });
+function applyLiveCrew(roster){
+  crewMates.forEach((c,i)=>{
+    const peer=roster[i];
+    if(peer){
+      c.livePeerId=peer.id;
+      c.name=peer.name;
+      c.label=`${peer.name} · PLAYER`;
+      c.remote=true;
+    } else {
+      const fallback=ACTIVE_CREW[i];
+      c.livePeerId='';
+      c.name=fallback.name;
+      c.label=fallback.label;
+      c.remote=fallback.remote;
+    }
+  });
+}
+MULTI.onRoster(applyLiveCrew);
+MULTI.onTask(event=>{
+  if(event.type==='objective'){
+    say(crewLine(event.name, event.payload?.text || 'I am on it.'),2.2);
+  } else if(event.type==='noise'){
+    director.hear(new THREE.Vector3(Number(event.payload?.x)||0,0,Number(event.payload?.z)||camera.position.z),Number(event.payload?.amount)||35,'remote-noise');
+  }
+});
 
 // ---------- monster ----------
 const mob=new THREE.Group();
@@ -534,8 +561,10 @@ let lightFactor=1;
 const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
 const setObj=t=>{ objEl.textContent=t; };
 setObj('REACH COMMAND CENTER · RECOVER FINAL RECORDINGS');
-let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0;
+let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0;
 const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,command:false};
+const sideDone=new Set();
+const RUN_VARIANT=Math.floor(Math.random()*3);
 function say(html,hold=3.2){ crewTalkEl.innerHTML=html; crewTalkEl.style.opacity='1'; talkHideAt=performance.now()+hold*1000; }
 const fmtTime=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
 function statLine(){
@@ -582,15 +611,40 @@ function nearestHide(max=1.35){
   }
   return best;
 }
+const SIDE_INTERACTS=[
+  {id:'motion',pos:new THREE.Vector3(-W/2+0.45,1.55,-16),r:1.55,prompt:'[E] READ MOTION TRACE',noise:38,line:'motion trace says five people are moving. I hate the math.',scr:['> MOTION TRACE','> crew: 4','> moving: 5','> one is above you']},
+  {id:'relay',pos:new THREE.Vector3(W/2-0.76,1.2,-22.5),r:1.35,prompt:'[E] KICK STUCK RELAY',noise:46,line:'relay is unstuck. everything nearby now knows that.',scr:['> LOCAL RELAY','> manual impact accepted','> signal sharpened','> noise spike: yes']},
+  {id:'badge',pos:new THREE.Vector3(-W/2+0.55,1.0,-33),r:1.35,prompt:'[E] PULL CREW BADGE',noise:28,line:RUN_VARIANT===0?'badge says HALE. command log is going to hurt.':RUN_VARIANT===1?'badge recorder is still warm. nobody touch that sentence.':'badge camera caught the dock opening from inside.' ,scr:['> CREW BADGE RECOVERED','> owner: hale','> last ping: command','> audio: corrupted']}
+];
+function nearestSideInteract(max=1.55){
+  let best=null, bd=max;
+  for(const item of SIDE_INTERACTS){
+    if(sideDone.has(item.id))continue;
+    const d=Math.hypot(camera.position.x-item.pos.x,camera.position.z-item.pos.z);
+    if(d<bd){best=item; bd=d;}
+  }
+  return best;
+}
+function useSideInteract(item){
+  sideDone.add(item.id);
+  shake=Math.max(shake,0.28);
+  lightStun=Math.max(lightStun,0.18);
+  SCRL=item.scr; scrScroll=0; drawScreen();
+  director.hear(item.pos,item.noise,item.id);
+  MULTI.broadcastTask('noise',{x:item.pos.x,z:item.pos.z,amount:item.noise});
+  MULTI.broadcastTask('objective',{text:item.line});
+  if(item.id==='motion'||(item.id==='badge'&&RUN_VARIANT===2)) scareBeat(item.id==='motion'?'vent':'voice');
+  say(crewSayLine(item.id==='badge'?0:item.id==='relay'?1:2,item.line),3.0);
+}
 function enterHide(h){
-  hidden=true; activeHide=h; flashOn=false; lightStun=0.15; shake=0.08;
+  hidden=true; hiddenAt=performance.now(); activeHide=h; flashOn=false; lightStun=0.15; shake=0.08;
   camera.position.copy(h.pos);
   say(crewSayLine(2,'great. four astronauts, one closet energy.'),2.7);
 }
 function exitHide(){
   if(!activeHide)return;
   camera.position.copy(activeHide.exit);
-  hidden=false; activeHide=null; lightStun=0.15;
+  hidden=false; hiddenAt=0; activeHide=null; lightStun=0.15;
   say(crewSayLine(0,'move when it looks away.'),2.1);
 }
 function startBreaker(){
@@ -598,12 +652,15 @@ function startBreaker(){
   SCRL=['> SECTOR 7 BREAKER','> MANUAL REROUTE','> noise: unavoidable','> hold it together']; scrScroll=0; drawScreen();
   setObj('REROUTING POWER · DO NOT MOVE');
   director.hear(BREAKER,50,'breaker');
+  MULTI.broadcastTask('noise',{x:BREAKER.x,z:BREAKER.z,amount:50});
+  MULTI.broadcastTask('objective',{text:'power reroute started. get ready to move.'});
   say(crewSayLine(1,'I need three seconds. naturally it sounds like a dinner bell.'),3.2);
 }
 function finishBreaker(){
   breakerFixing=false; breakerDone=true; needBreaker=false; readyToSend=true; noisyUntil=performance.now()+2600; lightFactor=0.35; shake=0.45;
   SCRL=['> EARTH LINK POWERED','> PAYLOAD: FINAL LOGS','> WARNING: CHORUS PATTERN','> RETURN TO COMMAND','> SEND?']; scrScroll=0; drawScreen();
   setObj('RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH');
+  MULTI.broadcastTask('objective',{text:'earth link is powered. back to command.'});
   say(crewSayLine(1,'link is powered. I hated every second of that.'),3.0);
 }
 function startValve(){
@@ -612,6 +669,8 @@ function startValve(){
   SCRL=['> COOLANT LEAK','> MANUAL VALVE','> steam: toxic','> noise: extremely yes']; scrScroll=0; drawScreen();
   setObj('SEALING COOLANT LEAK · HOLD THE VALVE');
   director.hear(VALVE,55,'coolant');
+  MULTI.broadcastTask('noise',{x:VALVE.x,z:VALVE.z,amount:55});
+  MULTI.broadcastTask('objective',{text:'coolant valve is turning. it heard that.'});
   say(crewSayLine(2,'this valve is screaming. why does a valve scream?'),3.1);
 }
 function finishValve(){
@@ -619,6 +678,7 @@ function finishValve(){
   valveStatus.material.emissive.setHex(0x7dffb0); valveStatus.material.emissiveIntensity=2.2;
   SCRL=['> COOLANT PRESSURE SEALED','> EARTH LINK OFFLINE','> PAYLOAD: FINAL LOGS','> AUX POWER REQUIRED','> SECTOR 7 BREAKER']; scrScroll=0; drawScreen();
   setObj('REROUTE POWER AT SECTOR 7 BREAKER');
+  MULTI.broadcastTask('objective',{text:'coolant sealed. reroute power at sector seven.'});
   say(crewSayLine(0,'good. now leave before it applauds.'),2.8);
 }
 function tryInteract(){
@@ -626,6 +686,8 @@ function tryInteract(){
   if(hidden){ exitHide(); return; }
   const h=nearestHide();
   if(h && (mActive||enraged||transmitting)){ enterHide(h); return; }
+  const side=nearestSideInteract();
+  if(side){ useSideInteract(side); return; }
   if(needValve && !valveDone && camera.position.distanceTo(VALVE)<2.0){ startValve(); return; }
   if(needBreaker && !breakerDone && camera.position.distanceTo(BREAKER)<2.0){ startBreaker(); return; }
   if(camera.position.distanceTo(CONSOLE)>=3.4) return;
@@ -635,6 +697,7 @@ function tryInteract(){
 function recoverRecordings(){ restored=true; restoredAt=performance.now(); readyToSend=false; lightFactor=0.26; lightStun=0.55; flashOn=false; shake=0.32; spendSilence(0.78); playClip('crt-call',0.85);
   SCRL=['> FINAL REC 001','> commander hale','> "we opened the dock"','> FINAL REC 002','> "it used reyes voice"','> FINAL REC 003','> "do not transmit--"']; scrScroll=0; drawScreen();
   setObj('FINAL RECORDINGS FOUND · LISTEN');
+  MULTI.broadcastTask('objective',{text:'final recordings recovered. listen close.'});
   promptEl.style.display='none';
   say('<b>STATION LOG</b>: day 41. we locked the command deck. it kept knocking with our voices.',4.2);
   setTimeout(()=>{ if(!restored||caught||won)return; say('<b>STATION LOG</b>: day 42. if it says it is rescue, do not open the door.',4.0); },2200);
@@ -646,13 +709,16 @@ function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=fal
   SCRL=['> TRANSMITTING TO EARTH','> 00%','> do not listen','> hold channel','> hold channel','> hold channel']; scrScroll=0; drawScreen();
   setObj('TRANSMITTING TO EARTH · HOLD THE ROOM');
   director.hear(CONSOLE,100,'transmission');
+  MULTI.broadcastTask('noise',{x:CONSOLE.x,z:CONSOLE.z,amount:100});
+  MULTI.broadcastTask('objective',{text:'transmission started. hold the room.'});
   say(crewSayLine(0,'I am holding the hatch. please make that button worth it.'),3.4);
 }
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); }
-function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
+function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
   Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
+  sideDone.clear();
   overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; crewTalkEl.style.opacity='0'; setObj('REACH COMMAND CENTER · RECOVER FINAL RECORDINGS');
   if(SHOWCASE!=='monster'){ ui.style.display='flex'; cross.style.display='none'; }
   camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.setScalar(MOB_SCALE); mThroat.material.emissiveIntensity=1; mGlow.intensity=0;
@@ -687,6 +753,14 @@ const director={
     if(lit && !frozen) this.sawPlayer();
     if(enraged||transmitting){ this.mode='chase'; this.lastKnown.copy(camera.position); this.suspicion=100; }
     if(performance.now()<noisyUntil){ this.hear(noisyTarget(),dt*16,'task-noise'); }
+    if(hidden&&hiddenAt&&performance.now()-hiddenAt>4500){
+      this.suspicion=Math.min(100,this.suspicion+dt*5.5);
+      if(activeHide){ this.lastKnown.copy(activeHide.exit); if(this.suspicion>48){ this.inspectHide=activeHide; this.mode='search'; } }
+    }
+    for(const pose of Object.values(MULTI.remotePoses())){
+      const d=Math.hypot(mob.position.x-pose.x,mob.position.z-pose.z);
+      if(!pose.hidden && d<4.2 && Math.random()<0.02){ this.hear(new THREE.Vector3(pose.x,0,pose.z),16,'remote-footsteps'); break; }
+    }
     if(hidden&&activeHide&&this.suspicion>58&&!this.inspectHide){ this.inspectHide=activeHide; this.mode='search'; this.searchT=Math.max(this.searchT,3.4); this.lastKnown.copy(activeHide.exit); }
 
     let target=this.lastKnown, speed=1.3;
@@ -742,6 +816,17 @@ function updateCrew(dt,t,moving){
   if(SHOWCASE==='monster')return;
   for(let i=0;i<crewMates.length;i++){
     const c=crewMates[i], root=c.root;
+    const remotePose=c.livePeerId?MULTI.remotePose(c.livePeerId):null;
+    if(remotePose){
+      root.visible=!remotePose.hidden;
+      root.position.x += (remotePose.x-root.position.x)*0.22;
+      root.position.z += (remotePose.z-root.position.z)*0.22;
+      root.rotation.y += (remotePose.yaw-root.rotation.y)*0.18;
+      root.position.y=Math.abs(Math.sin(t*7+c.phase))*0.025;
+      animateAstronaut(root,Math.hypot(remotePose.x-root.position.x,remotePose.z-root.position.z)>0.035?'walk':'idle',t+c.phase,1);
+      continue;
+    }
+    root.visible=true;
     const panic=mActive||enraged||transmitting;
     const trail=panic?(1.4+i*0.55):(1.8+i*0.9);
     const tx=THREE.MathUtils.clamp(camera.position.x*0.2+c.slot*(panic?0.82:0.58),-W/2+0.55,W/2-0.55);
@@ -774,6 +859,7 @@ function animate(){ requestAnimationFrame(animate);
   camera.position.y = hidden ? 1.32 : 1.6 + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
   stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip('sfx-step',0.35); }
   if(controls.isLocked && !caught && !won) storyBeatCheck();
+  MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:camera.rotation.y,hidden});
   updateCrew(dt,t,moving);
   if(performance.now()>talkHideAt) crewTalkEl.style.opacity='0';
   if(breakerFixing){
@@ -873,14 +959,16 @@ function animate(){ requestAnimationFrame(animate);
   const nearValve=needValve&&!valveDone&&camera.position.distanceTo(VALVE)<2.0;
   const nearBreaker=needBreaker&&!breakerDone&&camera.position.distanceTo(BREAKER)<2.0;
   const hideSpot=nearestHide();
+  const sideSpot=nearestSideInteract();
   if(hidden) promptEl.textContent='[E] LEAVE LOCKER';
   else if(hideSpot&&(mActive||enraged||transmitting)) promptEl.textContent='[E] HIDE';
   else if(valveFixing) promptEl.textContent='SEALING COOLANT...';
   else if(breakerFixing) promptEl.textContent='REROUTING POWER...';
+  else if(sideSpot) promptEl.textContent=sideSpot.prompt;
   else if(nearValve) promptEl.textContent='[E] SEAL COOLANT LEAK';
   else if(nearBreaker) promptEl.textContent='[E] REROUTE POWER';
   else promptEl.textContent=!restored?'[E] RECOVER FINAL RECORDINGS':readyToSend?'[E] SEND MESSAGE TO EARTH':transmitting?'TRANSMITTING...':'';
-  promptEl.style.display=(!caught&&!won&&(hidden||valveFixing||breakerFixing||nearValve||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
+  promptEl.style.display=(!caught&&!won&&(hidden||valveFixing||breakerFixing||sideSpot||nearValve||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
 
   // render with shake / sway offset (no drift)
   updateListener();
@@ -888,8 +976,8 @@ function animate(){ requestAnimationFrame(animate);
   const ox=(moving?Math.cos(bob*0.5)*0.016:0)+(Math.random()-0.5)*shake*0.35, oy=(Math.random()-0.5)*shake*0.35;
   camera.position.x+=ox; camera.position.y+=oy; composer.render(); camera.position.x-=ox; camera.position.y-=oy;
 }
-window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, get crewCount(){return crewMates.length;},
-  get state(){return {hidden,mActive,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, get crewCount(){return crewMates.length;},
+  get state(){return {hidden,mActive,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
     forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; activeHide=h; hidden=true; camera.position.copy(h.pos); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},

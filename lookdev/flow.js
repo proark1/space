@@ -26,7 +26,7 @@ export function goNext(url) {
 
 function withCrewParams(url) {
   const current = new URLSearchParams(location.search);
-  const keep = ['players', 'peers', 'crew'];
+  const keep = ['players', 'peers', 'crew', 'room', 'code', 'session', 'signal', 'name'];
   if (!keep.some(key => current.has(key))) return url;
   const next = new URL(url, location.href);
   keep.forEach(key => {

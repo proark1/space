@@ -51,6 +51,7 @@ import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
+import { createLookdevMultiplayer } from './multiplayer.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
 const QUERY=new URLSearchParams(location.search);
@@ -60,6 +61,7 @@ const CREW_SLOTS = buildCrewSlots({search: location.search});
 const PLAYER_CREW = CREW_SLOTS[0];
 const ACTIVE_CREW = CREW_SLOTS.slice(1);
 const CREW_SUMMARY = crewSummary(CREW_SLOTS);
+const MULTI = createLookdevMultiplayer({scene:'lobby'});
 let adminUnitSettings={height:1.8,scale:1,yaw:0,positionY:0,colliderRadius:0.35,colliderHeight:1.8,materialEnabled:false,materialColor:'#566065',emissiveEnabled:false,emissiveColor:'#36e0d0',emissiveIntensity:0,showCollider:true};
 function normalizeUnitSettings(value,fallback=adminUnitSettings){
   const source=value&&typeof value==='object'?value:{};
@@ -394,7 +396,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={crewSummary:CREW_SUMMARY,get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,phase}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),phase}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

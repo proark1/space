@@ -438,10 +438,17 @@ async function main(): Promise<void> {
     const baseUrl = `http://127.0.0.1:${LOOKDEV_PORT}`;
     await waitForHttp(baseUrl, TIMEOUT_MS);
 
-    browser = await chromium.launch({
+    const launchOptions = {
       headless: true,
       args: ['--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'],
-    });
+    };
+    try {
+      browser = await chromium.launch({ ...launchOptions, channel: 'chrome' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes('Executable doesn')) throw err;
+      browser = await chromium.launch(launchOptions);
+    }
     const pageErrors: string[] = [];
     const host = await browser.newPage({ viewport: { width: 960, height: 600 } });
     const clients = await Promise.all(

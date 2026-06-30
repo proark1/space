@@ -65,6 +65,7 @@ import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 import { crewLine } from './crew.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
+import { createLookdevMultiplayer } from './multiplayer.js';
 import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
 import { buildDockingBerthZ } from './station_parts.js';
 
@@ -81,6 +82,7 @@ const DOCK_AUTO=FLOW && new URLSearchParams(location.search).get('auto')==='1';
 const CREW_SLOTS=buildCrewSlots({search: location.search});
 const ACTIVE_CREW=CREW_SLOTS.slice(1);
 const CREW_SUMMARY=crewSummary(CREW_SLOTS);
+const MULTI=createLookdevMultiplayer({scene:'dock'});
 const crewLineFor=(index,text)=>crewLine(ACTIVE_CREW[index%ACTIVE_CREW.length].name,text);
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
@@ -211,7 +213,7 @@ addEventListener('pointerdown',startAudio);
 // --- step into the ship: the docking minigame hands off to a first-person walk (same page) ---
 function board(){ if(state==='board'||state==='inside')return; state='board'; boardT=0; result.style.display='none';
   document.getElementById('cross').style.display='none'; document.getElementById('stats').style.display='none'; capture.style.display='none'; assist.style.display='none';
-  frame.visible=false; ship.visible=true; shipAmb.intensity=0.22; transferCrew.forEach(c=>c.root.visible=true); crewSay(crewLineFor(2,'do we step through first or dramatically last?'),2.8); }
+  frame.visible=false; ship.visible=true; shipAmb.intensity=0.22; transferCrew.forEach(c=>c.root.visible=true); MULTI.broadcastTask('objective',{text:'boarding through the transfer tunnel.'}); crewSay(crewLineFor(2,'do we step through first or dramatically last?'),2.8); }
 addEventListener('mousemove',e=>{ if(state==='inside' && document.pointerLockElement===canvas){ yaw-=e.movementX*0.0023; pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*0.0023)); } });
 addEventListener('keydown',e=>{ if(state==='inside' && e.code==='KeyE' && pos.z<ZEND+3) goNext(FLOW?'/?flow=1':'/'); });
 canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLockElement!==canvas) canvas.requestPointerLock(); });
@@ -236,6 +238,7 @@ function setAssist(kind,text){
   capture.className=kind||'';
 }
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
+  MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw,hidden:false});
   if(state==='approach'){
     // autopilot cruises in and lines the port up — reads as "arriving, heading for the dock" before manual control
     apprT+=dt; const k=Math.min(1,apprT/4.5), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
@@ -280,7 +283,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     }
     if(dist<=0.6){
       if(off<TOL && vdist<SPEED_MAX){ state='soft'; softT=0; if(A)A.clunk();
-        setAssist('good','SOFT CAPTURE · CLAMPS CLOSING'); rtxt.textContent='SOFT CAPTURE'; rtxt.className='good'; enter.style.display='none'; result.style.display='flex'; crewSay(crewLineFor(1,'soft capture. clamps are hunting...'),2.4); }
+        setAssist('good','SOFT CAPTURE · CLAMPS CLOSING'); rtxt.textContent='SOFT CAPTURE'; rtxt.className='good'; enter.style.display='none'; result.style.display='flex'; MULTI.broadcastTask('objective',{text:'soft capture. clamps closing.'}); crewSay(crewLineFor(1,'soft capture. clamps are hunting...'),2.4); }
       else { state='boom'; boomT=0; if(A)A.boom(); shake=1; debris.material.opacity=1;
         for(let i=0;i<DEB;i++){ debPos[i*3]=-offX; debPos[i*3+1]=-offY; debPos[i*3+2]=-0.5; debVel[i].set((Math.random()-0.5)*16,(Math.random()-0.5)*16,(Math.random()-0.5)*16+4); }
         setAssist('bad','COLLISION · CAPTURE MISSED'); rtxt.textContent='✗ COLLISION'; rtxt.className='bad'; result.style.display='flex'; crewSay(crewLineFor(2,'nobody write that in the report.'),2.8); }
@@ -290,7 +293,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     debGeo.attributes.position.needsUpdate=true; debris.material.opacity=Math.max(0,1-boomT*0.5);
     renderer.toneMappingExposure=BASE_EXP*(1+Math.max(0,1.4-boomT*3));
   } else if(state==='soft'){ setAssist('good','SOFT CAPTURE · HARD DOCK IN PROGRESS'); softT+=dt; softPulse(t,Math.min(1,softT/1.45));
-    if(softT>=1.45){ state='docked'; if(A)A.clunk(); setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
+    if(softT>=1.45){ state='docked'; if(A)A.clunk(); setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; MULTI.broadcastTask('objective',{text:'hard dock confirmed. pressure equalizing.'}); crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
   else if(state==='docked'){ setAssist('good','HARD DOCK · READY TO BOARD'); collarPulse(t); }
   else if(state==='board'){ setAssist('good','TRANSFER TUNNEL · CREW MOVING'); collarPulse(t); boardT+=dt; const k=Math.min(1,boardT/2.4), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
     camera.position.set(0,1.6*e,-1-e*4.4); flash.intensity=120*e; flash.position.copy(camera.position); flashT.position.set(0,1.4,camera.position.z-3);
@@ -330,7 +333,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
 function softPulse(t,k){ ringLights.forEach((m,i)=>{ m.emissive.setHex(k>0.8?0x35ff70:0xffcf50); m.emissiveIntensity=1.6+2.0*Math.max(0,Math.sin(t*6+i*0.45)); }); clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ+0.52*k; }); tgt.material.emissive.setHex(0x7dffb0); }
-window.__dock={crewSummary:CREW_SUMMARY,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,crewSummary:CREW_SUMMARY,stationQueued}; }};
+window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),stationQueued}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
