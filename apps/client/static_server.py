@@ -535,6 +535,26 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
 
+    def _cache_control_for_static(self, request_path):
+        path = urlparse(request_path).path
+        if path.startswith(("/api/", "/audio/", "/admin-content/", "/u/")):
+            return None
+        if path.startswith("/assets/"):
+            return "public, max-age=31536000, immutable"
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if ext in ("js", "css", "wasm", "png", "jpg", "jpeg", "webp", "avif", "gif", "svg", "ico"):
+            return "public, max-age=86400"
+        if ext == "html":
+            return "no-cache"
+        return None
+
+    def end_headers(self):
+        cache_control = getattr(self, "_extra_cache_control", None)
+        if cache_control:
+            self.send_header("Cache-Control", cache_control)
+            self._extra_cache_control = None
+        super().end_headers()
+
     def _json(self, obj, code=200, send_body=True):
         data = json.dumps(obj).encode()
         self.send_response(code)
@@ -838,14 +858,17 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_admin_content(request_path)
         if request_path in ("/forge", "/forge/", "/units-forge", "/unit-forge"):
             self.path = "/units_forge.html"
+            self._extra_cache_control = self._cache_control_for_static(self.path)
             return super().do_GET()
         if request_path in ("/model", "/model/", "/viewer", "/forge3d"):
             self.path = "/model.html"
+            self._extra_cache_control = self._cache_control_for_static(self.path)
             return super().do_GET()
         if request_path.startswith("/audio/"):
             return self._serve_media(request_path)
         if request_path in LOOKDEV_ROUTES:
             self.path = LOOKDEV_ROUTES[request_path]
+            self._extra_cache_control = self._cache_control_for_static(self.path)
             return super().do_GET()
 
         # Vite is a single-page app. Serve index.html for direct route loads
@@ -853,6 +876,7 @@ class Handler(SimpleHTTPRequestHandler):
         if request_path != "/" and not os.path.exists(local_path) and "." not in basename:
             self.path = "/index.html"
 
+        self._extra_cache_control = self._cache_control_for_static(self.path)
         return super().do_GET()
 
     def do_HEAD(self):
@@ -869,11 +893,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self._serve_media(request_path, send_body=False)
         if request_path in LOOKDEV_ROUTES:
             self.path = LOOKDEV_ROUTES[request_path]
+            self._extra_cache_control = self._cache_control_for_static(self.path)
             return super().do_HEAD()
 
         if request_path != "/" and not os.path.exists(local_path) and "." not in basename:
             self.path = "/index.html"
 
+        self._extra_cache_control = self._cache_control_for_static(self.path)
         return super().do_HEAD()
 
     def _approve(self):
