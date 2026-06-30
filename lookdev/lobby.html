@@ -390,6 +390,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
+window.__lobby={get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,phase}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

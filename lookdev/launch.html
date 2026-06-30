@@ -42,6 +42,7 @@ import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { FLOW, fadeIn, goNext } from './flow.js';
 import { NPC_CREW } from './crew.js';
+import { buildApproachDockFaceZ } from './station_parts.js';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -53,6 +54,7 @@ const scene=new THREE.Scene(); scene.background=new THREE.Color(0x03050b);
 scene.fog=new THREE.FogExp2(0x05080f,0.0010);
 const camera=new THREE.PerspectiveCamera(62,1,0.04,8000);
 camera.rotation.order='YXZ'; camera.position.set(0,0.02,0.85);   // YOU sit in the back seat of the ring
+const FLOW_FAST=FLOW && new URLSearchParams(location.search).get('fast')==='1';
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -154,14 +156,7 @@ const ship=new THREE.Group(); world.add(ship);
   part(BOX(5,4,7),M.hull,g,0,0,-22); part(BOX(3.6,2.6,5),M.dark,g,0,0,-27);                 // nose
   part(BOX(6,3,7),M.dark,g,0,3.6,-11); part(BOX(4.5,2.2,5),M.hull,g,0,5.4,-11); part(BOX(4,1.1,4),M.amber,g,0,6.6,-11); // command tower
   // docking face visible during final approach; this matches the manual-docking target language.
-  part(BOX(6.8,6.8,1.2),M.dark,g,0,0,-30.0);
-  part(BOX(5.2,5.2,0.7),M.hull,g,0,0,-30.8);
-  part(CYL(2.5,2.5,1.0,36),M.metal,g,0,0,-31.4,Math.PI/2,0,0);
-  part(new THREE.TorusGeometry(2.55,0.2,12,44),M.amber,g,0,0,-32.0);
-  part(new THREE.TorusGeometry(1.45,0.06,8,32),M.cyan,g,0,0,-32.06);
-  part(CYL(0.45,0.45,0.18,20),M.cyan,g,0,0,-32.2,Math.PI/2,0,0);
-  for(let a=0;a<12;a++){ const an=a/12*Math.PI*2; part(BOX(0.5,0.35,0.14),(a&1)?M.amber:M.dark,g,Math.cos(an)*2.95,Math.sin(an)*2.95,-31.9,0,0,an); }
-  for(let i=0;i<6;i++){ const z=-44+i*2.2; part(SPH(0.18,8,8),M.amber,g,-2.9,0,z); part(SPH(0.18,8,8),M.amber,g,2.9,0,z); }
+  buildApproachDockFaceZ({THREE,parent:g,part,BOX,CYL,SPH,M,baseZ:-30});
   // station-like silhouette: truss, radiator/solar wings, and dishes so it reads as a place, not only a hull.
   part(BOX(38,0.35,0.35),M.metal,g,0,8,-2);
   part(BOX(24,0.28,8),M.dark,g,-26,8,-2,0,0,0.08);
@@ -227,7 +222,7 @@ seat(0.85,0,Math.PI/2,NPC_CREW[2].accent,NPC_CREW[2].tone);      // Lina — med
 const statEl=document.getElementById('stat');
 const lerp=(a,b,k)=>a+(b-a)*k;
 const ease=k=>k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
-const clock=new THREE.Clock(); const LOOP=46;
+const clock=new THREE.Clock(); const LOOP=FLOW_FAST?22:46;
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   camera.rotation.y=yaw; camera.rotation.x=pitch;
   const tt=(t%LOOP)/LOOP, e=ease(tt);
@@ -267,6 +262,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
+window.__launch={get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

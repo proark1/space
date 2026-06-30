@@ -1,0 +1,300 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import process from 'node:process';
+import { setTimeout as delay } from 'node:timers/promises';
+import { chromium, type Browser, type Page } from 'playwright';
+
+const LOOKDEV_PORT = Number(process.env.LOOKDEV_FLOW_SMOKE_PORT ?? 4181);
+const TIMEOUT_MS = Number(process.env.LOOKDEV_FLOW_SMOKE_TIMEOUT_MS ?? 75_000);
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return;
+    } catch {
+      // Static lookdev server is still booting.
+    }
+    await delay(250);
+  }
+  throw new Error(`timed out waiting for ${url}`);
+}
+
+function startLookdev(): ChildProcessWithoutNullStreams {
+  const child = spawn('python3', ['lookdev/serve.py'], {
+    cwd: process.cwd(),
+    detached: true,
+    env: { ...process.env, HOST: '127.0.0.1', PORT: String(LOOKDEV_PORT) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', (chunk) => process.stdout.write(`[lookdev] ${chunk}`));
+  child.stderr.on('data', (chunk) => process.stderr.write(`[lookdev] ${chunk}`));
+  return child;
+}
+
+function stopLookdev(child: ChildProcessWithoutNullStreams | undefined): void {
+  if (!child || child.killed) return;
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+      return;
+    } catch {
+      // Fall back to direct child kill if process-group termination is unavailable.
+    }
+  }
+  child.kill('SIGTERM');
+}
+
+async function launchBrowser(): Promise<Browser> {
+  const options = {
+    headless: true,
+    args: ['--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'],
+  };
+  try {
+    return await chromium.launch({ ...options, channel: 'chrome' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes('Executable doesn')) throw err;
+    return chromium.launch(options);
+  }
+}
+
+function collectPageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && !msg.text().includes('Failed to load resource')) errors.push(msg.text());
+  });
+  return errors;
+}
+
+async function assertNoPageErrors(errors: readonly string[], label: string): Promise<void> {
+  assert(errors.length === 0, `${label} page errors:\n${errors.join('\n')}`);
+}
+
+async function assertCanvasNonBlank(page: Page, label: string): Promise<void> {
+  await page.waitForSelector('canvas', { state: 'attached', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('canvas');
+    return Boolean(canvas && canvas.width > 100 && canvas.height > 100);
+  }, null, { timeout: TIMEOUT_MS });
+  await page.waitForTimeout(2_000);
+
+  const image = await page.locator('canvas').screenshot({ timeout: TIMEOUT_MS });
+  const sample = await page.evaluate(async (dataUrl) => {
+    const img = new Image();
+    img.src = dataUrl;
+    await img.decode();
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = img.naturalWidth;
+    sampleCanvas.height = img.naturalHeight;
+    const ctx = sampleCanvas.getContext('2d');
+    if (!ctx) return { lit: 0, total: 0, max: 0, range: 0, width: img.naturalWidth, height: img.naturalHeight };
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height).data;
+    const stride = Math.max(1, Math.floor((sampleCanvas.width * sampleCanvas.height) / 6000));
+    let lit = 0;
+    let total = 0;
+    let min = Number.POSITIVE_INFINITY;
+    let max = 0;
+    for (let i = 0; i < data.length; i += 4 * stride) {
+      const value = data[i] + data[i + 1] + data[i + 2];
+      if (value > 36) lit++;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      total++;
+    }
+    return { lit, total, max, range: max - min, width: sampleCanvas.width, height: sampleCanvas.height };
+  }, `data:image/png;base64,${image.toString('base64')}`);
+
+  assert(
+    sample.max > 36 && sample.range > 12 && sample.lit > 5,
+    `${label} canvas appears blank (${sample.width}x${sample.height}, lit ${sample.lit}/${sample.total}, max ${sample.max}, range ${sample.range})`,
+  );
+}
+
+async function checkRenderablePage(page: Page, baseUrl: string, path: string, label: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}${path}`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await assertCanvasNonBlank(page, label);
+  await assertNoPageErrors(errors, label);
+}
+
+async function checkLobbyAutoBoards(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/lobby?flow=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForSelector('#status', { state: 'attached', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => (window as any).__lobby?.state?.crewCount === 3, null, { timeout: TIMEOUT_MS });
+  const lobbyCrew = await page.evaluate(() => (window as any).__lobby.state);
+  assert(lobbyCrew.player && lobbyCrew.crewCount === 3, `expected lobby player plus 3 NPC crew, got ${JSON.stringify(lobbyCrew)}`);
+  await page.goto(`${baseUrl}/lobby?flow=1&auto=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForSelector('#status', { state: 'attached', timeout: TIMEOUT_MS });
+  await page.waitForTimeout(12_000);
+  assert(page.url().includes('/pad?flow=1'), `expected lobby flow to reach /pad?flow=1, got ${page.url()}`);
+  await assertNoPageErrors(errors, 'lobby flow');
+}
+
+async function checkPadAscentHandoff(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/pad?flow=1&fast=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await assertCanvasNonBlank(page, 'launch pad');
+  await page.waitForFunction(() => Boolean((window as any).__pad?.state?.flowFast), null, { timeout: TIMEOUT_MS });
+  const start = await page.evaluate(() => (window as any).__pad.state);
+  await page.waitForFunction((baseline) => {
+    const state = (window as any).__pad?.state;
+    return Boolean(
+      state &&
+      state.rocketY > baseline.rocketY + 18 &&
+      state.cameraY > baseline.cameraY + 3 &&
+      state.targetY > baseline.targetY + 3,
+    );
+  }, start, { timeout: TIMEOUT_MS });
+  const ascent = await page.evaluate(() => (window as any).__pad.state);
+  assert(ascent.rocketY > start.rocketY + 18, `expected rocket ascent, y ${start.rocketY} -> ${ascent.rocketY}`);
+  assert(ascent.cameraY > start.cameraY + 3, `expected camera to follow ascent, y ${start.cameraY} -> ${ascent.cameraY}`);
+  assert(ascent.targetY > start.targetY + 3, `expected camera target to follow rocket, y ${start.targetY} -> ${ascent.targetY}`);
+  await page.waitForURL('**/launch?flow=1', { timeout: TIMEOUT_MS });
+  await assertNoPageErrors(errors, 'launch pad flow');
+}
+
+async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/launch?flow=1&fast=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await assertCanvasNonBlank(page, 'capsule approach');
+  await page.waitForFunction(() => Boolean((window as any).__launch?.state?.flowFast), null, { timeout: TIMEOUT_MS });
+  const start = await page.evaluate(() => (window as any).__launch.state);
+  assert(start.crewCount === 3, `expected capsule transit to seat 3 NPC crew, got ${start.crewCount}`);
+  await page.waitForTimeout(7_000);
+  const transit = await page.evaluate(() => (window as any).__launch.state);
+  assert(transit.earthZ < start.earthZ - 40, `expected Earth to recede, z ${start.earthZ} -> ${transit.earthZ}`);
+  assert(transit.earthScale < start.earthScale - 0.08, `expected Earth to shrink, scale ${start.earthScale} -> ${transit.earthScale}`);
+  assert(transit.shipZ > start.shipZ + 60, `expected station to approach, z ${start.shipZ} -> ${transit.shipZ}`);
+  assert(transit.shipScale > start.shipScale + 0.4, `expected station to grow, scale ${start.shipScale} -> ${transit.shipScale}`);
+  await page.waitForURL('**/dock?flow=1', { timeout: TIMEOUT_MS });
+  await assertNoPageErrors(errors, 'capsule transit flow');
+}
+
+async function checkDockingHandoff(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/dock?flow=1&auto=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await assertCanvasNonBlank(page, 'manual docking');
+  await page.waitForFunction(() => Boolean((window as any).__dock?.state?.auto), null, { timeout: TIMEOUT_MS });
+  const dockStart = await page.evaluate(() => (window as any).__dock.state);
+  assert(dockStart.crewCount === 3, `expected docking transfer to keep 3 NPC crew, got ${dockStart.crewCount}`);
+  await page.waitForFunction(() => {
+    const state = (window as any).__dock?.state?.state;
+    return state === 'soft' || state === 'docked' || state === 'board' || state === 'inside';
+  }, null, { timeout: TIMEOUT_MS });
+  const capture = await page.evaluate(() => (window as any).__dock.state);
+  assert(capture.off < 0.7, `expected auto-dock to align before capture, got offset ${capture.off}`);
+  assert(capture.speed < 1.8, `expected auto-dock speed to be safe, got ${capture.speed}`);
+  await page.waitForURL('**/?flow=1', { timeout: TIMEOUT_MS });
+  await assertNoPageErrors(errors, 'manual docking flow');
+}
+
+async function checkStationFlowEntry(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/?flow=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForSelector('#go', { state: 'attached', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => (window as any).__chorus?.crewCount === 3, null, { timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => document.querySelector('#panel h1')?.textContent === 'AIRLOCK OPEN', null, { timeout: TIMEOUT_MS });
+  const title = await page.locator('#panel h1').textContent();
+  const button = await page.locator('#go').textContent();
+  assert(title === 'AIRLOCK OPEN', `expected AIRLOCK OPEN flow entry title, got ${title}`);
+  assert(button === 'ENTER STATION', `expected ENTER STATION flow entry button, got ${button}`);
+  await assertNoPageErrors(errors, 'station flow entry');
+}
+
+async function checkStationHideMechanic(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/?smoke=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => Boolean((window as any).__chorus?.smoke), null, { timeout: TIMEOUT_MS });
+  await page.evaluate(() => {
+    (window as any).__chorus.smoke.moveTo(0.75, -12.05);
+    (window as any).__chorus.smoke.forceThreat();
+  });
+  await page.waitForFunction(() => (window as any).__chorus.state.prompt === '[E] HIDE', null, { timeout: TIMEOUT_MS });
+  await page.keyboard.press('KeyE');
+  await page.waitForFunction(() => {
+    const state = (window as any).__chorus.state;
+    return state.hidden === true && state.prompt === '[E] LEAVE LOCKER';
+  }, null, { timeout: TIMEOUT_MS });
+  const hidden = await page.evaluate(() => (window as any).__chorus.state);
+  assert(hidden.prompt === '[E] LEAVE LOCKER', `expected leave-locker prompt while hidden, got ${hidden.prompt}`);
+  await page.keyboard.press('KeyE');
+  await page.waitForFunction(() => (window as any).__chorus.state.hidden === false, null, { timeout: TIMEOUT_MS });
+  await assertNoPageErrors(errors, 'station hide');
+}
+
+async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => Boolean((window as any).__chorus?.camera), null, { timeout: TIMEOUT_MS });
+  await page.waitForTimeout(1_500);
+
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -52.7));
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(6_800);
+  const afterLogs = await page.locator('#obj').textContent();
+  assert(afterLogs?.includes('COOLANT'), `expected coolant objective after logs, got ${afterLogs}`);
+
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(1.28, 1.6, -36.5));
+  await page.waitForTimeout(200);
+  const valvePrompt = await page.locator('#prompt').textContent();
+  assert(valvePrompt === '[E] SEAL COOLANT LEAK', `expected coolant prompt, got ${valvePrompt}`);
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(3_200);
+  const afterValve = await page.locator('#obj').textContent();
+  assert(afterValve?.includes('BREAKER'), `expected breaker objective after valve, got ${afterValve}`);
+
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(-1.35, 1.6, -19));
+  await page.waitForTimeout(200);
+  const breakerPrompt = await page.locator('#prompt').textContent();
+  assert(breakerPrompt === '[E] REROUTE POWER', `expected breaker prompt, got ${breakerPrompt}`);
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(3_600);
+  const afterBreaker = await page.locator('#obj').textContent();
+  assert(afterBreaker?.includes('COMMAND'), `expected command return objective after breaker, got ${afterBreaker}`);
+
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -52.7));
+  await page.waitForTimeout(400);
+  const sendPrompt = await page.locator('#prompt').textContent();
+  assert(sendPrompt === '[E] SEND MESSAGE TO EARTH', `expected send prompt, got ${sendPrompt}`);
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(5_000);
+  const ending = await page.locator('#overTxt').textContent();
+  assert(ending === 'MESSAGE SENT', `expected MESSAGE SENT ending, got ${ending}`);
+  await assertNoPageErrors(errors, 'station objective');
+}
+
+async function main(): Promise<void> {
+  let server: ChildProcessWithoutNullStreams | undefined;
+  let browser: Browser | undefined;
+  try {
+    server = startLookdev();
+    const baseUrl = `http://127.0.0.1:${LOOKDEV_PORT}`;
+    await waitForHttp(baseUrl, TIMEOUT_MS);
+
+    browser = await launchBrowser();
+    await checkLobbyAutoBoards(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkPadAscentHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkCapsuleTransitHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkDockingHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkStationFlowEntry(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkStationHideMechanic(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkStationObjectivePath(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    console.log('lookdev full-loop smoke passed');
+  } finally {
+    await browser?.close().catch(() => undefined);
+    stopLookdev(server);
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

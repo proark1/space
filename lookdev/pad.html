@@ -213,7 +213,8 @@ const phaseEl=document.getElementById('phase');
 const clock=new THREE.Clock();
 const _c=new THREE.Color();
 // event-driven launch: ignition fires at `launchAt`; before it she holds on the pad and counts down.
-const IGN=0.6, CLIMB=14, FLIGHT=15.5, HOLD0=7.0, RELOOP=7.0;     // seconds
+const FLOW_FAST=FLOW && new URLSearchParams(location.search).get('fast')==='1';
+const IGN=0.6, CLIMB=FLOW_FAST?4.2:14, FLIGHT=FLOW_FAST?5.4:15.5, HOLD0=FLOW_FAST?0.6:7.0, RELOOP=7.0;     // seconds
 let T=0, launchAt=null, holdDur=HOLD0, prevSince=-1, lightning=0, lastBeep=99, voCountdown=false;
 function armLaunch(d){ launchAt=T+d; holdDur=d; lastBeep=99; }   // (re)arm — ignition in d seconds
 function setPhase(s){ if(phaseEl.textContent!==s) phaseEl.textContent=s; }
@@ -222,7 +223,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   const since=T-launchAt;                                        // <0 = hold/countdown, >=0 = flight
   // --- flight curve (seconds since ignition) ---
   let burn=0, ry=0, dark=0;
-  if(since>=0){ burn=smooth(0,IGN,since); const p=since/CLIMB; ry=p*p*340; dark=smooth(6,13,since); }
+  if(since>=0){ burn=smooth(0,IGN,since); const p=since/CLIMB; ry=p*p*340; dark=FLOW_FAST?smooth(2.1,4.6,since):smooth(6,13,since); }
   rocket.position.y=3+ry;
   // plume
   plume.scale.set(lerp(0.001,1.0,burn), lerp(0.001,1.0,burn*(0.7+0.3*Math.sin(t*30+1))), lerp(0.001,1.0,burn));
@@ -259,7 +260,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     controls.enabled=false;
     const rocketY=rocket.position.y+27;
     const follow=smooth(-0.2,3.2,since);
-    const high=smooth(5.5,13.8,since);
+    const high=smooth(CLIMB*0.4,CLIMB*0.98,since);
     launchCamTarget.set(0,clamp(rocketY,16,380),0);
     launchCamPos.set(lerp(58,28,follow)+high*12,lerp(22,rocketY+24,follow),lerp(70,118,follow)+high*34);
     camera.position.lerp(launchCamPos,0.075);
@@ -315,6 +316,7 @@ function startAudio(){ if(padAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
+window.__pad={rocket,camera,controls,get state(){ return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
