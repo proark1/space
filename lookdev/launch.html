@@ -6,7 +6,7 @@
 <title>SIGNAL LOST — outbound (capsule)</title>
 <style>
   html,body{margin:0;height:100%;background:#03050b;overflow:hidden;cursor:grab}
-  body.look{cursor:grabbing}
+  body.look{cursor:none}
   #c{width:100vw;height:100vh;display:block}
   #hud{position:fixed;left:14px;bottom:12px;font:11px ui-monospace,Menlo,monospace;color:#8a97a4;pointer-events:none}
   #hud b{color:#E8A33D}
@@ -20,7 +20,7 @@
 <canvas id="c"></canvas>
 <div id="title">SIGNAL&nbsp;LOST · OUTBOUND</div>
 <div id="nav"><a href="/exterior">▸ the derelict</a><a href="/game">▸ aboard</a></div>
-<div id="hud"><b>drag</b> look · <b>WASD</b> walk when standing · <b>SPACE</b> stand/sit · the derelict is ahead</div>
+<div id="hud"><b>click/drag</b> 360 look · <b>WASD</b> walk when standing · <b>SPACE</b> stand/sit · the derelict is ahead</div>
 <div id="stat">▸ APPROACHING THE DERELICT</div>
 
 <script type="importmap">
@@ -89,9 +89,20 @@ const keys={};
 const seatedPos=new THREE.Vector3(0,0.02,0.85);
 const targetCamPos=seatedPos.clone();
 let standing=false;
-addEventListener('pointerdown',e=>{dragging=true;lx=e.clientX;ly=e.clientY;document.body.classList.add('look');});
-addEventListener('pointerup',()=>{dragging=false;document.body.classList.remove('look');});
-addEventListener('pointermove',e=>{ if(!dragging)return; yaw=wrapAngle(yaw-(e.clientX-lx)*0.0034); pitch=clamp(pitch-(e.clientY-ly)*0.0034,-PITCHMAX,PITCHMAX); lx=e.clientX; ly=e.clientY; });
+function lookLocked(){ return document.pointerLockElement===canvas; }
+function setLookMode(){ document.body.classList.toggle('look',dragging||lookLocked()); }
+addEventListener('pointerdown',e=>{ dragging=true; lx=e.clientX; ly=e.clientY; if(canvas.requestPointerLock&&!lookLocked()) canvas.requestPointerLock(); setLookMode(); });
+addEventListener('pointerup',()=>{ dragging=false; setLookMode(); });
+addEventListener('pointerlockchange',setLookMode);
+addEventListener('pointermove',e=>{
+  const locked=lookLocked();
+  if(!dragging&&!locked)return;
+  const dx=locked?e.movementX:(e.clientX-lx);
+  const dy=locked?e.movementY:(e.clientY-ly);
+  yaw-=dx*0.0034;
+  pitch=clamp(pitch-dy*0.0034,-PITCHMAX,PITCHMAX);
+  if(!locked){ lx=e.clientX; ly=e.clientY; }
+});
 addEventListener('keydown',e=>{ keys[e.code]=true; if(e.code==='Space'){ standing=!standing; e.preventDefault(); } if(['KeyW','KeyA','KeyS','KeyD'].includes(e.code)) e.preventDefault(); });
 addEventListener('keyup',e=>{ keys[e.code]=false; });
 
@@ -208,11 +219,11 @@ noseDome.scale.set(1.03,1.0,1.2); noseDome.renderOrder=3;
 part(new THREE.TorusGeometry(1.58,0.055,10,72),M.metal,cabin,0,1.0,-0.1,Math.PI/2,0,0);
 part(new THREE.TorusGeometry(1.22,0.035,8,64),M.cyan,cabin,0,1.1,-0.1,Math.PI/2,0,0);
 part(new THREE.TorusGeometry(0.62,0.026,8,44),M.cyan,cabin,0,1.18,-0.1,Math.PI/2,0,0);
-part(BOX(0.12,0.12,3.25),M.cyan,cabin,0,1.08,-0.1,0,0,0.2);
-part(BOX(3.18,0.16,0.18),M.metal,cabin,0,1.02,-1.68);  // forward rounded roof bow
-part(BOX(3.18,0.16,0.18),M.metal,cabin,0,1.02,1.46);   // rear rounded roof bow
-part(BOX(0.16,0.16,3.35),M.metal,cabin,-1.48,1.02,-0.1);
-part(BOX(0.16,0.16,3.35),M.metal,cabin,1.48,1.02,-0.1);
+part(CYL(0.055,0.055,3.25,18),M.cyan,cabin,0,1.08,-0.1,Math.PI/2,0,0.2);
+part(CYL(0.095,0.095,3.18,18),M.metal,cabin,0,1.02,-1.68,0,0,Math.PI/2);  // forward rounded roof bow
+part(CYL(0.095,0.095,3.18,18),M.metal,cabin,0,1.02,1.46,0,0,Math.PI/2);   // rear rounded roof bow
+part(CYL(0.085,0.085,3.35,18),M.metal,cabin,-1.48,1.02,-0.1,Math.PI/2,0,0);
+part(CYL(0.085,0.085,3.35,18),M.metal,cabin,1.48,1.02,-0.1,Math.PI/2,0,0);
 part(BOX(0.18,0.36,3.6),M.dark,cabin,-1.6,-1.02,-0.1); // left lower sill
 part(BOX(0.18,0.36,3.6),M.dark,cabin,1.6,-1.02,-0.1);  // right lower sill
 part(new THREE.PlaneGeometry(3.2,1.85),M.glass,cabin,-1.52,0.02,-0.12,0,Math.PI/2,0);
@@ -261,8 +272,20 @@ function seat(px,pz,faceY,accent,tone,opts={}){
 // ring: YOU at the back (camera), up to 3 crew facing inward — everyone sees everyone
 seat(0,0.85,0,null);                  // YOU (back seat / camera) — face the centre & window
 seat(0,-0.85,Math.PI,ACTIVE_CREW[0].accent,ACTIVE_CREW[0].tone);       // pilot, faces you
-seat(-0.85,0,-Math.PI/2,ACTIVE_CREW[1].accent,ACTIVE_CREW[1].tone,{float:true});    // engineer
+seat(-0.85,0,-Math.PI/2,null);                                           // empty side restraint
 seat(0.85,0,Math.PI/2,ACTIVE_CREW[2].accent,ACTIVE_CREW[2].tone);      // medic
+function freeFloatingCrewmate(accent,tone){
+  const c=new THREE.Group();
+  c.position.set(-0.18,-0.1,-0.18);
+  c.rotation.set(0.2,-0.55,0.26);
+  c.userData.by=c.position.y; c.userData.bx=c.position.x; c.userData.bz=c.position.z;
+  cabin.add(c);
+  const a=makeAstronaut({accent,tone});
+  a.scale.setScalar(0.55);
+  c.add(a);
+  crew.push({g:c,root:a,s:Math.random()*9,float:true,free:true});
+}
+freeFloatingCrewmate(ACTIVE_CREW[1].accent,ACTIVE_CREW[1].tone);         // engineer in visible zero-g
 // ==BUILD END==
 
 // ---- transit timeline + render loop ----
@@ -300,12 +323,21 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   for(const c of crew){
     if(c.float){
       const zeroG=Math.min(1,Math.max(0,(e-0.24)/0.28));
-      c.g.position.x=Math.sin(t*0.72+c.s)*0.22*zeroG;
-      c.g.position.y=lerp(c.g.userData.by,0.02+Math.sin(t*1.15+c.s)*0.1,zeroG);
-      c.g.position.z=0.08+Math.cos(t*0.58+c.s)*0.3*zeroG;
-      c.g.rotation.x=Math.sin(t*0.54+c.s)*0.22*zeroG;
-      c.g.rotation.y=Math.PI+Math.sin(t*0.42+c.s)*0.7*zeroG;
-      c.g.rotation.z=Math.sin(t*0.65+c.s)*0.34*zeroG;
+      if(c.free){
+        c.g.position.x=c.g.userData.bx+Math.sin(t*0.72+c.s)*0.34*zeroG;
+        c.g.position.y=lerp(c.g.userData.by,0.16+Math.sin(t*1.15+c.s)*0.16,zeroG);
+        c.g.position.z=c.g.userData.bz+Math.cos(t*0.58+c.s)*0.46*zeroG;
+        c.g.rotation.x=0.22+Math.sin(t*0.54+c.s)*0.34*zeroG;
+        c.g.rotation.y=-0.55+Math.sin(t*0.42+c.s)*0.95*zeroG;
+        c.g.rotation.z=0.26+Math.sin(t*0.65+c.s)*0.5*zeroG;
+      } else {
+        c.g.position.x=Math.sin(t*0.72+c.s)*0.22*zeroG;
+        c.g.position.y=lerp(c.g.userData.by,0.02+Math.sin(t*1.15+c.s)*0.1,zeroG);
+        c.g.position.z=0.08+Math.cos(t*0.58+c.s)*0.3*zeroG;
+        c.g.rotation.x=Math.sin(t*0.54+c.s)*0.22*zeroG;
+        c.g.rotation.y=Math.PI+Math.sin(t*0.42+c.s)*0.7*zeroG;
+        c.g.rotation.z=Math.sin(t*0.65+c.s)*0.34*zeroG;
+      }
       animateAstronaut(c.root,'walk',t+c.s,0.32+zeroG*0.28);
     } else {
       c.g.position.y=c.g.userData.by+Math.sin(t*1.4+c.s)*0.012;
