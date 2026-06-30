@@ -15,7 +15,10 @@
     "asset:build": "tsx tools/asset-pipeline/src/cli.ts",
     "smoke:net": "tsx tools/net-smoke/lookdev-smoke.ts",
     "smoke:net:room": "LOOKDEV_SMOKE_CLIENTS=3 LOOKDEV_SMOKE_SOAK_MS=5000 LOOKDEV_SMOKE_DELIVERY_MS=25 tsx tools/net-smoke/lookdev-smoke.ts",
-    "smoke:net:turn": "LOOKDEV_SMOKE_EXPECT_TURN=1 VITE_TURN_FROM_SIGNALING=1 VITE_REQUIRE_TURN=1 tsx tools/net-smoke/lookdev-smoke.ts"
+    "smoke:net:soak": "LOOKDEV_SMOKE_CLIENTS=3 LOOKDEV_SMOKE_SOAK_MS=60000 LOOKDEV_SMOKE_DELIVERY_MS=25 LOOKDEV_SMOKE_TIMEOUT_MS=120000 tsx tools/net-smoke/lookdev-smoke.ts",
+    "smoke:net:turn": "LOOKDEV_SMOKE_EXPECT_TURN=1 VITE_TURN_FROM_SIGNALING=1 VITE_REQUIRE_TURN=1 tsx tools/net-smoke/lookdev-smoke.ts",
+    "smoke:render": "tsx tools/render-smoke/lookdev-render-smoke.ts",
+    "smoke:render:chaos": "LOOKDEV_RENDER_SMOKE_SCENE=chaos LOOKDEV_RENDER_SMOKE_N=300 tsx tools/render-smoke/lookdev-render-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

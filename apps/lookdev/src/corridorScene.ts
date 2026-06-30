@@ -13,7 +13,7 @@ import { buildCorridor } from './corridor';
  */
 export function createCorridorScene(profile: RenderProfile): HarnessScene {
   const scene = new Scene();
-  buildCorridor(scene);
+  const corridor = buildCorridor(scene);
 
   const camera = new PerspectiveCamera(70, 1, 0.1, 60);
   camera.position.set(0, 1.6, 13);
@@ -35,6 +35,7 @@ export function createCorridorScene(profile: RenderProfile): HarnessScene {
     },
     frameUpdate(dt) {
       t += dt;
+      corridor.update(dt);
       // subtle head bob + sway so the flashlight (and its shadows) feel handheld
       camera.position.y = 1.6 + Math.sin(t * 1.6) * 0.04;
       camera.position.x = Math.sin(t * 0.5) * 0.18;

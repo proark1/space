@@ -18,6 +18,17 @@ interface Vec3 {
   readonly z: number;
 }
 
+interface NetStatsView {
+  readonly rttMs: number;
+  readonly lossPct: number;
+  readonly snapshotBytesAvg: number;
+  readonly snapshotHz: number;
+  readonly inputHz: number;
+  readonly tickDriftMs: number;
+  readonly selectedPair: string;
+  readonly bufferedSnapshots: number;
+}
+
 interface SignalMsg {
   readonly t: string;
   readonly to?: string;
@@ -38,6 +49,9 @@ const DELIVERY_MS = Number(process.env.LOOKDEV_SMOKE_DELIVERY_MS ?? 15);
 const MIN_MOVE_METERS = Number(process.env.LOOKDEV_SMOKE_MIN_MOVE_METERS ?? 0.4);
 const STABILIZE_MS = Number(process.env.LOOKDEV_SMOKE_STABILIZE_MS ?? (CLIENT_COUNT > 1 ? 2000 : 500));
 const EXPECT_TURN = process.env.LOOKDEV_SMOKE_EXPECT_TURN === '1';
+const MAX_SNAPSHOT_BYTES = Number(process.env.LOOKDEV_SMOKE_MAX_SNAPSHOT_BYTES ?? 400);
+const MAX_LOSS_PCT = Number(process.env.LOOKDEV_SMOKE_MAX_LOSS_PCT ?? 5);
+const EXPECTED_ICE_PAIR = process.env.LOOKDEV_SMOKE_EXPECT_ICE_PAIR;
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, OPTIONS',
@@ -177,7 +191,7 @@ function startLookdev(signalingUrl: string): ChildProcessWithoutNullStreams {
     ['-F', '@sl/lookdev', 'exec', 'vite', '--host', '127.0.0.1', '--port', String(LOOKDEV_PORT), '--strictPort'],
     {
       cwd: process.cwd(),
-      env: { ...process.env, VITE_SIGNALING_URL: signalingUrl },
+      env: { ...process.env, VITE_SIGNALING_URL: signalingUrl, VITE_SMOKE_NO_WATCH: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -215,6 +229,36 @@ async function waitForNet(page: Page, mode: 'host' | 'client', expectedPeers: nu
 
 async function remotePositions(page: Page): Promise<Vec3[]> {
   return page.evaluate(() => (window as any).__sl.remotePlayerPositions() as Vec3[]);
+}
+
+async function netStats(page: Page): Promise<NetStatsView | null> {
+  return page.evaluate(() => (window as any).__sl.netStats?.() ?? null);
+}
+
+async function waitForNetStats(page: Page, label: string): Promise<NetStatsView> {
+  try {
+    await page.waitForFunction(() => Boolean((window as any).__sl?.netStats?.()), null, { timeout: TIMEOUT_MS });
+  } catch (err) {
+    const context = await page.evaluate(() => ({
+      net: (window as any).__sl?.netInfo?.() ?? null,
+      stats: (window as any).__sl?.netStats?.() ?? null,
+      hud: document.getElementById('hud')?.textContent ?? null,
+    }));
+    throw new Error(`timed out waiting for ${label} net stats: ${JSON.stringify(context)}\n${String(err)}`);
+  }
+  return (await netStats(page))!;
+}
+
+function assertNetStatsBudget(label: string, stats: NetStatsView): void {
+  if (stats.snapshotBytesAvg > MAX_SNAPSHOT_BYTES) {
+    throw new Error(`${label} snapshot bytes ${stats.snapshotBytesAvg}B exceeds ${MAX_SNAPSHOT_BYTES}B`);
+  }
+  if (stats.lossPct > MAX_LOSS_PCT) {
+    throw new Error(`${label} loss ${stats.lossPct}% exceeds ${MAX_LOSS_PCT}%`);
+  }
+  if (EXPECTED_ICE_PAIR && stats.selectedPair !== EXPECTED_ICE_PAIR) {
+    throw new Error(`${label} ICE pair ${stats.selectedPair} did not match expected ${EXPECTED_ICE_PAIR}`);
+  }
 }
 
 function sortPositions(positions: readonly Vec3[]): Vec3[] {
@@ -322,12 +366,14 @@ async function assertConnectedDuringSoak(
       label,
       mode,
       info: await page.evaluate(() => (window as any).__sl.netInfo() as NetInfo),
+      stats: await netStats(page),
     })),
   );
-  for (const { label, mode, info } of infos) {
+  for (const { label, mode, info, stats } of infos) {
     if (info.mode !== mode || info.state !== 'connected' || info.peers < expectedPeers || info.driverPeers < expectedPeers) {
       throw new Error(`${label} lost net connection during soak: ${JSON.stringify(info)}`);
     }
+    if (stats) assertNetStatsBudget(label, stats);
   }
 }
 
@@ -417,6 +463,10 @@ async function main(): Promise<void> {
 
     await soakRoom(pages, CLIENT_COUNT, SOAK_MS, pageErrors);
     assertNoPageErrors(pageErrors);
+    const hostNetStats = await waitForNetStats(host, 'host');
+    const clientNetStats = await Promise.all(clients.map((client, index) => waitForNetStats(client, `client-${index + 1}`)));
+    assertNetStatsBudget('host', hostNetStats);
+    clientNetStats.forEach((stats, index) => assertNetStatsBudget(`client-${index + 1}`, stats));
 
     console.log(
       JSON.stringify(
@@ -426,6 +476,8 @@ async function main(): Promise<void> {
           soakMs: SOAK_MS,
           hostInfo,
           clientInfos,
+          hostNetStats,
+          clientNetStats,
           hostInputStats: await host.evaluate(() => (window as any).__sl.hostInputStats?.() ?? null),
           turnRequests: signaling.turnRequests(),
           hostRemoteMoved,

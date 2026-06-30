@@ -3,13 +3,14 @@
 // the player capsule driven by the Rapier KCC and the camera/flashlight riding its ECS Transform.
 // ?scene=corridor is the look-only auto-cam variant; ?scene=chaos is the Phase B perf probe (`n`
 // dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
-import { createRenderer, createPostStack } from '@sl/render';
+import { BudgetMonitor, createRenderer, createPostStack, GpuTimer, type RenderBudgetView } from '@sl/render';
 import { createGameplaySession, GameLoop, type GameplayNetDriver } from '@sl/engine';
-import { buildIceServers, Buttons, fetchTurnIceEnv, generateRoomCode, isValidRoomCode } from '@sl/netcode';
+import { buildIceServers, Buttons, fetchTurnIceEnv, generateRoomCode, isValidRoomCode, type NetStatsView } from '@sl/netcode';
 import { useHudStore } from '@sl/ui';
 import { queryRemotePlayers, Transform, type GameWorld } from '@sl/ecs';
 import { createChaosScene } from './chaosScene';
 import { createCorridorScene } from './corridorScene';
+import { configureLookdevPost } from './look';
 import { createWalkScene } from './walkScene';
 import type { HarnessScene } from './scene';
 import type { WalkSceneHandle } from './walkScene';
@@ -76,11 +77,17 @@ async function main(): Promise<void> {
         ? createCorridorScene(renderer.profile)
         : await createWalkScene(renderer.profile, canvas);
   const post = createPostStack(renderer, harness.scene, harness.camera, renderer.profile);
+  configureLookdevPost(post.uniforms);
   let netDriver: GameplayNetDriver | undefined;
   let netMode: 'offline' | 'host' | 'client' = 'offline';
   let netPeers = 0;
   let netState = 'offline';
+  let latestNetStats: NetStatsView | null = null;
   const hostInputStats = new Map<string, { packets: number; cmds: number; fwd: number }>();
+  const gpuTimer = new GpuTimer();
+  const budgetMonitor = new BudgetMonitor({ maxDrawCalls: 150, maxMedianFrameMs: 20, maxP95FrameMs: 50, sampleWindow: 300 });
+  let renderFrames = 0;
+  let latestRenderBudget: RenderBudgetView = budgetMonitor.view();
 
   // Internal-res crunch — the dominant PS1 cue (the lookdev's own technique): render at a fraction
   // and let CSS upscale with nearest (#scene { image-rendering: pixelated }). pixelRatio 1 so the
@@ -114,8 +121,12 @@ async function main(): Promise<void> {
       harness.label === 'walk'
         ? ` · hp ${store.health} · bat ${store.battery} · ammo ${store.ammoMag}/${store.ammoReserve} · ${store.status ?? 'idle'} · WASD move · click to look · Space jump`
         : '';
-    const net = netMode === 'offline' ? '' : ` · net ${netMode}:${netState}/${netPeers}`;
-    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${drawCalls} draws${net}${hint}`;
+    const netStats = latestNetStats
+      ? ` · ${latestNetStats.selectedPair} · rtt ${latestNetStats.rttMs}ms · snap ${latestNetStats.snapshotHz}/s ${latestNetStats.snapshotBytesAvg}B · in ${latestNetStats.inputHz}/s`
+      : '';
+    const net = netMode === 'offline' ? '' : ` · net ${netMode}:${netState}/${netPeers}${netStats}`;
+    const frameMs = latestRenderBudget.samples > 0 ? ` · ${latestRenderBudget.medianFrameMs.toFixed(1)}ms med` : '';
+    hud.textContent = `SIGNAL LOST · ${p.backend} · tier ${p.tier} · ${harness.label} · ${fps} fps · ${drawCalls} draws${frameMs}${net}${hint}`;
   };
 
   const setNetPanelStatus = (message: string): void => {
@@ -131,6 +142,7 @@ async function main(): Promise<void> {
     }
     if (netDriver) netDriver.leave();
     hostInputStats.clear();
+    latestNetStats = null;
     netMode = mode;
     netState = 'signaling';
     netPeers = 0;
@@ -174,6 +186,9 @@ async function main(): Promise<void> {
             setNetPanelStatus(`${mode} ${code} · ${netState} · peers ${netPeers}`);
           },
           onHostLost: () => setNetPanelStatus('host lost'),
+          onStats: (stats) => {
+            latestNetStats = stats;
+          },
           onLog: (msg) => console.info(`[net] ${msg}`),
         },
       });
@@ -219,6 +234,7 @@ async function main(): Promise<void> {
       netState = 'offline';
       netPeers = 0;
       hostInputStats.clear();
+      latestNetStats = null;
       harness.setRemoteWorld(undefined);
       setNetPanelStatus('offline');
     });
@@ -250,7 +266,13 @@ async function main(): Promise<void> {
       const dt = Math.min((now - lastT) / 1000, 0.1);
       if (netDriver && netMode === 'client') netDriver.sampleRemoteEntities(now);
       harness.frameUpdate(dt);
-      post.render();
+      const timed = gpuTimer.measure(() => post.render());
+      renderFrames += 1;
+      latestRenderBudget = budgetMonitor.tick({
+        drawCalls: renderer.three.info.render.drawCalls,
+        triangles: renderer.three.info.render.triangles,
+        frameMs: timed.sample.gpuMs,
+      });
       acc += now - lastT;
       lastT = now;
       frames += 1;
@@ -277,7 +299,21 @@ async function main(): Promise<void> {
     hudState: () => useHudStore.getState(),
     netDriver: () => netDriver,
     netInfo: () => ({ mode: netMode, state: netState, peers: netPeers, driverPeers: netDriver?.session.peerIds.length ?? 0 }),
+    netStats: () => latestNetStats,
     hostInputStats: () => Object.fromEntries(hostInputStats.entries()),
+    renderMetrics: () => ({
+      frames: renderFrames,
+      backend: renderer.backend,
+      profile: renderer.profile,
+      fps,
+      budget: latestRenderBudget,
+      info: {
+        drawCalls: renderer.three.info.render.drawCalls,
+        triangles: renderer.three.info.render.triangles,
+        geometries: renderer.three.info.memory.geometries,
+        textures: renderer.three.info.memory.textures,
+      },
+    }),
     localPlayerPosition: () => (isWalkScene(harness) ? harness.playerPosition() : null),
     remotePlayerPositions: () => {
       if (!isWalkScene(harness)) return [];

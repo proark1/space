@@ -11,9 +11,13 @@
 - `pnpm build` passes.
 - `pnpm smoke:net` passes: local WebSocket signaling + two browser pages + WebRTC gameplay movement.
 - `pnpm smoke:net:room` passes: local WebSocket signaling + host + 3 clients + 5s fixed-step room soak.
+- `pnpm smoke:net:soak` passes: local WebSocket signaling + host + 3 clients + 60s fixed-step room
+  soak with connection-stability, packet-loss, and snapshot-byte budget gates.
 - `pnpm smoke:net:turn` passes: local signaling `/turn` credential fetch path + two browser pages.
+- `pnpm smoke:render` passes: forced WebGL2 lookdev render, nonblank canvas probe, draw-call and
+  CPU render-frame budget gates.
 - Verification above was run after the local browser smoke harness, peer-spawn spacing, TURN CORS,
-  and relay-control updates.
+  relay-control updates, net-stat HUD/JSON export, and initial render-gate work.
 
 ## Where We Are
 
@@ -55,23 +59,28 @@ probe, and room-code net controls.
 - **T11/T12/T48 live gameplay networking:** client input, host application, ACKs, host-assigned
   lobby owner slots, full/delta ECS snapshots, input-ack metadata, 20 Hz snapshot cadence,
   render-path remote interpolation, and lookdev client local reconciliation are wired in
-  `GameplayNetDriver`/`apps/lookdev`. Local browser smoke now covers host + 1 client movement and
-  host + 3 clients with a short fixed-step soak. Still missing: longer soak metrics, snapshot byte
-  budget enforcement, and cross-network/TURN relay verification.
+  `GameplayNetDriver`/`apps/lookdev`. Local browser smoke now covers host + 1 client movement,
+  host + 3 clients with a short fixed-step soak, and a configurable 60s local soak with
+  connection-stability, packet-loss, and snapshot-byte budget gates. Still missing:
+  cross-network/TURN relay verification and longer hardware/network matrix runs.
 - **T13/T14 prediction/interp:** pure Predictor and InterpBuffer exist and are tested. Remote entity
   interpolation is integrated into the lookdev client render path. Local-player reconcile now uses
   authoritative owner-slot snapshots plus unacked input replay in the browser lookdev path, with a
   100 ms simulated latency + unreliable-loss driver test. Live browser latency verification and
   dynamic-client-physics rewind are still open.
-- **T15 net debug:** stats and debug HUD primitives exist, and `Session` records snapshot/input
-  rates plus snapshot bytes from wire headers. Full relay/srflx verification is not complete.
+- **T15 net debug:** stats and debug HUD primitives exist. Lookdev HUD and smoke JSON expose selected
+  ICE pair type, RTT, snapshot/input packet rates, average snapshot bytes, packet loss, tick drift,
+  and buffered snapshots. `Session` records snapshot/input rates plus snapshot bytes from wire
+  headers. Full relay/srflx verification is not complete.
 - **T16 host loss:** host-loss watcher exists; final product UI flow and run-end handling need a live
   browser verification pass.
 - **T26/T27/T28 render mood:** simplified TSL post stack exists: fog, grade, vignette, posterize,
   Bayer dither. MRT, emissive-only bloom, GTAO, volumetric cone, CA/SMAA, vertex snap, affine/CRT,
   and baked-lightmap application are still open.
-- **T34/T35 performance:** chaos physics harness exists; real BudgetMonitor/GpuTimer, Playwright
-  render smoke, draw-call/frametime gates, and WebGPU/WebGL2 visual capture gates are open.
+- **T34/T35 performance:** chaos physics harness exists. Initial `BudgetMonitor` and `GpuTimer`
+  primitives exist, and `pnpm smoke:render` runs a forced WebGL2 Playwright render gate with
+  nonblank-canvas, draw-call, FPS, median-frame, and p95-frame checks. Real GPU timestamp queries,
+  WebGPU screenshot comparison, and broader scene/profile gates are still open.
 - **Client app:** landing, lobby shell, admin asset UI exist. The playable game is currently in
   `apps/lookdev`, not the main client flow.
 
@@ -96,10 +105,10 @@ probe, and room-code net controls.
 
 ## Recommended Next Order
 
-1. Finish M0 networking green-light: final signaling path, TURN config, cross-network relay diagnostics,
-   10+ minute soak, and live 100 ms latency/prediction verification.
+1. Finish M0 networking green-light: final signaling path, real TURN credentials, cross-network relay
+   diagnostics, 10+ minute soak, and live 100 ms latency/prediction verification.
 2. Finish the M-LOOK/M1 render gate: real low-poly corridor assets, baked lightmaps, full post stack,
-   WebGPU/WebGL2 screenshots, BudgetMonitor/GpuTimer.
+   WebGPU screenshot/comparison gate, and real GPU timestamp-query timers.
 3. Build the content pipeline before enemy work: optimized kit assets, LevelDoc, collision/navmesh.
 4. Build audio pack generation and the runtime bus/scheduler before Scare Director integration.
 5. Then implement AI/combat/Director against stable level, net, render, and audio contracts.

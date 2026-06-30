@@ -1,4 +1,5 @@
-import { Scene, Mesh, BoxGeometry, MeshStandardMaterial, HemisphereLight } from 'three';
+import { BoxGeometry, InstancedMesh, Matrix4, Mesh, PlaneGeometry, Scene } from 'three';
+import { LOOK, applyLookdevAtmosphere, createDustField, createIndustrialMaterials } from './look';
 
 /** Greybox corridor dimensions (m): width × height × length. */
 export const CORRIDOR = { W: 4, H: 3, L: 32 } as const;
@@ -24,6 +25,8 @@ export interface CorridorBuild {
   /** Solid surfaces (floor/ceiling/walls/end-caps/crates); each backs a static collider. */
   readonly colliders: readonly CorridorBox[];
   readonly level: CorridorLevel;
+  /** Per-frame material life for shared scene dressing (panel flicker, emergency glow). */
+  update(dt: number): void;
 }
 
 /**
@@ -72,18 +75,20 @@ export function createCorridorLevel(): CorridorLevel {
  * direction is picked. Returns the level descriptors so the walk scene can mirror them as colliders.
  */
 export function buildCorridor(scene: Scene, level = createCorridorLevel()): CorridorBuild {
-  scene.add(new HemisphereLight(0x141a22, 0x05070a, 0.5));
+  const { W, H, L } = CORRIDOR;
+  applyLookdevAtmosphere(scene);
 
-  const materials: Record<CorridorMaterialKey, MeshStandardMaterial> = {
-    wall: new MeshStandardMaterial({ color: 0x8a9099, roughness: 0.9, metalness: 0.0, flatShading: true }),
-    floor: new MeshStandardMaterial({ color: 0x6a6f76, roughness: 1.0, metalness: 0.0, flatShading: true }),
-    crate: new MeshStandardMaterial({ color: 0x9a8a6e, roughness: 0.85, metalness: 0.0, flatShading: true }),
+  const materials = createIndustrialMaterials();
+  const colliderMaterials: Record<CorridorMaterialKey, typeof materials.wall> = {
+    wall: materials.wall,
+    floor: materials.floor,
+    crate: materials.crate,
   };
 
   for (const box of level.boxes) {
     const mesh = new Mesh(
       new BoxGeometry(box.half[0] * 2, box.half[1] * 2, box.half[2] * 2),
-      materials[box.material],
+      colliderMaterials[box.material],
     );
     mesh.position.set(box.pos[0], box.pos[1], box.pos[2]);
     mesh.castShadow = box.castShadow;
@@ -91,5 +96,110 @@ export function buildCorridor(scene: Scene, level = createCorridorLevel()): Corr
     scene.add(mesh);
   }
 
-  return { colliders: level.boxes, level };
+  const matrix = new Matrix4();
+  const ribZ = [-14, -10, -6, -2, 2, 6, 10, 14];
+
+  const wallRibs = new InstancedMesh(new BoxGeometry(0.16, H + 0.08, 0.16), materials.trim, ribZ.length * 2);
+  let instance = 0;
+  for (const z of ribZ) {
+    matrix.makeTranslation(-W / 2 + 0.14, H / 2, z);
+    wallRibs.setMatrixAt(instance++, matrix);
+    matrix.makeTranslation(W / 2 - 0.14, H / 2, z);
+    wallRibs.setMatrixAt(instance++, matrix);
+  }
+  wallRibs.castShadow = true;
+  wallRibs.receiveShadow = true;
+  scene.add(wallRibs);
+
+  const ceilingRibs = new InstancedMesh(new BoxGeometry(W + 0.08, 0.14, 0.18), materials.trim, ribZ.length);
+  instance = 0;
+  for (const z of ribZ) {
+    matrix.makeTranslation(0, H - 0.18, z);
+    ceilingRibs.setMatrixAt(instance++, matrix);
+  }
+  ceilingRibs.castShadow = true;
+  ceilingRibs.receiveShadow = true;
+  scene.add(ceilingRibs);
+
+  const stripZ = [-14.2, -11.4, -8.6, -5.8, -3, -0.2, 2.6, 5.4, 8.2, 11];
+  const warningStrips = new InstancedMesh(new BoxGeometry(0.06, 0.055, 1.35), materials.hazard, stripZ.length * 2);
+  instance = 0;
+  for (const z of stripZ) {
+    matrix.makeTranslation(-W / 2 + 0.18, 0.18, z);
+    warningStrips.setMatrixAt(instance++, matrix);
+    matrix.makeTranslation(W / 2 - 0.18, 0.18, z);
+    warningStrips.setMatrixAt(instance++, matrix);
+  }
+  warningStrips.receiveShadow = true;
+  scene.add(warningStrips);
+
+  const grateZ = [-13.2, -9.2, -5.2, -1.2, 2.8, 6.8, 10.8];
+  const floorGrates = new InstancedMesh(new BoxGeometry(W - 0.7, 0.025, 0.055), materials.trim, grateZ.length * 4);
+  instance = 0;
+  for (const z of grateZ) {
+    for (const offset of [-0.42, -0.14, 0.14, 0.42]) {
+      matrix.makeTranslation(0, 0.025, z + offset);
+      floorGrates.setMatrixAt(instance++, matrix);
+    }
+  }
+  floorGrates.receiveShadow = true;
+  scene.add(floorGrates);
+
+  const addPanel = (x: number, y: number, z: number, material: typeof materials.amberLight): void => {
+    const panel = new Mesh(new BoxGeometry(0.055, 0.42, 0.82), material);
+    panel.position.set(x, y, z);
+    panel.castShadow = false;
+    panel.receiveShadow = false;
+    scene.add(panel);
+  };
+  addPanel(W / 2 - 0.12, 1.42, -7.4, materials.amberLight);
+  addPanel(-W / 2 + 0.12, 1.3, -12.8, materials.cyanLight);
+  addPanel(-W / 2 + 0.12, 1.7, 5.2, materials.amberLight);
+  addPanel(W / 2 - 0.12, 1.52, -20.8, materials.cyanLight);
+
+  const leftBlood = new Mesh(new PlaneGeometry(0.92, 0.54), materials.bloodDecal);
+  leftBlood.position.set(-W / 2 + 0.106, 1.08, -11.35);
+  leftBlood.rotation.y = Math.PI / 2;
+  scene.add(leftBlood);
+
+  const floorScorch = new Mesh(new PlaneGeometry(1.4, 0.78), materials.scorchDecal);
+  floorScorch.position.set(0.66, 0.014, -17.25);
+  floorScorch.rotation.x = -Math.PI / 2;
+  scene.add(floorScorch);
+
+  const conduit = new Mesh(new BoxGeometry(0.07, 0.07, 2.1), materials.darkRubber);
+  conduit.position.set(W / 2 - 0.22, 2.38, -18.6);
+  conduit.castShadow = true;
+  scene.add(conduit);
+  for (const [y, z, h] of [
+    [2.0, -18.0, 0.72],
+    [1.86, -18.45, 0.96],
+    [2.08, -18.9, 0.58],
+  ] as const) {
+    const cable = new Mesh(new BoxGeometry(0.035, h, 0.035), materials.darkRubber);
+    cable.position.set(W / 2 - 0.24, y - h / 2, z);
+    cable.castShadow = true;
+    scene.add(cable);
+  }
+
+  const farBeacon = new Mesh(new BoxGeometry(0.92, 0.12, 0.055), materials.amberLight);
+  farBeacon.position.set(0, 2.42, -L / 2 + 0.12);
+  scene.add(farBeacon);
+
+  scene.add(createDustField(W * 0.9, H * 0.85, L * 0.92, 220));
+
+  let t = 0;
+  return {
+    colliders: level.boxes,
+    level,
+    update(dt: number) {
+      t += dt;
+      const amberStutter = Math.sin(t * 23.0) > 0.86 ? 0.28 : 1;
+      const cyanStutter = Math.sin(t * 17.0 + 1.2) > 0.9 ? 0.42 : 1;
+      materials.amberLight.emissiveIntensity = (1.0 + Math.sin(t * 4.8) * 0.22) * amberStutter;
+      materials.cyanLight.emissiveIntensity = (0.62 + Math.sin(t * 3.7 + 0.6) * 0.16) * cyanStutter;
+      materials.hazard.emissive.setHex(LOOK.amber);
+      materials.hazard.emissiveIntensity = 0.1 + Math.max(0, Math.sin(t * 2.1)) * 0.05;
+    },
+  };
 }

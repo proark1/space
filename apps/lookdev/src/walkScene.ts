@@ -43,7 +43,8 @@ export async function createWalkScene(
   canvas: HTMLCanvasElement,
 ): Promise<WalkSceneHandle> {
   const scene = new Scene();
-  const { colliders, level } = buildCorridor(scene);
+  const corridor = buildCorridor(scene);
+  const { colliders, level } = corridor;
   const playerUnitFactory = await loadPlayerUnitFactory();
 
   // Shared game root. Spawn near the near end-cap, facing -Z down the hall.
@@ -175,6 +176,7 @@ export async function createWalkScene(
       });
     },
     frameUpdate(dt) {
+      corridor.update(dt);
       placeCamera();
       syncRemoteMarkers(dt);
     },

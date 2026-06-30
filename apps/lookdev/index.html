@@ -23,6 +23,7 @@
         position: fixed;
         top: 12px;
         left: 14px;
+        max-width: calc(100vw - 28px);
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #5b7a93;
         letter-spacing: 0.04em;
@@ -62,6 +63,24 @@
       #netStatus {
         min-width: 150px;
         color: #5b7a93;
+      }
+      @media (max-width: 680px) {
+        #hud {
+          right: 14px;
+          font-size: 11px;
+        }
+        #net {
+          top: auto;
+          right: 8px;
+          bottom: 8px;
+          left: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-start;
+        }
+        #netStatus {
+          flex-basis: 100%;
+          min-width: 0;
+        }
       }
     </style>
   </head>
