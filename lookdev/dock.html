@@ -303,7 +303,13 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     if(keys.ArrowLeft||keys.KeyA){ ix+=THR; thrusting=true; } if(keys.ArrowRight||keys.KeyD){ ix-=THR; thrusting=true; }
     if(keys.ArrowUp||keys.KeyW){ iy-=THR; thrusting=true; } if(keys.ArrowDown||keys.KeyS){ iy+=THR; thrusting=true; }
     if(keys.Space){ iz+=CLOSE; thrusting=true; }
-    if(DOCK_AUTO){ ix+=THREE.MathUtils.clamp(-offX*5-voffX*2-dfx,-THR,THR); iy+=THREE.MathUtils.clamp(-offY*5-voffY*2-dfy,-THR,THR); if(vdist<(dist>3?1.2:0.75)) iz+=CLOSE*0.28; thrusting=true; }
+    if(DOCK_AUTO){
+      ix+=THREE.MathUtils.clamp(-offX*5-voffX*2-dfx,-THR,THR);
+      iy+=THREE.MathUtils.clamp(-offY*5-voffY*2-dfy,-THR,THR);
+      const autoCloseTarget=dist>3?1.62:1.28;
+      if(vdist<autoCloseTarget) iz+=CLOSE*0.62;
+      thrusting=true;
+    }
     voffX+=(dfx+ix)*dt; voffY+=(dfy+iy)*dt; voffX*=Math.exp(-DAMP*dt); voffY*=Math.exp(-DAMP*dt);
     offX+=voffX*dt; offY+=voffY*dt;
     vdist+=iz*dt; vdist*=Math.exp(-0.4*dt); if(vdist<0)vdist=0; dist-=vdist*dt;

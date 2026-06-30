@@ -66,8 +66,16 @@ function scrollToLobby(): void {
   document.getElementById('capsule-lobby')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function playNow(): void {
-  window.location.assign(PLAY_URL);
+function playUrl(params: Record<string, string> = {}): string {
+  const url = new URL(PLAY_URL, window.location.href);
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value);
+  }
+  return url.origin === window.location.origin ? `${url.pathname}${url.search}${url.hash}` : url.toString();
+}
+
+function playNow(params?: Record<string, string>): void {
+  window.location.assign(playUrl(params));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -170,7 +178,7 @@ export function LandingPage() {
             incriminating, and the rescue signal is absolutely not asking nicely.
           </p>
           <div className="hero__actions" aria-label="Main actions">
-            <button className="button button--primary button--glitch" onClick={playNow} data-text="Play now">Play now</button>
+            <button className="button button--primary button--glitch" onClick={() => playNow()} data-text="Play now">Play now</button>
             <button className="button button--ghost button--glitch" onClick={startRoom} data-text="Start a room">Start a room</button>
             <button className="button button--ghost button--glitch" onClick={scrollToLobby} data-text="Join a crew">Join a crew</button>
           </div>
@@ -266,12 +274,12 @@ export function LandingPage() {
               <span className="lobby-panel__label">{isHost ? 'Share this code' : 'Joined room'}</span>
               <div className="room-code">{code}</div>
               <p>{peers.length ? `${peers.length} peer connected` : 'NPC crew standing by.'}</p>
-              <button className="button button--primary" onClick={playNow}>Launch now</button>
+              <button className="button button--primary" onClick={() => playNow({ room: code })}>Launch now</button>
               <button className="button button--danger" onClick={leave}>Leave room</button>
             </div>
           ) : (
             <div className="lobby-panel__body">
-              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={playNow} data-text="Play now">Play now</button>
+              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={() => playNow()} data-text="Play now">Play now</button>
               <button className="button button--primary button--art" style={coverStyle(art['landing-btn-host'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={startRoom} data-text="Start room">Start room</button>
               <div className="join-row">
                 <input
