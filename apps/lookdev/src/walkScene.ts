@@ -1,8 +1,10 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   CapsuleGeometry,
   Euler,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
@@ -35,6 +37,10 @@ const THIRD_PERSON_HEIGHT = 0.72;
 const THIRD_PERSON_TARGET_HEIGHT = 0.9;
 const PLAYER_RADIUS = 0.48;
 const HOLDOUT_SECONDS = 55;
+const SAFE_ROOM_ZONE = 'med';
+const SAFE_ROOM_GUARD = new Vector3(0, 1, -4);
+const FIRST_ENCOUNTER_START = new Vector3(1.65, 1, -12);
+const FIRST_ENCOUNTER_END = new Vector3(-1.65, 1, -12);
 
 export interface WalkSceneOptions {
   readonly thirdPerson?: boolean;
@@ -42,6 +48,78 @@ export interface WalkSceneOptions {
 
 type RunStage = 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extract' | 'won' | 'dead';
 type MonsterMode = 'patrol' | 'investigate' | 'chase' | 'attack' | 'stunned';
+type EncounterPhase = 'idle' | 'telegraph' | 'cross' | 'recover' | 'done';
+
+export interface SmokePose {
+  readonly x: number;
+  readonly y?: number;
+  readonly z: number;
+  readonly yaw?: number;
+}
+
+export interface WalkRunStateView {
+  readonly stage: RunStage;
+  readonly health: number;
+  readonly battery: number;
+  readonly resolve: number;
+  readonly ammoMag: number;
+  readonly ammoReserve: number;
+  readonly hasFuse: boolean;
+  readonly powered: boolean;
+  readonly flashlightOn: boolean;
+  readonly holdoutSeconds: number;
+  readonly simTime: number;
+  readonly status: string;
+  readonly inSafeRoom: boolean;
+  readonly tension: number;
+  readonly commsCharge: number;
+  readonly encounterPhase: EncounterPhase;
+  readonly encounterTimer: number;
+  readonly activeFuse: {
+    readonly id: string;
+    readonly pos: { readonly x: number; readonly y: number; readonly z: number };
+  };
+  readonly collectedPickupIds: readonly string[];
+  readonly doors: ReadonlyArray<{
+    readonly id: string;
+    readonly unlock: string;
+    readonly unlocked: boolean;
+  }>;
+  readonly stations: ReadonlyArray<{
+    readonly id: string;
+    readonly kind: string;
+    readonly pos: { readonly x: number; readonly y: number; readonly z: number };
+  }>;
+  readonly pickups: ReadonlyArray<{
+    readonly id: string;
+    readonly kind: string;
+    readonly active: boolean;
+    readonly collected: boolean;
+    readonly pos: { readonly x: number; readonly y: number; readonly z: number };
+  }>;
+}
+
+export interface MonsterStateView {
+  readonly mode: MonsterMode;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly attackCooldown: number;
+  readonly attackWindup: number;
+  readonly stunTimer: number;
+}
+
+export interface WalkUiFeedbackView {
+  readonly promptText: string;
+  readonly promptVisible: boolean;
+  readonly damageFlash: number;
+  readonly damageFlashOpacity: number;
+  readonly endVisible: boolean;
+  readonly endTitle: string;
+  readonly endDetail: string;
+  readonly stunBeamVisible: boolean;
+  readonly monsterHitFlash: number;
+}
 
 interface RemotePlayerVisual {
   readonly root: Object3D;
@@ -63,6 +141,9 @@ interface RunState {
   flashlightOn: boolean;
   holdoutSeconds: number;
   simTime: number;
+  tension: number;
+  encounterPhase: EncounterPhase;
+  encounterTimer: number;
   statusMessage: string;
   statusUntil: number;
 }
@@ -74,9 +155,11 @@ interface MonsterState {
   path: Vector3[];
   repathIn: number;
   attackCooldown: number;
+  attackWindup: number;
   stunTimer: number;
   investigateTarget: Vector3 | null;
   lostSightSeconds: number;
+  footstepMeters: number;
   yaw: number;
 }
 
@@ -87,6 +170,13 @@ export interface WalkSceneHandle extends HarnessScene {
   /** The local player's current world position, read from the ECS Transform. */
   playerPosition(): { x: number; y: number; z: number };
   setRemoteWorld(world: GameWorld | undefined): void;
+  runState(): WalkRunStateView;
+  monsterState(): MonsterStateView;
+  uiFeedback(): WalkUiFeedbackView;
+  setPlayerPoseForSmoke(pose: SmokePose): void;
+  setMonsterPoseForSmoke(pose: SmokePose): void;
+  interactForSmoke(): number;
+  fireForSmoke(): number;
   readonly grounded: boolean;
 }
 
@@ -266,6 +356,20 @@ function statusText(run: RunState, monster: MonsterState, grounded: boolean): st
   return `${grounded ? 'grounded' : 'airborne'} · ${run.flashlightOn ? 'light' : 'dark'} · monster ${monster.mode}`;
 }
 
+function isSafeRoom(level: CorridorLevel, pos: { readonly x: number; readonly z: number }): boolean {
+  return nearestCell(level, pos).zone === SAFE_ROOM_ZONE;
+}
+
+function commsCharge(run: RunState): number {
+  if (run.stage === 'extract' || run.stage === 'won') return 1;
+  if (run.stage !== 'holdout') return 0;
+  return clamp(1 - run.holdoutSeconds / HOLDOUT_SECONDS, 0, 1);
+}
+
+function encounterActive(run: RunState): boolean {
+  return run.encounterPhase === 'telegraph' || run.encounterPhase === 'cross' || run.encounterPhase === 'recover';
+}
+
 /**
  * The playable vertical slice (the first time every layer runs together): a branching greybox ship
  * with matching Rapier static colliders, an ECS LocalPlayer driven by KCC movement, objectives,
@@ -316,6 +420,9 @@ export async function createWalkScene(
     flashlightOn: true,
     holdoutSeconds: HOLDOUT_SECONDS,
     simTime: 0,
+    tension: 0,
+    encounterPhase: 'idle',
+    encounterTimer: 0,
     statusMessage: `seed ${seed}`,
     statusUntil: 3,
   };
@@ -334,6 +441,83 @@ export async function createWalkScene(
   if (localUnit) scene.add(localUnit.root);
   const localUnitFill = localUnit ? new PointLight(0xd8eaff, 18, 7, 2) : null;
   if (localUnitFill) scene.add(localUnitFill);
+  const promptEl = document.getElementById('prompt');
+  const tensionFillEl = document.getElementById('tensionFill');
+  const commsFillEl = document.getElementById('commsFill');
+  const commsMeterEl = document.getElementById('commsMeter');
+  const encounterFlashEl = document.getElementById('encounterFlash');
+  const damageFlashEl = document.getElementById('damageFlash');
+  const endScreenEl = document.getElementById('endScreen');
+  const endTitleEl = document.getElementById('endTitle');
+  const endDetailEl = document.getElementById('endDetail');
+  document.getElementById('restartRun')?.addEventListener('click', () => location.reload());
+  let damageFlash = 0;
+  let encounterFlash = 0;
+  let lastEndStage: RunStage | null = null;
+  let lastDoorCueAt = -Infinity;
+  let nextTensionPulseAt = 0;
+  let monsterLungeTimer = 0;
+  let audioContext: AudioContext | null = null;
+  const ensureAudio = (): AudioContext | null => {
+    if (typeof AudioContext === 'undefined') return null;
+    try {
+      audioContext ??= new AudioContext();
+      if (audioContext.state === 'suspended') void audioContext.resume();
+      return audioContext;
+    } catch {
+      return null;
+    }
+  };
+  const playTone = (freq: number, duration: number, volume: number, type: OscillatorType, delay = 0): void => {
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    const start = ctx.currentTime + delay;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + duration + 0.02);
+  };
+  const playCue = (cue: 'pickup' | 'door' | 'power' | 'comms' | 'stun' | 'hit' | 'monster' | 'step' | 'scare' | 'tension' | 'win' | 'dead'): void => {
+    if (cue === 'pickup') playTone(880, 0.12, 0.04, 'triangle');
+    else if (cue === 'door') playTone(82, 0.18, 0.08, 'sawtooth');
+    else if (cue === 'power') {
+      playTone(120, 0.32, 0.055, 'sawtooth');
+      playTone(240, 0.28, 0.035, 'triangle', 0.08);
+    } else if (cue === 'comms') {
+      playTone(420, 0.16, 0.045, 'square');
+      playTone(620, 0.16, 0.04, 'square', 0.17);
+    } else if (cue === 'stun') {
+      playTone(980, 0.08, 0.06, 'sawtooth');
+      playTone(1420, 0.11, 0.035, 'triangle', 0.035);
+    } else if (cue === 'hit') {
+      playTone(56, 0.2, 0.1, 'sawtooth');
+      playTone(130, 0.08, 0.07, 'square');
+    } else if (cue === 'monster') {
+      playTone(70, 0.38, 0.08, 'sawtooth');
+      playTone(47, 0.5, 0.055, 'square', 0.08);
+    } else if (cue === 'step') {
+      playTone(46, 0.08, 0.045, 'sine');
+    } else if (cue === 'scare') {
+      playTone(44, 0.62, 0.095, 'sawtooth');
+      playTone(132, 0.18, 0.06, 'square', 0.04);
+      playTone(880, 0.08, 0.035, 'triangle', 0.22);
+    } else if (cue === 'tension') {
+      playTone(52 + run.tension * 0.45, 0.22, 0.026 + run.tension / 4000, 'sawtooth');
+    } else if (cue === 'win') {
+      playTone(330, 0.18, 0.045, 'triangle');
+      playTone(495, 0.18, 0.045, 'triangle', 0.15);
+      playTone(660, 0.34, 0.04, 'triangle', 0.3);
+    } else {
+      playTone(88, 0.8, 0.09, 'sawtooth');
+      playTone(44, 0.8, 0.07, 'square', 0.06);
+    }
+  };
 
   const doorMat = new MeshStandardMaterial({ color: 0x26323a, emissive: 0x2b0808, emissiveIntensity: 0.8, roughness: 0.72 });
   const stationMat = new MeshStandardMaterial({ color: 0x2f4953, emissive: 0x12606e, emissiveIntensity: 0.85, roughness: 0.55 });
@@ -341,6 +525,20 @@ export async function createWalkScene(
   const fuseMat = new MeshStandardMaterial({ color: 0x9fd0ff, emissive: 0x65b7ff, emissiveIntensity: 1.25, roughness: 0.4 });
   const monsterMat = new MeshStandardMaterial({ color: 0x20181a, emissive: 0x6b1111, emissiveIntensity: 0.8, roughness: 0.8 });
   const monsterEyeMat = new MeshStandardMaterial({ color: 0xffc36a, emissive: 0xff5f33, emissiveIntensity: 2.2, roughness: 0.3 });
+  const stunBeamMat = new MeshBasicMaterial({
+    color: 0x9fdfff,
+    transparent: true,
+    opacity: 0.78,
+    blending: AdditiveBlending,
+    depthWrite: false,
+  });
+  const stunBeam = new Mesh(new BoxGeometry(0.08, 0.08, 1), stunBeamMat);
+  stunBeam.visible = false;
+  scene.add(stunBeam);
+  const stunLight = new PointLight(0x9fdfff, 0, 9, 2);
+  scene.add(stunLight);
+  let stunBeamTimer = 0;
+  let monsterHitFlash = 0;
 
   const doorMeshes = level.doors.map((door) => {
     const mesh = new Mesh(new BoxGeometry(door.half[0] * 2, door.half[1] * 2, door.half[2] * 2), doorMat);
@@ -391,9 +589,11 @@ export async function createWalkScene(
     path: [],
     repathIn: 0,
     attackCooldown: 0,
+    attackWindup: 0,
     stunTimer: 0,
     investigateTarget: null,
     lostSightSeconds: 0,
+    footstepMeters: 0,
     yaw: 0,
   };
 
@@ -519,7 +719,179 @@ export async function createWalkScene(
     return best;
   };
 
+  const nearestVisiblePickup = (pos: Vector3): ShipPickup | null => {
+    let best: ShipPickup | null = null;
+    let bestD = Infinity;
+    for (const { pickup, mesh } of pickupMeshes) {
+      if (collectedPickups.has(pickup.id) || !mesh.visible) continue;
+      const d = dist2d(pos, { x: pickup.pos[0], z: pickup.pos[2] });
+      if (d < pickup.radius + 0.9 && d < bestD) {
+        best = pickup;
+        bestD = d;
+      }
+    }
+    return best;
+  };
+
+  const promptFor = (pos: Vector3): string | null => {
+    if (run.stage === 'won' || run.stage === 'dead') return null;
+
+    const station = nearestStation(pos);
+    if (station?.kind === 'power') {
+      return run.stage === 'restorePower' ? 'E - restore engineering power' : 'Engineering power online';
+    }
+    if (station?.kind === 'comms') {
+      if (run.stage === 'installFuse') return 'E - install comms fuse';
+      if (run.stage === 'holdout') return `Transmitter charging ${Math.round(commsCharge(run) * 100)}%`;
+      if (run.stage === 'extract') return 'Transmitter online';
+      return 'Comms relay needs the fuse';
+    }
+    if (station?.kind === 'extract') {
+      return run.stage === 'extract' ? 'E - cycle airlock and extract' : 'Airlock clamp sealed';
+    }
+
+    const door = blockedDoorsNear(pos);
+    if (door) {
+      const reason = door.unlock === 'power' ? 'restore power' : door.unlock === 'fuse' ? 'find fuse' : 'survive attack';
+      return `${door.label} locked - ${reason}`;
+    }
+
+    const pickup = nearestVisiblePickup(pos);
+    if (pickup) return `${pickup.label} +${pickup.amount}`;
+    if (isSafeRoom(level, pos)) return 'Safe room - monster will not enter';
+    return null;
+  };
+
+  const updatePrompt = (pos: Vector3): void => {
+    if (!promptEl) return;
+    const prompt = promptFor(pos);
+    promptEl.textContent = prompt ?? '';
+    promptEl.style.opacity = prompt ? '1' : '0';
+  };
+
+  const updateEndScreen = (): void => {
+    if (!endScreenEl || !endTitleEl || !endDetailEl) return;
+    if (run.stage !== 'won' && run.stage !== 'dead') {
+      endScreenEl.classList.remove('visible');
+      lastEndStage = null;
+      return;
+    }
+    if (lastEndStage === run.stage) return;
+    lastEndStage = run.stage;
+    const won = run.stage === 'won';
+    endTitleEl.textContent = won ? 'Signal Restored' : 'Crew Lost';
+    endDetailEl.textContent = won
+      ? 'The transmitter is live. You made it back to the airlock.'
+      : 'The ship goes quiet again. Restart the run and use the med bay as a safe room.';
+    endScreenEl.classList.add('visible');
+    playCue(won ? 'win' : 'dead');
+  };
+
+  const showStunBeam = (from: Vector3, to: Vector3): void => {
+    const delta = to.clone().sub(from);
+    const length = delta.length();
+    if (length <= 0.01) return;
+    stunBeam.position.copy(from).addScaledVector(delta, 0.5);
+    stunBeam.scale.set(1, 1, length);
+    stunBeam.lookAt(to);
+    stunBeam.visible = true;
+    stunBeamTimer = 0.14;
+    stunLight.position.copy(from);
+    stunLight.intensity = 160;
+  };
+
+  const startFirstEncounter = (): void => {
+    if (run.encounterPhase !== 'idle') return;
+    run.encounterPhase = 'telegraph';
+    run.encounterTimer = 2.15;
+    run.tension = Math.max(run.tension, 44);
+    encounterFlash = 0.9;
+    monster.pos.copy(FIRST_ENCOUNTER_START);
+    monster.path = [];
+    monster.repathIn = 0;
+    monster.attackWindup = 0;
+    monster.mode = 'investigate';
+    flashStatus('vent rattle ahead', 2.2);
+    playCue('scare');
+  };
+
+  const updateFirstEncounter = (dt: number, pos: Vector3): boolean => {
+    if (!encounterActive(run)) return false;
+    run.encounterTimer = Math.max(0, run.encounterTimer - dt);
+    monster.path = [];
+    monster.attackWindup = 0;
+    monster.mode = 'investigate';
+
+    if (run.encounterPhase === 'telegraph') {
+      monster.pos.copy(FIRST_ENCOUNTER_START);
+      monster.yaw = -Math.PI / 2;
+      if (run.encounterTimer <= 0) {
+        run.encounterPhase = 'cross';
+        run.encounterTimer = 1.25;
+        encounterFlash = 1;
+        flashStatus('something crossed the bulkhead', 1.8);
+        playCue('monster');
+      }
+      return true;
+    }
+
+    if (run.encounterPhase === 'cross') {
+      const progress = 1 - run.encounterTimer / 1.25;
+      monster.pos.copy(FIRST_ENCOUNTER_START).lerp(FIRST_ENCOUNTER_END, clamp(progress, 0, 1));
+      monster.yaw = Math.PI / 2;
+      if (run.encounterTimer <= 0) {
+        run.encounterPhase = 'recover';
+        run.encounterTimer = 1.05;
+        monster.investigateTarget = pos.clone();
+      }
+      return true;
+    }
+
+    monster.pos.copy(FIRST_ENCOUNTER_END);
+    monster.yaw = Math.PI / 2;
+    if (run.encounterTimer <= 0) {
+      run.encounterPhase = 'done';
+      run.encounterTimer = 0;
+      monster.mode = 'investigate';
+      monster.investigateTarget = pos.clone();
+      monster.repathIn = 0;
+      flashStatus('find the comms fuse', 2.4);
+    }
+    return true;
+  };
+
+  const updateTension = (dt: number, pos: Vector3): void => {
+    const monsterDistance = dist2d(monster.pos, pos);
+    let target = 10;
+    if (isSafeRoom(level, pos)) target = 4;
+    if (run.stage === 'holdout') target = Math.max(target, 56 + commsCharge(run) * 22);
+    if (encounterActive(run)) target = Math.max(target, 72);
+    if (monster.mode === 'investigate') target = Math.max(target, 34);
+    if (monster.mode === 'chase') target = Math.max(target, 78);
+    if (monster.mode === 'attack') target = Math.max(target, 96);
+    if (monsterDistance < 8 && !isSafeRoom(level, pos)) target = Math.max(target, 70 + (8 - monsterDistance) * 4);
+    if (run.stage === 'dead') target = 100;
+    if (run.stage === 'won') target = 0;
+
+    const rate = target > run.tension ? 54 : isSafeRoom(level, pos) ? 32 : 14;
+    run.tension += clamp(target - run.tension, -rate * dt, rate * dt);
+    run.tension = clamp(run.tension, 0, 100);
+
+    if (run.tension > 42 && run.stage !== 'won' && run.stage !== 'dead' && run.simTime >= nextTensionPulseAt) {
+      playCue('tension');
+      nextTensionPulseAt = run.simTime + clamp(1.2 - run.tension / 135, 0.38, 1.05);
+    }
+  };
+
+  const updateRunMeters = (): void => {
+    if (tensionFillEl) tensionFillEl.style.width = `${Math.round(run.tension)}%`;
+    const charge = commsCharge(run);
+    if (commsFillEl) commsFillEl.style.width = `${Math.round(charge * 100)}%`;
+    if (commsMeterEl) commsMeterEl.style.opacity = run.stage === 'holdout' || charge > 0 ? '1' : '0.35';
+  };
+
   const addPickup = (pickup: ShipPickup): void => {
+    playCue('pickup');
     if (pickup.kind === 'fuse') {
       run.hasFuse = true;
       if (run.stage === 'findFuse') run.stage = 'installFuse';
@@ -554,6 +926,7 @@ export async function createWalkScene(
       if (door) {
         const reason = door.unlock === 'power' ? 'restore power first' : door.unlock === 'fuse' ? 'find the comms fuse first' : 'survive the attack first';
         flashStatus(`${door.label}: ${reason}`, 2.4);
+        playCue('door');
         return 0.25;
       }
       flashStatus('nothing in reach', 1.2);
@@ -566,7 +939,8 @@ export async function createWalkScene(
       monster.mode = 'investigate';
       monster.investigateTarget = pos.clone();
       monster.repathIn = 0;
-      flashStatus('power restored - find the comms fuse', 3);
+      startFirstEncounter();
+      playCue('power');
       return 0.7;
     }
     if (station.kind === 'comms' && run.stage === 'installFuse') {
@@ -575,6 +949,7 @@ export async function createWalkScene(
       monster.mode = 'chase';
       monster.repathIn = 0;
       flashStatus('transmitter charging - survive', 3);
+      playCue('comms');
       return 1;
     }
     if (station.kind === 'extract' && run.stage === 'extract') {
@@ -590,20 +965,26 @@ export async function createWalkScene(
   const handleFire = (pos: Vector3): number => {
     if (run.ammoMag <= 0) {
       flashStatus('no stun cells', 1.5);
+      playCue('door');
       return 0.2;
     }
     run.ammoMag -= 1;
+    playCue('stun');
     const toMonster = monster.pos.clone().sub(pos);
     const range = Math.hypot(toMonster.x, toMonster.z);
     const forward = new Vector3(-Math.sin(controls.yaw), 0, -Math.cos(controls.yaw));
     toMonster.y = 0;
     if (range > 0.001) toMonster.normalize();
     const hit = range < 8.5 && forward.dot(toMonster) > 0.68 && hasGridLineOfSight(level, run, pos, monster.pos);
+    const beamStart = pos.clone().setY(pos.y + EYE_OFFSET);
+    const beamEnd = monster.pos.clone().setY(monster.pos.y + 0.85);
+    showStunBeam(beamStart, hit ? beamEnd : beamStart.clone().addScaledVector(forward, 7.5));
     if (hit) {
       monster.mode = 'stunned';
       monster.stunTimer = 3.2;
       monster.path = [];
       monster.repathIn = 0;
+      monsterHitFlash = 0.28;
       flashStatus('monster stunned', 2.2);
     } else {
       flashStatus('stun pulse missed', 1.2);
@@ -613,7 +994,7 @@ export async function createWalkScene(
     return 1.2;
   };
 
-  const moveMonster = (dt: number, target: Vector3, speed: number): void => {
+  const moveMonster = (dt: number, target: Vector3, speed: number): number => {
     monster.repathIn -= dt;
     if (monster.repathIn <= 0) {
       monster.path = findPath(level, monster.pos, target, closedDoorEdges(level, run));
@@ -628,16 +1009,28 @@ export async function createWalkScene(
     const dx = waypoint.x - monster.pos.x;
     const dz = waypoint.z - monster.pos.z;
     const len = Math.hypot(dx, dz);
-    if (len < 0.05) return;
+    if (len < 0.05) return 0;
     const step = Math.min(speed * dt, len);
     monster.pos.x += (dx / len) * step;
     monster.pos.z += (dz / len) * step;
     monster.yaw = Math.atan2(-dx / len, -dz / len);
+    return step;
+  };
+
+  const trackMonsterStep = (moved: number, playerDistance: number): void => {
+    if (moved <= 0.001) return;
+    monster.footstepMeters += moved;
+    const threshold = monster.mode === 'chase' || monster.mode === 'attack' ? 1.35 : 2.2;
+    if (monster.footstepMeters < threshold) return;
+    monster.footstepMeters = 0;
+    if (playerDistance < 18) playCue('step');
   };
 
   const damagePlayer = (amount: number): void => {
     run.health = clamp(run.health - amount, 0, 100);
     run.resolve = clamp(run.resolve - amount * 0.75, 0, 100);
+    damageFlash = 1;
+    playCue('hit');
     flashStatus('monster hit', 1.1);
     if (run.health <= 0) {
       run.stage = 'dead';
@@ -650,7 +1043,9 @@ export async function createWalkScene(
   const updateMonster = (dt: number, pos: Vector3, playerNoise: number): void => {
     if (run.stage === 'won' || run.stage === 'dead') return;
 
+    const previousMode = monster.mode;
     monster.attackCooldown = Math.max(0, monster.attackCooldown - dt);
+    if (updateFirstEncounter(dt, pos)) return;
     if (monster.stunTimer > 0) {
       monster.stunTimer -= dt;
       monster.mode = 'stunned';
@@ -666,6 +1061,15 @@ export async function createWalkScene(
     const distance = dist2d(monster.pos, pos);
     const canSeePlayer = hasGridLineOfSight(level, run, monster.pos, pos) && distance < (run.flashlightOn ? 16 : 5.2);
     const heardPlayer = playerNoise > 0 && distance < 7 + playerNoise * 15;
+    const playerSafe = isSafeRoom(level, pos);
+
+    if (playerSafe) {
+      monster.mode = 'investigate';
+      monster.attackWindup = 0;
+      monster.investigateTarget = SAFE_ROOM_GUARD;
+      trackMonsterStep(moveMonster(dt, SAFE_ROOM_GUARD, 1.65), distance);
+      return;
+    }
 
     if (run.stage === 'holdout') {
       monster.mode = distance < 1.35 ? 'attack' : 'chase';
@@ -686,24 +1090,40 @@ export async function createWalkScene(
       monster.repathIn = 0;
     }
 
+    if ((monster.mode === 'chase' || monster.mode === 'attack') && previousMode !== 'chase' && previousMode !== 'attack') {
+      playCue('monster');
+    }
+
     if (monster.mode === 'attack') {
       if (distance > 1.55) {
         monster.mode = 'chase';
+        monster.attackWindup = 0;
       } else if (monster.attackCooldown <= 0) {
-        damagePlayer(run.stage === 'holdout' ? 22 : 16);
-        monster.attackCooldown = 1.35;
+        if (monster.attackWindup <= 0) {
+          monster.attackWindup = 0.46;
+          flashStatus('attack incoming', 0.55);
+          playCue('monster');
+        } else {
+          monster.attackWindup -= dt;
+          if (monster.attackWindup <= 0 && distance <= 1.65) {
+            monsterLungeTimer = 0.24;
+            damagePlayer(run.stage === 'holdout' ? 22 : 16);
+            monster.attackCooldown = 1.35;
+          }
+        }
       }
-      moveMonster(dt, pos, 1.2);
+      trackMonsterStep(moveMonster(dt, pos, monster.attackWindup > 0 ? 0.55 : 1.2), distance);
       return;
     }
 
     if (monster.mode === 'chase') {
-      moveMonster(dt, pos, run.stage === 'holdout' ? 3.05 : 2.45);
+      monster.attackWindup = 0;
+      trackMonsterStep(moveMonster(dt, pos, run.stage === 'holdout' ? 3.05 : 2.45), distance);
       return;
     }
 
     if (monster.mode === 'investigate' && monster.investigateTarget) {
-      moveMonster(dt, monster.investigateTarget, 1.75);
+      trackMonsterStep(moveMonster(dt, monster.investigateTarget, 1.75), distance);
       if (dist2d(monster.pos, monster.investigateTarget) < 0.7) {
         monster.mode = 'patrol';
         monster.investigateTarget = null;
@@ -714,7 +1134,7 @@ export async function createWalkScene(
     const patrol = level.patrolNodes[monster.patrolIndex % level.patrolNodes.length];
     if (!patrol) return;
     const target = new Vector3(patrol.pos[0], patrol.pos[1], patrol.pos[2]);
-    moveMonster(dt, target, 1.1);
+    trackMonsterStep(moveMonster(dt, target, 1.1), distance);
     if (dist2d(monster.pos, target) < 0.7) {
       monster.patrolIndex = (monster.patrolIndex + 1) % level.patrolNodes.length;
       monster.repathIn = 0;
@@ -728,6 +1148,115 @@ export async function createWalkScene(
     PlayerState.resolve[playerEid] = run.resolve;
     PlayerState.ammoMag[playerEid] = run.ammoMag;
     PlayerState.ammoReserve[playerEid] = run.ammoReserve;
+  };
+  const syncHudState = (): void => {
+    updatePrompt(playerPos());
+    updateEndScreen();
+    updateRunMeters();
+    hudSync({
+      health: Math.round(run.health),
+      battery: Math.round(run.battery),
+      resolve: Math.round(run.resolve),
+      ammoMag: Math.round(run.ammoMag),
+      ammoReserve: Math.round(run.ammoReserve),
+      objective: objectiveText(run, activeFuse),
+      status: statusText(run, monster, game.playerController.isGrounded),
+    });
+  };
+  const runStateView = (): WalkRunStateView => ({
+    stage: run.stage,
+    health: run.health,
+    battery: run.battery,
+    resolve: run.resolve,
+    ammoMag: run.ammoMag,
+    ammoReserve: run.ammoReserve,
+    hasFuse: run.hasFuse,
+    powered: run.powered,
+    flashlightOn: run.flashlightOn,
+    holdoutSeconds: run.holdoutSeconds,
+    simTime: run.simTime,
+    status: statusText(run, monster, game.playerController.isGrounded),
+    inSafeRoom: isSafeRoom(level, playerPos()),
+    tension: run.tension,
+    commsCharge: commsCharge(run),
+    encounterPhase: run.encounterPhase,
+    encounterTimer: run.encounterTimer,
+    activeFuse: {
+      id: activeFuse.id,
+      pos: { x: activeFuse.pos[0], y: activeFuse.pos[1], z: activeFuse.pos[2] },
+    },
+    collectedPickupIds: [...collectedPickups],
+    doors: level.doors.map((door) => ({
+      id: door.id,
+      unlock: door.unlock,
+      unlocked: isDoorUnlocked(door, run),
+    })),
+    stations: level.stations.map((station) => ({
+      id: station.id,
+      kind: station.kind,
+      pos: { x: station.pos[0], y: station.pos[1], z: station.pos[2] },
+    })),
+    pickups: level.pickups.map((pickup) => ({
+      id: pickup.id,
+      kind: pickup.kind,
+      active: pickup.variantGroup !== 'fuse' || pickup.id === activeFuse.id,
+      collected: collectedPickups.has(pickup.id),
+      pos: { x: pickup.pos[0], y: pickup.pos[1], z: pickup.pos[2] },
+    })),
+  });
+  const monsterStateView = (): MonsterStateView => ({
+    mode: monster.mode,
+    x: monster.pos.x,
+    y: monster.pos.y,
+    z: monster.pos.z,
+    attackCooldown: monster.attackCooldown,
+    attackWindup: monster.attackWindup,
+    stunTimer: monster.stunTimer,
+  });
+  const uiFeedbackView = (): WalkUiFeedbackView => ({
+    promptText: promptEl?.textContent ?? '',
+    promptVisible: promptEl?.style.opacity === '1',
+    damageFlash,
+    damageFlashOpacity: Number(damageFlashEl?.style.opacity || 0),
+    endVisible: endScreenEl?.classList.contains('visible') ?? false,
+    endTitle: endTitleEl?.textContent ?? '',
+    endDetail: endDetailEl?.textContent ?? '',
+    stunBeamVisible: stunBeam.visible,
+    monsterHitFlash,
+  });
+  const setPlayerPoseForSmoke = (pose: SmokePose): void => {
+    game.setControlledPlayerPose(playerEid, {
+      x: pose.x,
+      y: pose.y ?? Transform.y[playerEid] ?? 1,
+      z: pose.z,
+      yaw: pose.yaw ?? controls.yaw,
+    });
+    lastLocalX = pose.x;
+    lastLocalZ = pose.z;
+    placeCamera();
+    syncHudState();
+  };
+  const setMonsterPoseForSmoke = (pose: SmokePose): void => {
+    monster.pos.set(pose.x, pose.y ?? monster.pos.y, pose.z);
+    monster.path = [];
+    monster.repathIn = 0;
+    monster.attackWindup = 0;
+    monster.attackCooldown = 0;
+    monster.stunTimer = 0;
+    monster.mode = 'patrol';
+    if (pose.yaw !== undefined) monster.yaw = pose.yaw;
+  };
+  const interactForSmoke = (): number => {
+    const noise = handleInteract(playerPos());
+    syncRunToEcs();
+    syncHudState();
+    return noise;
+  };
+  const fireForSmoke = (): number => {
+    const noise = handleFire(playerPos());
+    syncRunToEcs();
+    syncHudState();
+    return noise;
   };
 
   placeCamera();
@@ -748,6 +1277,13 @@ export async function createWalkScene(
       remoteWorld = world;
       syncRemoteMarkers();
     },
+    runState: runStateView,
+    monsterState: monsterStateView,
+    uiFeedback: uiFeedbackView,
+    setPlayerPoseForSmoke,
+    setMonsterPoseForSmoke,
+    interactForSmoke,
+    fireForSmoke,
     fixedStep(dt) {
       run.simTime += dt;
       let playerNoise = 0;
@@ -757,6 +1293,7 @@ export async function createWalkScene(
         run.flashlightOn = run.battery > 0 ? !run.flashlightOn : false;
         flashlight.setOn(run.flashlightOn);
         flashStatus(run.flashlightOn ? 'flashlight on' : 'flashlight off', 1.4);
+        playTone(run.flashlightOn ? 520 : 180, 0.07, 0.035, 'square');
         playerNoise += 0.2;
       }
 
@@ -778,6 +1315,10 @@ export async function createWalkScene(
         game.setControlledPlayerPose(playerEid, { x: before.x, y: before.y, z: before.z, yaw: controls.yaw });
         pos = before.clone();
         flashStatus(`${door.label} locked`, 1.2);
+        if (run.simTime - lastDoorCueAt > 0.45) {
+          lastDoorCueAt = run.simTime;
+          playCue('door');
+        }
         break;
       }
 
@@ -792,13 +1333,15 @@ export async function createWalkScene(
           run.flashlightOn = false;
           flashlight.setOn(false);
           flashStatus('battery empty', 2);
+          playCue('door');
         }
       }
 
       const monsterDistance = dist2d(monster.pos, pos);
+      const safeRoom = isSafeRoom(level, pos);
       run.resolve = clamp(
         run.resolve
-          + (run.flashlightOn ? 0.55 : -0.4) * dt
+          + (safeRoom ? 4.2 : run.flashlightOn ? 0.55 : -0.4) * dt
           - (monsterDistance < 8 ? (8 - monsterDistance) * 0.7 * dt : 0)
           - (monster.mode === 'chase' || monster.mode === 'attack' ? 2.2 * dt : 0),
         0,
@@ -814,24 +1357,30 @@ export async function createWalkScene(
         if (run.holdoutSeconds <= 0) {
           run.stage = 'extract';
           flashStatus('transmitter online - return to airlock', 4);
+          playCue('power');
         }
       }
 
       updateMonster(dt, pos, playerNoise);
+      updateTension(dt, pos);
       syncRunToEcs();
-      hudSync({
-        health: Math.round(run.health),
-        battery: Math.round(run.battery),
-        resolve: Math.round(run.resolve),
-        ammoMag: Math.round(run.ammoMag),
-        ammoReserve: Math.round(run.ammoReserve),
-        objective: objectiveText(run, activeFuse),
-        status: statusText(run, monster, game.playerController.isGrounded),
-      });
+      syncHudState();
     },
     frameUpdate(dt) {
       corridor.update(dt);
       const t = run.simTime;
+      damageFlash = Math.max(0, damageFlash - dt * 2.8);
+      if (damageFlashEl) damageFlashEl.style.opacity = String(damageFlash * 0.82);
+      encounterFlash = Math.max(0, encounterFlash - dt * 1.65);
+      if (encounterFlashEl) encounterFlashEl.style.opacity = String(encounterFlash * (0.35 + run.tension / 180));
+      stunBeamTimer = Math.max(0, stunBeamTimer - dt);
+      stunBeam.visible = stunBeamTimer > 0;
+      stunBeamMat.opacity = Math.min(0.78, stunBeamTimer * 5.8);
+      stunLight.intensity = Math.max(0, stunLight.intensity - dt * 900);
+      monsterHitFlash = Math.max(0, monsterHitFlash - dt);
+      monsterLungeTimer = Math.max(0, monsterLungeTimer - dt);
+      const charge = commsCharge(run);
+      stationMat.emissiveIntensity = 0.85 + charge * 1.8 + (run.stage === 'holdout' ? Math.max(0, Math.sin(t * (7 + charge * 9))) * 0.65 : 0);
       for (const { door, mesh } of doorMeshes) {
         const open = isDoorUnlocked(door, run);
         mesh.position.y += (((open ? door.pos[1] + 2.5 : door.pos[1]) - mesh.position.y) * Math.min(1, dt * 8));
@@ -849,7 +1398,22 @@ export async function createWalkScene(
       }
       monsterRoot.position.copy(monster.pos);
       monsterRoot.rotation.y = monster.yaw;
-      monsterRoot.scale.setScalar(monster.mode === 'stunned' ? 0.92 + Math.sin(t * 38) * 0.025 : 1);
+      const windupPulse = monster.attackWindup > 0 ? 1.1 + Math.sin(t * 28) * 0.045 : 1;
+      const lungePulse = monsterLungeTimer > 0 ? 1.18 + monsterLungeTimer * 0.7 : 1;
+      const monsterScale = monster.mode === 'stunned'
+        ? 0.92 + Math.sin(t * 38) * 0.025
+        : monster.mode === 'chase'
+          ? 1.04
+          : windupPulse * lungePulse;
+      monsterRoot.scale.setScalar(monsterScale);
+      monsterEyeMat.emissiveIntensity = monster.mode === 'attack'
+        ? 3.3
+        : monsterHitFlash > 0
+          ? 4.2
+          : monster.mode === 'chase'
+            ? 2.8
+            : 2.2;
+      if (monsterHitFlash > 0) monsterMat.emissiveIntensity = 2.1 + Math.sin(t * 52) * 0.45;
       localUnit?.update(
         {
           x: Transform.x[playerEid]!,
@@ -886,7 +1450,11 @@ export async function createWalkScene(
         mesh.geometry.dispose();
       }
       scene.remove(monsterRoot);
+      scene.remove(stunBeam);
+      scene.remove(stunLight);
       monsterBody.geometry.dispose();
+      stunBeam.geometry.dispose();
+      stunBeamMat.dispose();
       doorMat.dispose();
       stationMat.dispose();
       pickupMat.dispose();
@@ -895,6 +1463,7 @@ export async function createWalkScene(
       monsterEyeMat.dispose();
       remoteGeo.dispose();
       remoteMat.dispose();
+      void audioContext?.close();
       game.dispose();
     },
   };

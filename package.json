@@ -13,6 +13,7 @@
     "build": "turbo run build",
     "clean": "turbo run clean",
     "asset:build": "tsx tools/asset-pipeline/src/cli.ts",
+    "smoke:lookdev:run": "tsx tools/gameplay-smoke/lookdev-run-smoke.ts",
     "smoke:net": "tsx tools/net-smoke/lookdev-smoke.ts",
     "smoke:net:room": "LOOKDEV_SMOKE_CLIENTS=3 LOOKDEV_SMOKE_SOAK_MS=5000 LOOKDEV_SMOKE_DELIVERY_MS=25 tsx tools/net-smoke/lookdev-smoke.ts",
     "smoke:net:soak": "LOOKDEV_SMOKE_CLIENTS=3 LOOKDEV_SMOKE_SOAK_MS=60000 LOOKDEV_SMOKE_DELIVERY_MS=25 LOOKDEV_SMOKE_TIMEOUT_MS=120000 tsx tools/net-smoke/lookdev-smoke.ts",

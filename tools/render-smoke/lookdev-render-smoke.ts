@@ -35,6 +35,7 @@ interface CanvasProbe {
   readonly nonBlackRatio: number;
   readonly avgLuma: number;
   readonly lumaRange: number;
+  readonly midtoneRatio: number;
 }
 
 const LOOKDEV_PORT = Number(process.env.LOOKDEV_RENDER_SMOKE_PORT ?? 4178);
@@ -50,7 +51,9 @@ const MAX_P95_FRAME_MS = Number(process.env.LOOKDEV_RENDER_SMOKE_MAX_P95_FRAME_M
 // the perf gate, while FPS remains a liveness check that the render loop is advancing.
 const MIN_FPS = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_FPS ?? 1);
 const MIN_NONBLACK_RATIO = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_NONBLACK_RATIO ?? 0.01);
+const MIN_AVG_LUMA = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_AVG_LUMA ?? 10);
 const MIN_LUMA_RANGE = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_LUMA_RANGE ?? 8);
+const MIN_MIDTONE_RATIO = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_MIDTONE_RATIO ?? 0.04);
 
 async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
@@ -176,6 +179,7 @@ function decodePngPixels(buffer: Buffer): { readonly width: number; readonly hei
 function probePng(buffer: Buffer): CanvasProbe {
   const png = decodePngPixels(buffer);
   let nonBlack = 0;
+  let midtones = 0;
   let lumaSum = 0;
   let minLuma = 255;
   let maxLuma = 0;
@@ -185,6 +189,7 @@ function probePng(buffer: Buffer): CanvasProbe {
     const b = png.data[i + 2]!;
     const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     if (luma > 4) nonBlack++;
+    if (luma >= 12 && luma <= 180) midtones++;
     lumaSum += luma;
     minLuma = Math.min(minLuma, luma);
     maxLuma = Math.max(maxLuma, luma);
@@ -197,6 +202,7 @@ function probePng(buffer: Buffer): CanvasProbe {
     nonBlackRatio: nonBlack / pixels,
     avgLuma: lumaSum / pixels,
     lumaRange: maxLuma - minLuma,
+    midtoneRatio: midtones / pixels,
   };
 }
 
@@ -229,8 +235,14 @@ function assertRenderBudgets(metrics: RenderMetrics, probe: CanvasProbe): void {
   if (probe.nonBlackRatio < MIN_NONBLACK_RATIO) {
     throw new Error(`canvas non-black ratio ${probe.nonBlackRatio.toFixed(4)} below ${MIN_NONBLACK_RATIO}`);
   }
+  if (probe.avgLuma < MIN_AVG_LUMA) {
+    throw new Error(`canvas average luma ${probe.avgLuma.toFixed(2)} below ${MIN_AVG_LUMA}`);
+  }
   if (probe.lumaRange < MIN_LUMA_RANGE) {
     throw new Error(`canvas luma range ${probe.lumaRange.toFixed(2)} below ${MIN_LUMA_RANGE}`);
+  }
+  if (probe.midtoneRatio < MIN_MIDTONE_RATIO) {
+    throw new Error(`canvas midtone ratio ${probe.midtoneRatio.toFixed(4)} below ${MIN_MIDTONE_RATIO}`);
   }
 }
 

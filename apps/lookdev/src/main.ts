@@ -308,6 +308,9 @@ async function main(): Promise<void> {
     netInfo: () => ({ mode: netMode, state: netState, peers: netPeers, driverPeers: netDriver?.session.peerIds.length ?? 0 }),
     netStats: () => latestNetStats,
     hostInputStats: () => Object.fromEntries(hostInputStats.entries()),
+    runState: () => (isWalkScene(harness) ? harness.runState() : null),
+    monsterState: () => (isWalkScene(harness) ? harness.monsterState() : null),
+    uiFeedback: () => (isWalkScene(harness) ? harness.uiFeedback() : null),
     renderMetrics: () => ({
       frames: renderFrames,
       backend: renderer.backend,
@@ -322,6 +325,14 @@ async function main(): Promise<void> {
       },
     }),
     localPlayerPosition: () => (isWalkScene(harness) ? harness.playerPosition() : null),
+    setPlayerPoseForSmoke: (pose: { x: number; y?: number; z: number; yaw?: number }) => {
+      if (isWalkScene(harness)) harness.setPlayerPoseForSmoke(pose);
+    },
+    setMonsterPoseForSmoke: (pose: { x: number; y?: number; z: number; yaw?: number }) => {
+      if (isWalkScene(harness)) harness.setMonsterPoseForSmoke(pose);
+    },
+    interactForSmoke: () => (isWalkScene(harness) ? harness.interactForSmoke() : 0),
+    fireForSmoke: () => (isWalkScene(harness) ? harness.fireForSmoke() : 0),
     remotePlayerPositions: () => {
       if (!isWalkScene(harness)) return [];
       return remotePlayerPositions(netMode === 'host' ? harness.game.world : netDriver?.clientWorld);

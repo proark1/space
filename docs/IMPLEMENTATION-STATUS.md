@@ -9,6 +9,9 @@
 - `pnpm test` passes after rebuilding changed packages.
 - `pnpm typecheck` passes.
 - `pnpm build` passes.
+- `pnpm smoke:lookdev:run` passes: deterministic Ship 1 lookdev route from power -> fuse -> comms
+  holdout -> extract, with door, pickup, timer, combat-feedback, prompt, safe-room, and win-overlay
+  assertions.
 - `pnpm smoke:net` passes: local WebSocket signaling + two browser pages + WebRTC gameplay movement.
 - `pnpm smoke:net:room` passes: local WebSocket signaling + host + 3 clients + 5s fixed-step room soak.
 - `pnpm smoke:net:soak` passes: local WebSocket signaling + host + 3 clients + 60s fixed-step room
@@ -25,8 +28,8 @@ The repo is in **M0 / early M1 infrastructure**, with a useful playable greybox 
 It is **not yet** the M4 Haunted Corridor vertical slice.
 
 The strongest implemented surface is the lookdev walk scene: first-person controls, Rapier KCC
-movement, ECS transforms, flashlight, PS1-style internal-resolution crunch, basic HUD, chaos physics
-probe, and room-code net controls.
+movement, ECS transforms, flashlight, Ship 1 greybox objectives, a basic monster director,
+PS1-style internal-resolution crunch, HUD, chaos physics probe, and room-code net controls.
 
 ## Done
 
@@ -74,6 +77,11 @@ probe, and room-code net controls.
   headers. Full relay/srflx verification is not complete.
 - **T16 host loss:** host-loss watcher exists; final product UI flow and run-end handling need a live
   browser verification pass.
+- **Ship 1 playable loop:** lookdev now has a deterministic greybox route with power, randomized fuse
+  pickup, comms install, timed holdout, extraction, locked-door feedback, pickups, sprint/crouch,
+  flashlight drain, stun pulses, a monster director, prompt/end-state UI, damage flash, and placeholder
+  cue tones. `pnpm smoke:lookdev:run` proves the scripted route and core feedback states. Still missing:
+  product UI integration, balanced tuning, multiplayer authority for objectives, and real content/audio.
 - **T26/T27/T28 render mood:** simplified TSL post stack exists: fog, grade, vignette, posterize,
   Bayer dither. MRT, emissive-only bloom, GTAO, volumetric cone, CA/SMAA, vertex snap, affine/CRT,
   and baked-lightmap application are still open.

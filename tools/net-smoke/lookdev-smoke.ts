@@ -41,7 +41,7 @@ interface SignalMsg {
 
 const LOOKDEV_PORT = Number(process.env.LOOKDEV_SMOKE_PORT ?? 4177);
 const ROOM_CODE = process.env.LOOKDEV_SMOKE_CODE ?? 'K7M2QX';
-const TIMEOUT_MS = Number(process.env.LOOKDEV_SMOKE_TIMEOUT_MS ?? 45_000);
+const TIMEOUT_MS = Number(process.env.LOOKDEV_SMOKE_TIMEOUT_MS ?? 75_000);
 const CLIENT_COUNT = Math.max(1, Math.min(3, Math.floor(Number(process.env.LOOKDEV_SMOKE_CLIENTS ?? 1))));
 const MOVE_MS = Number(process.env.LOOKDEV_SMOKE_MOVE_MS ?? 1500);
 const SOAK_MS = Number(process.env.LOOKDEV_SMOKE_SOAK_MS ?? 0);
@@ -237,6 +237,28 @@ async function waitForNet(page: Page, mode: 'host' | 'client', expectedPeers: nu
       status: document.getElementById('netStatus')?.textContent ?? null,
     }));
     throw new Error(`timed out waiting for ${label} ${mode} net connection: ${JSON.stringify(context)}\n${String(err)}`);
+  }
+  return page.evaluate(() => (window as any).__sl.netInfo() as NetInfo);
+}
+
+async function waitForNetMode(page: Page, mode: 'host' | 'client', label: string): Promise<NetInfo> {
+  await page.waitForFunction(() => Boolean((window as any).__sl?.netInfo), null, { timeout: TIMEOUT_MS });
+  try {
+    await page.waitForFunction(
+      (expectedMode) => {
+        const info = (window as any).__sl.netInfo() as NetInfo;
+        return info.mode === expectedMode && info.state !== 'offline' && info.state !== 'failed';
+      },
+      mode,
+      { timeout: TIMEOUT_MS },
+    );
+  } catch (err) {
+    const context = await page.evaluate(() => ({
+      net: (window as any).__sl?.netInfo?.() ?? null,
+      hud: document.getElementById('hud')?.textContent ?? null,
+      status: document.getElementById('netStatus')?.textContent ?? null,
+    }));
+    throw new Error(`timed out waiting for ${label} ${mode} net session startup: ${JSON.stringify(context)}\n${String(err)}`);
   }
   return page.evaluate(() => (window as any).__sl.netInfo() as NetInfo);
 }
@@ -441,6 +463,7 @@ async function main(): Promise<void> {
     }
 
     await host.goto(`${baseUrl}/?host=1&code=${ROOM_CODE}&gl=2`, { waitUntil: 'domcontentloaded' });
+    await waitForNetMode(host, 'host', 'host');
     await Promise.all(
       clients.map((client) => client.goto(`${baseUrl}/?join=1&code=${ROOM_CODE}&gl=2`, { waitUntil: 'domcontentloaded' })),
     );

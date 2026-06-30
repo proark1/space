@@ -1,4 +1,4 @@
-import { BoxGeometry, InstancedMesh, Matrix4, Mesh, PlaneGeometry, Scene } from 'three';
+import { BoxGeometry, InstancedMesh, Matrix4, Mesh, PlaneGeometry, PointLight, Scene } from 'three';
 import { LOOK, applyLookdevAtmosphere, createDustField, createIndustrialMaterials } from './look';
 
 /** Grid unit used by the greybox ship generator. */
@@ -311,6 +311,62 @@ export function buildCorridor(scene: Scene, level = createCorridorLevel()): Corr
   addPanel(-7.88, 1.78, -21.3, materials.cyanLight);
   addPanel(1.88, 1.52, -38.4, materials.amberLight);
 
+  const addProp = (
+    size: readonly [number, number, number],
+    pos: readonly [number, number, number],
+    material: typeof materials.wall,
+  ): Mesh => {
+    const prop = new Mesh(new BoxGeometry(size[0], size[1], size[2]), material);
+    prop.position.set(pos[0], pos[1], pos[2]);
+    prop.castShadow = true;
+    prop.receiveShadow = true;
+    scene.add(prop);
+    return prop;
+  };
+
+  // Comms objective vignette: a clear pressure-door focal point with a fuse socket, relay hardware,
+  // cable clutter, and a fallen silhouette so the far end of the route reads as authored content.
+  const commsDoorZ = -34.05;
+  addProp([3.7, 0.24, 0.34], [0, 2.72, commsDoorZ + 0.03], materials.trim);
+  addProp([0.24, 2.55, 0.34], [-1.86, 1.38, commsDoorZ + 0.03], materials.trim);
+  addProp([0.24, 2.55, 0.34], [1.86, 1.38, commsDoorZ + 0.03], materials.trim);
+  addProp([2.85, 0.12, 0.06], [0, 2.32, commsDoorZ + 0.22], materials.hazard);
+  addProp([0.54, 0.86, 0.09], [1.78, 1.35, commsDoorZ + 0.24], materials.darkRubber);
+  addProp([0.34, 0.18, 0.12], [1.78, 1.54, commsDoorZ + 0.31], materials.cyanLight);
+  addProp([0.28, 0.14, 0.12], [1.78, 1.2, commsDoorZ + 0.31], materials.amberLight);
+
+  addProp([1.25, 1.45, 0.42], [0, 0.92, -39.2], materials.trim);
+  addProp([0.95, 0.82, 0.48], [0, 1.62, -39.2], materials.darkRubber);
+  addProp([0.72, 0.18, 0.52], [0, 2.18, -39.2], materials.cyanLight);
+  addProp([0.16, 0.9, 0.16], [-0.54, 2.32, -39.2], materials.darkRubber);
+  addProp([0.16, 0.9, 0.16], [0.54, 2.32, -39.2], materials.darkRubber);
+  addProp([1.7, 0.08, 0.08], [0, 2.78, -39.2], materials.darkRubber);
+
+  for (const [x, y, z, sx, sy, sz] of [
+    [-0.9, 2.54, -38.8, 0.06, 0.06, 2.2],
+    [0.92, 2.38, -38.55, 0.05, 0.05, 2.6],
+    [-1.55, 1.9, -35.2, 0.05, 0.76, 0.05],
+    [1.5, 1.84, -35.5, 0.05, 0.62, 0.05],
+  ] as const) {
+    addProp([sx, sy, sz], [x, y, z], materials.darkRubber);
+  }
+
+  addProp([0.82, 0.24, 1.1], [-0.86, 0.18, -36.72], materials.darkRubber);
+  addProp([0.42, 0.22, 0.42], [-1.36, 0.24, -37.34], materials.trim);
+  addProp([0.2, 0.16, 0.78], [-0.28, 0.17, -36.2], materials.darkRubber);
+  addProp([0.2, 0.16, 0.88], [-1.42, 0.16, -36.18], materials.darkRubber);
+  const commsBlood = new Mesh(new PlaneGeometry(1.2, 0.64), materials.bloodDecal);
+  commsBlood.position.set(-0.92, 0.016, -36.82);
+  commsBlood.rotation.x = -Math.PI / 2;
+  scene.add(commsBlood);
+
+  const commsAmberLight = new PointLight(LOOK.amber, 0, 6.2, 2.1);
+  commsAmberLight.position.set(1.46, 1.6, commsDoorZ + 0.75);
+  scene.add(commsAmberLight);
+  const commsCyanLight = new PointLight(LOOK.cyan, 0, 7.5, 2.0);
+  commsCyanLight.position.set(-0.2, 2.0, -39.0);
+  scene.add(commsCyanLight);
+
   const leftBlood = new Mesh(new PlaneGeometry(0.92, 0.54), materials.bloodDecal);
   leftBlood.position.set(-1.895, 1.08, -25.35);
   leftBlood.rotation.y = Math.PI / 2;
@@ -340,6 +396,8 @@ export function buildCorridor(scene: Scene, level = createCorridorLevel()): Corr
       const cyanStutter = Math.sin(t * 17.0 + 1.2) > 0.9 ? 0.42 : 1;
       materials.amberLight.emissiveIntensity = (1.0 + Math.sin(t * 4.8) * 0.22) * amberStutter;
       materials.cyanLight.emissiveIntensity = (0.62 + Math.sin(t * 3.7 + 0.6) * 0.16) * cyanStutter;
+      commsAmberLight.intensity = (15 + Math.max(0, Math.sin(t * 5.4)) * 24) * amberStutter;
+      commsCyanLight.intensity = (12 + Math.max(0, Math.sin(t * 2.7 + 0.4)) * 18) * cyanStutter;
       materials.hazard.emissive.setHex(LOOK.amber);
       materials.hazard.emissiveIntensity = 0.1 + Math.max(0, Math.sin(t * 2.1)) * 0.05;
     },

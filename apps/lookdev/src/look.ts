@@ -296,11 +296,12 @@ export function applyLookdevAtmosphere(
 }
 
 export function configureLookdevPost(uniforms: PostUniformsBank): void {
-  uniforms.exposure.value = 1.16;
-  uniforms.saturation.value = 0.76;
-  uniforms.fogDensity.value = 0.052;
-  uniforms.vignette.value = 0.6;
+  uniforms.exposure.value = 1.2;
+  uniforms.saturation.value = 0.78;
+  uniforms.fogDensity.value = 0.044;
+  uniforms.vignette.value = 0.52;
   uniforms.posterizeLevels.value = 6;
+  uniforms.ditherAmount.value = 0.28;
 }
 
 export function createDustField(

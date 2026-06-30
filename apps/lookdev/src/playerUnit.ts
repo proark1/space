@@ -1,9 +1,11 @@
 import {
   AnimationMixer,
   Box3,
+  Euler,
   Group,
   MathUtils,
   Object3D,
+  Quaternion,
   Vector3,
   type AnimationAction,
   type AnimationClip,
@@ -14,11 +16,40 @@ import { createGLTFLoaderSetup } from '@sl/render';
 const PLAYER_UNIT_URL = '/models/player-astronaut.glb';
 const PLAYER_UNIT_HEIGHT = 1.75;
 const PLAYER_CAPSULE_CENTER_TO_FEET = 1.0;
-const MODEL_YAW_OFFSET = Math.PI;
+const MODEL_YAW_OFFSET = Math.PI / 2;
 
 const _box = new Box3();
 const _size = new Vector3();
 const _center = new Vector3();
+const RIG_BONE_NAMES = [
+  'Hip',
+  'Pelvis',
+  'Waist',
+  'Spine01',
+  'Spine02',
+  'Head',
+  'L_Clavicle',
+  'L_Upperarm',
+  'L_Forearm',
+  'L_Hand',
+  'R_Clavicle',
+  'R_Upperarm',
+  'R_Forearm',
+  'R_Hand',
+  'L_Thigh',
+  'L_Calf',
+  'L_Foot',
+  'R_Thigh',
+  'R_Calf',
+  'R_Foot',
+] as const;
+
+type RigBoneName = (typeof RIG_BONE_NAMES)[number];
+
+interface ProceduralRig {
+  readonly bones: Partial<Record<RigBoneName, Object3D>>;
+  readonly base: Map<Object3D, Quaternion>;
+}
 
 export interface PlayerUnitPose {
   readonly x: number;
@@ -74,10 +105,24 @@ function markRenderable(root: Object3D): void {
   });
 }
 
+function captureProceduralRig(root: Object3D): ProceduralRig | null {
+  const bones: Partial<Record<RigBoneName, Object3D>> = {};
+  const base = new Map<Object3D, Quaternion>();
+  for (const name of RIG_BONE_NAMES) {
+    const bone = root.getObjectByName(name);
+    if (!bone) continue;
+    bones[name] = bone;
+    base.set(bone, bone.quaternion.clone());
+  }
+
+  return bones.L_Upperarm && bones.R_Upperarm && bones.L_Thigh && bones.R_Thigh ? { bones, base } : null;
+}
+
 function buildInstance(source: PlayerUnitSource): PlayerUnitInstance {
   const inner = cloneSkeleton(source.scene);
   markRenderable(inner);
   inner.position.copy(source.offset);
+  const rig = captureProceduralRig(inner);
 
   const root = new Group();
   root.name = 'player-unit-astronaut';
@@ -89,6 +134,8 @@ function buildInstance(source: PlayerUnitSource): PlayerUnitInstance {
   let currentClip: AnimationClip | null = null;
   let stride = Math.random() * Math.PI * 2;
   let visualYaw = MODEL_YAW_OFFSET;
+  const poseEuler = new Euler();
+  const poseQuat = new Quaternion();
 
   const play = (moving: boolean): void => {
     if (!mixer) return;
@@ -105,12 +152,56 @@ function buildInstance(source: PlayerUnitSource): PlayerUnitInstance {
     currentAction = next;
     currentClip = clip;
   };
+  const poseBone = (name: RigBoneName, x = 0, y = 0, z = 0): void => {
+    const bone = rig?.bones[name];
+    const base = bone ? rig?.base.get(bone) : null;
+    if (!bone || !base) return;
+    poseEuler.set(x, y, z, 'XYZ');
+    poseQuat.setFromEuler(poseEuler);
+    bone.quaternion.copy(base).multiply(poseQuat);
+  };
+  const applyProceduralPose = (moving: boolean): void => {
+    if (!rig) return;
+    const move = moving ? 1 : 0;
+    const idle = Math.sin(stride * 0.55) * (1 - move);
+    const breathe = 0.5 + 0.5 * idle;
+    const gait = Math.sin(stride);
+    const gaitOpp = -gait;
+    const liftL = Math.max(0, -gait);
+    const liftR = Math.max(0, gait);
+    poseBone('Hip', idle * 0.01, 0, gait * 0.025 * move);
+    poseBone('Waist', -0.035 * move + idle * 0.012, 0, -gait * 0.018 * move);
+    poseBone('Spine01', -0.03 * move + idle * 0.01, 0, -gait * 0.012 * move);
+    poseBone('Spine02', 0.025 * move + idle * 0.012, 0, gait * 0.018 * move);
+    poseBone('Head', -idle * 0.015, gait * 0.015 * move, -gait * 0.01 * move);
+
+    // Arms swing opposite the legs. The model is rigged but clipless, so these are intentionally
+    // broad local-space poses rather than exact mocap.
+    poseBone('L_Clavicle', 0.04 + 0.035 * move, 0, 0.03 * move);
+    poseBone('R_Clavicle', 0.04 + 0.035 * move, 0, -0.03 * move);
+    poseBone('L_Upperarm', -0.1 - gait * 0.72 * move + idle * 0.035, 0.02 * move, -1.08);
+    poseBone('R_Upperarm', -0.1 - gaitOpp * 0.72 * move - idle * 0.035, -0.02 * move, 1.08);
+    poseBone('L_Forearm', 0.32 + breathe * 0.04 + move * (0.14 + liftR * 0.22), 0, 0.08);
+    poseBone('R_Forearm', 0.32 + breathe * 0.04 + move * (0.14 + liftL * 0.22), 0, -0.08);
+    poseBone('L_Hand', idle * 0.025, 0, 0.04);
+    poseBone('R_Hand', -idle * 0.025, 0, -0.04);
+
+    poseBone('L_Thigh', gait * 0.66 * move, 0, -0.012 * move);
+    poseBone('R_Thigh', gaitOpp * 0.66 * move, 0, 0.012 * move);
+    poseBone('L_Calf', 0.04 + liftL * 0.82 * move, 0, 0);
+    poseBone('R_Calf', 0.04 + liftR * 0.82 * move, 0, 0);
+    poseBone('L_Foot', -liftL * 0.3 * move + gait * 0.08 * move, 0, 0.015 * move);
+    poseBone('R_Foot', -liftR * 0.3 * move + gaitOpp * 0.08 * move, 0, -0.015 * move);
+
+    for (const bone of rig.base.keys()) bone.matrixWorldNeedsUpdate = true;
+    inner.updateMatrixWorld(true);
+  };
 
   return {
     root,
     update(pose, dt) {
       const movingAmount = pose.moving ? 1 : 0;
-      stride += dt * MathUtils.lerp(1.35, 8.25, movingAmount);
+      stride += dt * MathUtils.lerp(1.35, 7.6, movingAmount);
       const bob = Math.sin(stride * (pose.moving ? 2 : 1)) * MathUtils.lerp(0.006, 0.035, movingAmount);
       const sway = Math.sin(stride) * 0.025 * movingAmount;
 
@@ -120,6 +211,7 @@ function buildInstance(source: PlayerUnitSource): PlayerUnitInstance {
 
       play(pose.moving);
       mixer?.update(dt);
+      applyProceduralPose(pose.moving);
     },
     dispose() {
       mixer?.stopAllAction();

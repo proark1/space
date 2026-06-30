@@ -34,6 +34,8 @@ function buildUniforms(profile: RenderProfile) {
     vignette: uniform(0.55),
     /** Posterize levels — the PS1 palette crush (5-6 normal, 3-4 at low Resolve). */
     posterizeLevels: uniform(profile.tier === 'low' ? 4 : 6),
+    /** Ordered Bayer dither blend (0 = clean posterized image, 1 = full PS1 grit). */
+    ditherAmount: uniform(profile.tier === 'low' ? 0.75 : 0.55),
   };
 }
 
@@ -80,9 +82,11 @@ export function createPostStack(
   const vignetteDist = length(screenUV.sub(vec2(0.5, 0.5)));
   c = c.mul(clamp(oneMinus(uniforms.vignette.mul(pow(vignetteDist, float(2.0)))), float(0), float(1)));
 
-  // posterize + ordered Bayer dither: quantise to N levels with a 4x4 dither that stipples the
-  // bands into the PS1 register (replaces the hard posterize + film grain, per the locked stack).
-  c = bayerDither(c, uniforms.posterizeLevels);
+  // Posterize + ordered Bayer dither: keep the quantised PS1 register, but blend the stipple in
+  // rather than forcing it globally. The Director can raise ditherAmount under fear without making
+  // the clean baseline fight silhouettes and co-op callouts.
+  const dithered = bayerDither(c, uniforms.posterizeLevels);
+  c = mix(c, dithered, clamp(uniforms.ditherAmount, float(0), float(1)));
 
   const post = new RenderPipeline(renderer.three, vec4(c, float(1)));
 
