@@ -264,13 +264,13 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   if(since>=-0.2){
     controls.autoRotate=false;
     controls.enabled=false;
-    const rocketY=rocket.position.y+27;
+    const rocketY=rocket.position.y+31;
     const follow=smooth(-0.2,3.2,since);
     const high=smooth(CLIMB*0.4,CLIMB*0.98,since);
-    launchCamTarget.set(0,clamp(rocketY,16,380),0);
-    launchCamPos.set(lerp(58,28,follow)+high*12,lerp(22,rocketY+24,follow),lerp(70,118,follow)+high*34);
-    camera.position.lerp(launchCamPos,0.075);
-    launchLook.copy(controls.target).lerp(launchCamTarget,0.12);
+    launchCamTarget.set(0,clamp(rocketY,18,430),0);
+    launchCamPos.set(lerp(58,32,follow)+high*30,launchCamTarget.y+lerp(18,38,high),lerp(70,112,follow)+high*52);
+    camera.position.lerp(launchCamPos,FLOW_FAST?0.24:0.16);
+    launchLook.copy(controls.target).lerp(launchCamTarget,FLOW_FAST?0.28:0.18);
     controls.target.copy(launchLook);
     camera.lookAt(controls.target);
   } else {
@@ -322,7 +322,7 @@ function startAudio(){ if(padAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__pad={rocket,camera,controls,get state(){ return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST}; }};
+window.__pad={rocket,camera,controls,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

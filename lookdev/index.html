@@ -201,8 +201,29 @@ const decal=(t,w,h,x,y,z,rx=0,ry=0)=>{const o=new THREE.Mesh(new THREE.PlaneGeom
 
 // ---------- corridor ----------
 const LEN=46, W=3.6, H=3.2;
+const BASE_MIN_X=-W/2+0.4, BASE_MAX_X=W/2-0.4, WALK_MIN_Z=-LEN-6, WALK_MAX_Z=-0.6;
+const SIDE_ROUTES=[
+  {id:'maintenance bypass',side:1,xMin:W/2-0.18,xMax:W/2+4.25,zMin:-42.4,zMax:-20.8,doors:[{zMin:-25.8,zMax:-21.4},{zMin:-41.6,zMax:-38.0}]},
+  {id:'archive alcove',side:-1,xMin:-W/2-3.85,xMax:-W/2+0.18,zMin:-35.8,zMax:-30.4,doors:[{zMin:-35.8,zMax:-30.4}]}
+];
+function inBand(v,a,b){ return v>=a && v<=b; }
+function sideWall(side,openings){
+  let cursor=0;
+  const ordered=[...openings].sort((a,b)=>b.zMax-a.zMax);
+  for(const o of ordered){
+    wallSegment(side,cursor,o.zMax);
+    cursor=o.zMin;
+  }
+  wallSegment(side,cursor,-LEN);
+}
+function wallSegment(side,zA,zB){
+  const len=Math.abs(zA-zB);
+  if(len<0.2)return;
+  box(0.2,H,len,C.wall,side*W/2,H/2,(zA+zB)/2);
+}
 box(W,0.2,LEN,C.floor,0,0,-LEN/2); box(W,0.2,LEN,C.ceil,0,H,-LEN/2);
-box(0.2,H,LEN,C.wall,-W/2,H/2,-LEN/2); box(0.2,H,LEN,C.wall, W/2,H/2,-LEN/2);
+sideWall(-1,SIDE_ROUTES.filter(r=>r.side<0).flatMap(r=>r.doors));
+sideWall(1,SIDE_ROUTES.filter(r=>r.side>0).flatMap(r=>r.doors));
 const flick=[]; const lamps=[]; let strobe=null;
 const hideSpots=[];
 function makeLocker(side,z,label){
@@ -222,6 +243,35 @@ function makeLocker(side,z,label){
 }
 makeLocker(1,-12.5,'forward locker');
 makeLocker(-1,-28.5,'aft locker');
+function makeSideRoute(route,label,color){
+  const cx=(route.xMin+route.xMax)/2, cz=(route.zMin+route.zMax)/2;
+  const rw=route.xMax-route.xMin, rz=route.zMax-route.zMin;
+  box(rw,0.18,rz,C.floor,cx,0,cz);
+  box(rw,0.18,rz,C.ceil,cx,H,cz);
+  box(0.18,H,rz,C.wall,route.side>0?route.xMax:route.xMin,H/2,cz);
+  box(rw,H,0.18,C.wall2,cx,H/2,route.zMin);
+  box(rw,H,0.18,C.wall2,cx,H/2,route.zMax);
+  for(let z=route.zMax-1.7;z>route.zMin+1.2;z-=3.2){
+    box(0.24,H,0.36,C.wall2,route.side>0?route.xMax-0.12:route.xMin+0.12,H/2,z);
+    box(0.9,0.06,0.44,color==='amber'?C.amber:C.cyan,cx,H-0.44,z);
+    const pl=new THREE.PointLight(color==='amber'?0xE8A33D:0x9FD0FF,color==='amber'?2.6:1.4,5.5,1.5);
+    pl.position.set(cx,H-0.7,z); world.add(pl); lamps.push(pl);
+  }
+  for(const d of route.doors){
+    const dz=(d.zMin+d.zMax)/2;
+    const doorX=route.side*W/2;
+    box(0.18,2.7,d.zMax-d.zMin,C.pipe,doorX,H/2,dz);
+    decal(sign(label,color==='amber'?'#E8A33D':'#9FD0FF'),0.8,0.34,doorX-route.side*0.12,2.42,dz,0,route.side>0?-Math.PI/2:Math.PI/2);
+  }
+}
+makeSideRoute(SIDE_ROUTES[0],'BYPASS','cyan');
+makeSideRoute(SIDE_ROUTES[1],'ARCHIVE','amber');
+box(0.9,1.0,1.3,C.pipe,W/2+3.45,0.62,-39.4,0,0.2,0);
+box(0.68,0.52,0.1,C.cyan,W/2+3.0,1.35,-39.2,0,0.35,0);
+decal(sign('MAP','#9FD0FF'),0.48,0.24,W/2+2.64,1.36,-39.08,0,0.35);
+box(1.1,0.75,1.4,C.crate,-W/2-2.72,0.48,-33.2,0,-0.25,0);
+box(1.0,0.12,1.2,C.pipe,-W/2-2.78,1.04,-33.2,0,-0.25,0);
+decal(sign('CREW','#E8A33D'),0.56,0.28,-W/2-2.78,1.18,-32.55,0,-0.25);
 for(let i=0;i<12;i++){ const z=-2-i*4;
   box(0.3,H,0.5,C.wall2,-W/2+0.15,H/2,z); box(0.3,H,0.5,C.wall2,W/2-0.15,H/2,z); box(W,0.42,0.5,C.wall2,0,H-0.21,z);
   cyl(0.07,W-0.4,C.pipe,0.7,H-0.45,z+1,0,Math.PI/2); cyl(0.05,W-0.7,C.pipe,-0.65,H-0.62,z+1,0,Math.PI/2);
@@ -622,7 +672,9 @@ function nearestHide(max=1.35){
 const SIDE_INTERACTS=[
   {id:'motion',pos:new THREE.Vector3(-W/2+0.45,1.55,-16),r:1.55,prompt:'[E] READ MOTION TRACE',noise:38,line:'motion trace says five people are moving. I hate the math.',scr:['> MOTION TRACE','> crew: 4','> moving: 5','> one is above you']},
   {id:'relay',pos:new THREE.Vector3(W/2-0.76,1.2,-22.5),r:1.35,prompt:'[E] KICK STUCK RELAY',noise:46,line:'relay is unstuck. everything nearby now knows that.',scr:['> LOCAL RELAY','> manual impact accepted','> signal sharpened','> noise spike: yes']},
-  {id:'badge',pos:new THREE.Vector3(-W/2+0.55,1.0,-33),r:1.35,prompt:'[E] PULL CREW BADGE',noise:28,line:RUN_VARIANT===0?'badge says HALE. command log is going to hurt.':RUN_VARIANT===1?'badge recorder is still warm. nobody touch that sentence.':'badge camera caught the dock opening from inside.' ,scr:['> CREW BADGE RECOVERED','> owner: hale','> last ping: command','> audio: corrupted']}
+  {id:'badge',pos:new THREE.Vector3(-W/2+0.55,1.0,-33),r:1.35,prompt:'[E] PULL CREW BADGE',noise:28,line:RUN_VARIANT===0?'badge says HALE. command log is going to hurt.':RUN_VARIANT===1?'badge recorder is still warm. nobody touch that sentence.':'badge camera caught the dock opening from inside.' ,scr:['> CREW BADGE RECOVERED','> owner: hale','> last ping: command','> audio: corrupted']},
+  {id:'bypass-map',pos:new THREE.Vector3(W/2+3.0,1.35,-39.2),r:1.45,prompt:'[E] DOWNLOAD BYPASS MAP',noise:24,line:'maintenance map shows a bypass around the main corridor. it also marks something moving in it.',scr:['> MAINTENANCE BYPASS','> route: command side','> pressure doors: manual','> motion trace: inside route']},
+  {id:'archive',pos:new THREE.Vector3(-W/2-2.78,1.1,-33.2),r:1.45,prompt:'[E] SEARCH CREW ARCHIVE',noise:32,line:'crew archive says the final order was to weld the transmitter room shut.',scr:['> CREW ARCHIVE','> final order: silence','> transmitter locked','> command deck sealed']}
 ];
 function nearestSideInteract(max=1.55){
   let best=null, bd=max;
@@ -632,6 +684,25 @@ function nearestSideInteract(max=1.55){
     if(d<bd){best=item; bd=d;}
   }
   return best;
+}
+function clampWalkable(p){
+  let minX=BASE_MIN_X, maxX=BASE_MAX_X, minZ=WALK_MIN_Z, maxZ=WALK_MAX_Z;
+  for(const route of SIDE_ROUTES){
+    const inRouteZ=inBand(p.z,route.zMin,route.zMax);
+    const inDoor=route.doors.some(d=>inBand(p.z,d.zMin,d.zMax));
+    const outside=route.side>0?p.x>BASE_MAX_X:p.x<BASE_MIN_X;
+    if(inRouteZ&&inDoor){
+      minX=Math.min(minX,route.xMin);
+      maxX=Math.max(maxX,route.xMax);
+    } else if(inRouteZ&&outside){
+      minX=route.side>0?BASE_MAX_X:route.xMin;
+      maxX=route.side>0?route.xMax:BASE_MIN_X;
+      minZ=Math.max(minZ,route.zMin);
+      maxZ=Math.min(maxZ,route.zMax);
+    }
+  }
+  p.x=Math.max(minX,Math.min(maxX,p.x));
+  p.z=Math.max(minZ,Math.min(maxZ,p.z));
 }
 function useSideInteract(item){
   sideDone.add(item.id);
@@ -933,8 +1004,7 @@ function animate(){ requestAnimationFrame(animate);
   const running = moving && keys.ShiftLeft;
   if(controls.isLocked && !caught && !won && !hidden && !breakerFixing && !valveFixing){ const s=(running?5.4:3.0)*dt;
     if(keys.KeyW)controls.moveForward(s); if(keys.KeyS)controls.moveForward(-s); if(keys.KeyA)controls.moveRight(-s); if(keys.KeyD)controls.moveRight(s); }
-  camera.position.x=Math.max(-W/2+0.4,Math.min(W/2-0.4,camera.position.x));
-  camera.position.z=Math.max(-LEN-6,Math.min(-0.6,camera.position.z));
+  clampWalkable(camera.position);
   if(hidden&&activeHide){ camera.position.copy(activeHide.pos); }
   bob += moving ? dt*(keys.ShiftLeft?13:9) : 0;
   camera.position.y = hidden ? 1.32 : 1.6 + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
@@ -1064,7 +1134,7 @@ function animate(){ requestAnimationFrame(animate);
   camera.position.x+=ox; camera.position.y+=oy; composer.render(); camera.position.x-=ox; camera.position.y-=oy;
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, get crewCount(){return crewMates.length;},
-  get state(){return {hidden,mActive,restored,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+  get state(){return {hidden,mActive,restored,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
     forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; activeHide=h; hidden=true; camera.position.copy(h.pos); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},

@@ -106,7 +106,7 @@ const BOX=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 const CYL=(a,b,h,s)=>new THREE.CylinderGeometry(a,b,h,s||28);
 
 // ==BUILD START==
-const ringLights=[], clampPivots=[], approachLad=[];
+const ringLights=[], clampPivots=[], approachLad=[], shipBeacons=[];
 function tex(draw){const c=document.createElement('canvas');c.width=c.height=256;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.colorSpace=THREE.SRGBColorSpace;return t;}
 const grime=tex(x=>{ x.fillStyle='#6b727c'; x.fillRect(0,0,256,256); for(let i=0;i<2400;i++){ const v=(Math.random()*54-27)|0; x.fillStyle=`rgba(${120+v},${122+v},${128+v},${Math.random()*0.4})`; const s=Math.random()*3+1; x.fillRect(Math.random()*256,Math.random()*256,s,s);} for(let i=0;i<16;i++){ x.strokeStyle=`rgba(24,20,16,${Math.random()*0.4})`; x.beginPath(); x.moveTo(Math.random()*256,0); x.lineTo(Math.random()*256+30,256); x.stroke(); } }); grime.repeat.set(3,3);
 const M={
@@ -144,6 +144,34 @@ part(CYL(1.7,2.0,2.4,16),M.engine,hull,-15,-13,1.5,Math.PI/2,0,0); part(CYL(1.7,
 const engL=new THREE.PointLight(0x37e0c0,9,32,2); engL.position.set(-13,-14,5); hull.add(engL);
 part(BOX(16,0.5,11),M.metal,hull,20,3,-1,0,0,-0.5); for(let i=-3;i<4;i++) part(BOX(0.25,0.6,11),M.dark,hull,16+i*2.2,3+i*1.1,-1,0,0,-0.5);   // radiator wing
 part(BOX(3.5,3,0.9),new THREE.MeshBasicMaterial({color:0x000000}),hull,11,-9,3.9);   // dark hull breach
+// Whole-ship read: visible mass, trusses, radiator wings, cargo pods, and engine block surrounding the dock.
+for(let i=0;i<7;i++){
+  const z=-18-i*10, w=16+(i%2)*4, h=11+(i%3)*2;
+  part(BOX(w,h,8),i%2?M.hull2:M.hull,hull,0,0,z);
+  part(BOX(w+2,0.45,8.6),M.metal,hull,0,h/2+0.6,z);
+  part(BOX(w+2,0.45,8.6),M.metal,hull,0,-h/2-0.6,z);
+  if(i%2===0){ part(BOX(6,4,7),M.dark,hull,-14,h*0.18,z); part(BOX(6,4,7),M.dark,hull,14,-h*0.18,z); }
+}
+part(BOX(11,8,10),M.dark,hull,0,0,-92);
+for(const [ex,ey] of [[-4,-3],[4,-3],[-4,3],[4,3]]){
+  part(CYL(1.4,0.6,2.8,18),M.engine,hull,ex,ey,-87,Math.PI/2,0,0);
+  const l=new THREE.PointLight(0x37e0c0,2.4,18,2); l.position.set(ex,ey,-85); hull.add(l);
+}
+part(BOX(92,0.35,0.35),M.metal,hull,0,13,-38);
+part(BOX(40,0.26,12),M.dark,hull,-47,13,-38,0,0,0.08);
+part(BOX(40,0.26,12),M.dark,hull,47,13,-38,0,0,-0.08);
+for(let i=-7;i<=7;i++){ part(BOX(0.2,0.38,12.2),M.metal,hull,-47+i*2.6,13,-38,0,0,0.08); part(BOX(0.2,0.38,12.2),M.metal,hull,47+i*2.6,13,-38,0,0,-0.08); }
+part(BOX(22,0.45,11),M.metal,hull,-31,-9,-28,0,0,0.42);
+part(BOX(22,0.45,11),M.metal,hull,31,-9,-42,0,0,-0.42);
+for(let i=0;i<18;i++){
+  const side=i%2?-1:1, z=-18-Math.random()*58, y=-12+Math.random()*22;
+  part(BOX(2.2+Math.random()*2.8,1.2+Math.random()*2.2,2.2+Math.random()*4.8),Math.random()>0.35?M.dark:M.hull2,hull,side*(18+Math.random()*10),y,z);
+}
+for(let i=0;i<28;i++){
+  const side=i%2?-1:1, z=-10-Math.random()*76, y=-14+Math.random()*28;
+  const m=new THREE.MeshStandardMaterial({color:0,emissive:i%3?0xE8A33D:0x37e0c0,emissiveIntensity:1.8,roughness:1});
+  shipBeacons.push(part(new THREE.SphereGeometry(0.18,8,8),m,hull,side*(8+Math.random()*22),y,z).material);
+}
 // docking port reaching out toward the capsule: bay, target, collar, capture clamps, and approach ladder
 const { target:tgt, dockLight }=buildDockingBerthZ({THREE,parent:world,part,BOX,CYL,M,ringLights,clampPivots,approachLad});
 
@@ -200,7 +228,15 @@ enter.onclick=e=>{ e.preventDefault(); board(); };   // step into the ship — i
 let A=null;
 function startAudio(){ if(A)return; try{ const mix=new Mixer(0.9); mix.resume(); const ctx=mix.ctx,B=mix.master;
   noiseBed(ctx,B,{type:'lowpass',freq:120,q:1.0,gain:0.05}); tone(ctx,B,{type:'sine',freq:40,gain:0.03});
-  A={ thr(){ blip(ctx,B,{type:'square',freq:120,gain:0.04,dur:0.08}); }, clunk(){ burst(ctx,B,{type:'lowpass',freq:160,q:1,gain:0.5,decay:0.5}); }, boom(){ burst(ctx,B,{type:'lowpass',freq:90,q:0.7,gain:0.8,decay:1.4}); burst(ctx,B,{type:'highpass',freq:2500,q:0.3,gain:0.3,decay:0.7}); } };
+  const prox=tone(ctx,B,{type:'sine',freq:180,gain:0});
+  const servo=noiseBed(ctx,B,{type:'bandpass',freq:540,q:2.4,gain:0});
+  A={
+    approach(v,t){ const k=Math.max(0,Math.min(1,v)); prox.g.gain.value=k*0.022; prox.o.frequency.value=170+k*95+Math.sin(t*5)*3; servo.g.gain.value=k*0.018; },
+    thr(){ blip(ctx,B,{type:'square',freq:120,gain:0.04,dur:0.08}); },
+    clunk(){ burst(ctx,B,{type:'lowpass',freq:160,q:1,gain:0.5,decay:0.5}); },
+    seal(){ burst(ctx,B,{type:'lowpass',freq:72,q:0.7,gain:0.52,decay:1.0}); burst(ctx,B,{type:'bandpass',freq:620,q:1.2,gain:0.18,decay:0.45}); },
+    boom(){ burst(ctx,B,{type:'lowpass',freq:90,q:0.7,gain:0.8,decay:1.4}); burst(ctx,B,{type:'highpass',freq:2500,q:0.3,gain:0.3,decay:0.7}); }
+  };
   new ClipBank(mix).load().then(b=>{ b.play('space-drone',{loop:true,gain:0.4}); });
 }catch(e){} }
 
@@ -239,6 +275,7 @@ function setAssist(kind,text){
 }
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw,hidden:false});
+  if(A)A.approach(1-Math.min(1,Math.max(0,dist||0)/120),t);
   if(state==='approach'){
     // autopilot cruises in and lines the port up — reads as "arriving, heading for the dock" before manual control
     apprT+=dt; const k=Math.min(1,apprT/4.5), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
@@ -293,7 +330,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     debGeo.attributes.position.needsUpdate=true; debris.material.opacity=Math.max(0,1-boomT*0.5);
     renderer.toneMappingExposure=BASE_EXP*(1+Math.max(0,1.4-boomT*3));
   } else if(state==='soft'){ setAssist('good','SOFT CAPTURE · HARD DOCK IN PROGRESS'); softT+=dt; softPulse(t,Math.min(1,softT/1.45));
-    if(softT>=1.45){ state='docked'; if(A)A.clunk(); setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; MULTI.broadcastTask('objective',{text:'hard dock confirmed. pressure equalizing.'}); crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
+    if(softT>=1.45){ state='docked'; if(A){ A.clunk(); A.seal(); } setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; MULTI.broadcastTask('objective',{text:'hard dock confirmed. pressure equalizing.'}); crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
   else if(state==='docked'){ setAssist('good','HARD DOCK · READY TO BOARD'); collarPulse(t); }
   else if(state==='board'){ setAssist('good','TRANSFER TUNNEL · CREW MOVING'); collarPulse(t); boardT+=dt; const k=Math.min(1,boardT/2.4), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
     camera.position.set(0,1.6*e,-1-e*4.4); flash.intensity=120*e; flash.position.copy(camera.position); flashT.position.set(0,1.4,camera.position.z-3);
@@ -325,6 +362,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   world.position.set(-offX,-offY,-dist); world.rotation.z=Math.sin(t*0.2)*0.01;
   const docking=(state==='approach'||state==='align'||state==='boom');
   dockLight.color.setHex(docking?0xff7050:0x40ff80);
+  shipBeacons.forEach((m,i)=>{ m.emissiveIntensity=0.7+1.9*Math.max(0,Math.sin(t*1.8+i*0.47)); });
   approachLad.forEach(g=>{ g.m.emissive.setHex(docking?0xff9040:0x35ff70); g.m.emissiveIntensity=0.6+2.4*Math.max(0,Math.sin(t*3 + g.i*0.7)); });
   if(state==='align'||state==='boom') camera.position.set((Math.random()-0.5)*shake*0.4,(Math.random()-0.5)*shake*0.4,0);
   if(performance.now()>crewHideAt) crewline.style.opacity='0';
@@ -333,7 +371,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
 function softPulse(t,k){ ringLights.forEach((m,i)=>{ m.emissive.setHex(k>0.8?0x35ff70:0xffcf50); m.emissiveIntensity=1.6+2.0*Math.max(0,Math.sin(t*6+i*0.45)); }); clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ+0.52*k; }); tgt.material.emissive.setHex(0x7dffb0); }
-window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),stationQueued}; }};
+window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),stationQueued}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
