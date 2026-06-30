@@ -29,6 +29,11 @@ interface PickupView {
   readonly pos: Vec3;
 }
 
+type VoiceLevel = 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
+type ActiveVoiceLevel = Exclude<VoiceLevel, 'silent'>;
+type VoiceSource = 'mic' | 'keyboard' | 'smoke';
+type MicVoiceStatus = 'unsupported' | 'idle' | 'requesting' | 'active' | 'denied' | 'error';
+
 interface RunStateView {
   readonly stage: 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extract' | 'won' | 'dead';
   readonly health: number;
@@ -45,8 +50,10 @@ interface RunStateView {
   readonly inSafeRoom: boolean;
   readonly lightExposure: number;
   readonly soundPressure: number;
-  readonly voiceLevel: 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
-  readonly activeVoice: 'whisper' | 'talk' | 'scream' | null;
+  readonly voiceLevel: VoiceLevel;
+  readonly activeVoice: ActiveVoiceLevel | null;
+  readonly voiceSource: VoiceSource | null;
+  readonly micVoiceStatus: MicVoiceStatus;
   readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
   readonly scareDebt: number;
   readonly inSlickZone: boolean;
@@ -83,7 +90,9 @@ interface UiFeedbackView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
-  readonly activeVoice: 'whisper' | 'talk' | 'scream' | null;
+  readonly activeVoice: ActiveVoiceLevel | null;
+  readonly voiceSource: VoiceSource | null;
+  readonly micVoiceStatus: MicVoiceStatus;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
   readonly remoteVisibleCount: number;
@@ -191,8 +200,8 @@ async function setFlashlight(page: Page, on: boolean): Promise<void> {
   await page.evaluate((next) => (window as any).__sl.setFlashlightForSmoke(next), on);
 }
 
-async function voice(page: Page, command: 'whisper' | 'talk' | 'scream'): Promise<void> {
-  await page.evaluate((next) => (window as any).__sl.voiceForSmoke(next), command);
+async function voicePressure(page: Page, pressure: number): Promise<void> {
+  await page.evaluate((next) => (window as any).__sl.voicePressureForSmoke(next), pressure);
 }
 
 async function interact(page: Page): Promise<void> {
@@ -304,15 +313,17 @@ async function main(): Promise<void> {
     await setPlayer(page, { x: 0, y: 1, z: 0 }, 0);
     await setMonster(page, { x: 0, y: 1, z: -12 });
     await setFlashlight(page, false);
-    await voice(page, 'whisper');
+    await voicePressure(page, 0.08);
     await stepFrames(page, 2);
     monster = await monsterState(page);
     state = await capture('voice-whisper-hide');
     assert(state.activeVoice === 'whisper', `expected active whisper voice, got ${state.activeVoice}`);
     assert(state.voiceLevel === 'whisper', `expected whisper voice level, got ${state.voiceLevel}`);
+    assert(state.voiceSource === 'smoke', `expected smoke voice source, got ${state.voiceSource}`);
+    assert(['idle', 'unsupported'].includes(state.micVoiceStatus), `smoke should not require live mic, got ${state.micVoiceStatus}`);
     assert(monster.mode !== 'chase' && monster.mode !== 'attack', `whisper should not hard-chase at range, got ${monster.mode}`);
 
-    await voice(page, 'scream');
+    await voicePressure(page, 1);
     await stepFrames(page, 2);
     monster = await monsterState(page);
     state = await capture('voice-scream-bait');
@@ -325,7 +336,7 @@ async function main(): Promise<void> {
     await setRemote(page, { x: 1.5, y: 1, z: 0 });
     await stepFrames(page, 90);
     const resolveBeforeTalk = (await runState(page)).resolve;
-    await voice(page, 'talk');
+    await voicePressure(page, 0.36);
     state = await capture('voice-talk-survive');
     assert(state.activeVoice === 'talk', `expected active talk voice, got ${state.activeVoice}`);
     assert(state.voiceLevel === 'talk', `expected talk voice level, got ${state.voiceLevel}`);

@@ -3,14 +3,14 @@
  * raw move vector; Space is an edge-triggered jump. Yaw/pitch are reported in radians matching the
  * three.js camera convention (yaw 0 ⇒ facing -Z) so they drop straight into PlayerController.MoveInput
  * and the camera's YXZ euler. E interacts, F toggles the flashlight, left click fires a stun pulse,
- * Q/T/V send whisper/talk/scream voice pulses, Shift sprints, and Ctrl/C crouches.
+ * Shift sprints, and Ctrl/C crouches. Q/T/V remain as a keyboard fallback for voice testing.
  *
  * Keys are read off a global key-set that works whether or not the pointer is locked, so a headless
  * harness can prove movement by dispatching synthetic `keydown`/`keyup` (pointer-lock can't engage
  * without a real user gesture). Mouse-look only applies while locked. `setLook` is the scripted /
  * test hook for driving the heading directly.
  */
-export type VoiceCommand = 'whisper' | 'talk' | 'scream';
+import type { VoiceCommand } from './voiceInput';
 
 export interface FirstPersonControls {
   /** Heading in radians (yaw 0 ⇒ facing -Z). */

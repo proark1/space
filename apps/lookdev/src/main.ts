@@ -121,7 +121,7 @@ async function main(): Promise<void> {
     const store = useHudStore.getState();
     const hint =
       harness.label === 'walk'
-        ? ` · hp ${store.health} · bat ${store.battery} · stun ${store.ammoMag} · ${store.status ?? 'idle'} · WASD move · E use · F light · click stun · Q whisper · T talk · V scream`
+        ? ` · hp ${store.health} · bat ${store.battery} · stun ${store.ammoMag} · ${store.status ?? 'idle'} · WASD move · E use · F light · click stun · mic voice`
         : '';
     const netStats = latestNetStats
       ? ` · ${latestNetStats.selectedPair} · rtt ${latestNetStats.rttMs}ms · snap ${latestNetStats.snapshotHz}/s ${latestNetStats.snapshotBytesAvg}B · in ${latestNetStats.inputHz}/s`
@@ -338,6 +338,7 @@ async function main(): Promise<void> {
       if (isWalkScene(harness)) harness.setFlashlightForSmoke(on);
     },
     voiceForSmoke: (command: 'whisper' | 'talk' | 'scream') => (isWalkScene(harness) ? harness.voiceForSmoke(command) : 0),
+    voicePressureForSmoke: (pressure: number) => (isWalkScene(harness) ? harness.voicePressureForSmoke(pressure) : 0),
     interactForSmoke: () => (isWalkScene(harness) ? harness.interactForSmoke() : 0),
     fireForSmoke: () => (isWalkScene(harness) ? harness.fireForSmoke() : 0),
     remotePlayerPositions: () => {

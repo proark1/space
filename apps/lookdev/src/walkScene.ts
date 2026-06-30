@@ -27,9 +27,20 @@ import {
   type ShipPickup,
   type ShipStation,
 } from './corridor';
-import { createFirstPersonControls, type FirstPersonControls, type VoiceCommand } from './input';
+import { createFirstPersonControls, type FirstPersonControls } from './input';
 import { loadMonsterUnitFactory, type MonsterUnitInstance } from './monsterUnit';
 import { loadPlayerUnitFactory, type PlayerUnitFactory, type PlayerUnitInstance } from './playerUnit';
+import {
+  createMicVoiceInput,
+  voiceSignalFromCommand,
+  voiceSignalFromPressure,
+  type ActiveVoiceLevel,
+  type MicVoiceStatus,
+  type VoiceCommand,
+  type VoiceLevel,
+  type VoiceSignal,
+  type VoiceSource,
+} from './voiceInput';
 
 /** Eye height above the capsule centre. Capsule rest centre ≈1.0 (radius .4 + halfHeight .6) ⇒ eye ≈1.62. */
 const EYE_OFFSET = 0.62;
@@ -61,8 +72,6 @@ type RunStage = 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extra
 type MonsterMode = 'patrol' | 'investigate' | 'chase' | 'attack' | 'stunned';
 type EncounterPhase = 'idle' | 'telegraph' | 'cross' | 'recover' | 'done';
 type ScarePhase = 'lull' | 'build' | 'peak' | 'relax';
-type VoiceLevel = 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
-
 export interface SmokePose {
   readonly x: number;
   readonly y?: number;
@@ -93,7 +102,9 @@ export interface WalkRunStateView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly voiceLevel: VoiceLevel;
-  readonly activeVoice: VoiceCommand | null;
+  readonly activeVoice: ActiveVoiceLevel | null;
+  readonly voiceSource: VoiceSource | null;
+  readonly micVoiceStatus: MicVoiceStatus;
   readonly scarePhase: ScarePhase;
   readonly scareDebt: number;
   readonly inSlickZone: boolean;
@@ -149,7 +160,9 @@ export interface WalkUiFeedbackView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly scarePhase: ScarePhase;
-  readonly activeVoice: VoiceCommand | null;
+  readonly activeVoice: ActiveVoiceLevel | null;
+  readonly voiceSource: VoiceSource | null;
+  readonly micVoiceStatus: MicVoiceStatus;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
   readonly remoteVisibleCount: number;
@@ -183,7 +196,8 @@ interface RunState {
   lightExposure: number;
   soundPressure: number;
   voiceLevel: VoiceLevel;
-  activeVoice: VoiceCommand | null;
+  activeVoice: ActiveVoiceLevel | null;
+  voiceSource: VoiceSource | null;
   voiceTimer: number;
   scarePhase: ScarePhase;
   scareTimer: number;
@@ -229,6 +243,7 @@ export interface WalkSceneHandle extends HarnessScene {
   setRemotePoseForSmoke(pose: SmokeRemotePose): void;
   setFlashlightForSmoke(on: boolean): void;
   voiceForSmoke(command: VoiceCommand): number;
+  voicePressureForSmoke(pressure: number): number;
   interactForSmoke(): number;
   fireForSmoke(): number;
   readonly grounded: boolean;
@@ -491,6 +506,15 @@ export async function createWalkScene(
   });
   const playerEid = game.playerEid;
   const controls = createFirstPersonControls(canvas);
+  const micVoice = createMicVoiceInput();
+  let micVoiceRequested = false;
+  const requestMicVoice = (): void => {
+    if (micVoiceRequested) return;
+    micVoiceRequested = true;
+    void micVoice.request();
+  };
+  canvas.addEventListener('pointerdown', requestMicVoice, { once: true });
+  window.addEventListener('keydown', requestMicVoice, { once: true });
 
   const run: RunState = {
     stage: 'restorePower',
@@ -509,6 +533,7 @@ export async function createWalkScene(
     soundPressure: 0,
     voiceLevel: 'silent',
     activeVoice: null,
+    voiceSource: null,
     voiceTimer: 0,
     scarePhase: 'lull',
     scareTimer: 0,
@@ -560,6 +585,9 @@ export async function createWalkScene(
   let monsterLungeTimer = 0;
   let lastLightAttractionAt = -Infinity;
   let lastSlickStatusAt = -Infinity;
+  let lastVoiceStatusAt = -Infinity;
+  let lastVoiceAttractionAt = -Infinity;
+  let lastMicScreamAt = -Infinity;
   let slickMoveX = 0;
   let slickMoveZ = 0;
   const storyFlags = {
@@ -762,42 +790,81 @@ export async function createWalkScene(
     }
   };
 
-  const applyVoiceCommand = (command: VoiceCommand, pos: Vector3): number => {
-    run.activeVoice = command;
-    run.voiceTimer = command === 'scream' ? 1.25 : command === 'talk' ? 0.95 : 0.7;
+  const applyVoiceSignal = (signal: VoiceSignal, pos: Vector3, dt = 0): number => {
+    if (signal.level === 'silent') return 0;
+
+    const voiceLevel = signal.level;
+    const continuous = signal.source === 'mic';
+    const effect = continuous ? Math.max(0, dt) : 1;
+    const cueReady = !continuous || run.simTime - lastVoiceStatusAt > 4.5;
+    run.activeVoice = voiceLevel;
+    run.voiceSource = signal.source;
+    run.voiceTimer = continuous ? 0.24 : voiceLevel === 'scream' ? 1.25 : voiceLevel === 'shout' ? 1.05 : voiceLevel === 'talk' ? 0.95 : 0.7;
     const playerSafe = isSafeRoom(level, pos);
     const crewClose = run.nearbyCrew > 0;
 
-    if (command === 'whisper') {
-      run.resolve = clamp(run.resolve + (crewClose ? 1.4 : 0.45), 0, 100);
-      run.tension = clamp(run.tension - (crewClose ? 3.2 : 1.4), 0, 100);
-      flashStatus(crewClose ? 'whisper check-in - stay close' : 'whispering - stay low', 1.1);
-      playTone(230, 0.04, 0.012, 'sine');
+    if (voiceLevel === 'whisper') {
+      run.resolve = clamp(run.resolve + (continuous ? (crewClose ? 0.9 : 0.25) * effect : crewClose ? 1.4 : 0.45), 0, 100);
+      run.tension = clamp(run.tension - (continuous ? (crewClose ? 1.4 : 0.45) * effect : crewClose ? 3.2 : 1.4), 0, 100);
+      if (cueReady) {
+        lastVoiceStatusAt = run.simTime;
+        flashStatus(crewClose ? 'whisper check-in - stay close' : 'whispering - stay low', 1.1);
+        playTone(230, 0.04, 0.012, 'sine');
+      }
       if (!storyFlags.heardVoiceSurvivalHint) {
         storyFlags.heardVoiceSurvivalHint = true;
         radioSay('VESTA: Talk to survive. Whisper to hide. A scream is a dinner bell.');
       }
-      return 0.07;
+      return continuous ? signal.pressure * 0.22 : 0.07;
     }
 
-    if (command === 'talk') {
-      run.resolve = clamp(run.resolve + (crewClose ? 6.5 : 2.2), 0, 100);
-      run.tension = clamp(run.tension - (crewClose ? 5.5 : 1.8), 0, 100);
-      flashStatus(crewClose ? 'talk check-in - panic down' : 'talking - sound carries', 1.35);
-      playTone(340, 0.055, 0.018, 'triangle');
-      playTone(420, 0.045, 0.014, 'triangle', 0.07);
+    if (voiceLevel === 'talk') {
+      run.resolve = clamp(run.resolve + (continuous ? (crewClose ? 3.4 : 1.1) * effect : crewClose ? 6.5 : 2.2), 0, 100);
+      run.tension = clamp(run.tension - (continuous ? (crewClose ? 2.4 : 0.55) * effect : crewClose ? 5.5 : 1.8), 0, 100);
+      if (cueReady) {
+        lastVoiceStatusAt = run.simTime;
+        flashStatus(crewClose ? 'talk check-in - panic down' : 'talking - sound carries', 1.35);
+        playTone(340, 0.055, 0.018, 'triangle');
+        playTone(420, 0.045, 0.014, 'triangle', 0.07);
+      }
       if (!storyFlags.heardVoiceSurvivalHint) {
         storyFlags.heardVoiceSurvivalHint = true;
         radioSay('VESTA: Talking steadies the suit network. Keep it below a shout.');
       }
-      return crewClose ? 0.3 : 0.36;
+      return continuous ? Math.max(signal.pressure * 0.9, 0.22) : crewClose ? 0.3 : 0.36;
     }
 
-    run.resolve = clamp(run.resolve - 8, 0, 100);
-    run.tension = clamp(run.tension + 14, 0, 100);
-    run.scareDebt = clamp(run.scareDebt + 0.2, 0, 1);
-    flashStatus('scream carried down the ship', 1.45);
-    playCue('scare');
+    if (voiceLevel === 'shout') {
+      run.resolve = clamp(run.resolve - (continuous ? 2.2 * effect : 3.5), 0, 100);
+      run.tension = clamp(run.tension + (continuous ? 6 * effect : 8.5), 0, 100);
+      run.scareDebt = clamp(run.scareDebt + (continuous ? 0.04 * effect : 0.12), 0, 1);
+      if (cueReady) {
+        lastVoiceStatusAt = run.simTime;
+        flashStatus('shout echoed through the deck', 1.2);
+        playCue('scare');
+      }
+      if (!playerSafe && run.stage !== 'dead' && run.stage !== 'won' && run.simTime - lastVoiceAttractionAt > 0.85) {
+        lastVoiceAttractionAt = run.simTime;
+        monster.mode = 'investigate';
+        monster.investigateTarget = pos.clone();
+        monster.repathIn = 0;
+      }
+      if (!storyFlags.heardSoundWarning) {
+        storyFlags.heardSoundWarning = true;
+        radioSay('VESTA: Keep it under a shout. The Chorus follows pressure.');
+      }
+      return continuous ? signal.pressure * 1.05 : 0.74;
+    }
+
+    run.resolve = clamp(run.resolve - (continuous ? 8 * effect : 8), 0, 100);
+    run.tension = clamp(run.tension + (continuous ? 14 * effect : 14), 0, 100);
+    run.scareDebt = clamp(run.scareDebt + (continuous ? 0.08 * effect : 0.2), 0, 1);
+    const screamCueReady = !continuous || run.simTime - lastMicScreamAt > 0.75;
+    if (screamCueReady) {
+      lastMicScreamAt = run.simTime;
+      flashStatus('scream carried down the ship', 1.45);
+      playCue('scare');
+    }
     if (!storyFlags.heardScreamBait) {
       storyFlags.heardScreamBait = true;
       radioSay('VESTA: Sound is the monster. You just rang the dinner bell.');
@@ -807,13 +874,13 @@ export async function createWalkScene(
       monster.investigateTarget = pos.clone();
       monster.repathIn = 0;
       monster.lostSightSeconds = 0;
-      playCue('monster');
+      if (screamCueReady) playCue('monster');
     } else if (playerSafe) {
       monster.mode = 'investigate';
       monster.investigateTarget = SAFE_ROOM_GUARD;
       monster.repathIn = 0;
     }
-    return 1.18;
+    return continuous ? Math.max(signal.pressure * 1.18, 0.86) : 1.18;
   };
 
   const flashlightBeamHitsMonster = (pos: Vector3): boolean => {
@@ -1560,6 +1627,8 @@ export async function createWalkScene(
     soundPressure: run.soundPressure,
     voiceLevel: run.voiceLevel,
     activeVoice: run.activeVoice,
+    voiceSource: run.voiceSource,
+    micVoiceStatus: micVoice.status,
     scarePhase: run.scarePhase,
     scareDebt: run.scareDebt,
     inSlickZone: run.inSlickZone,
@@ -1614,6 +1683,8 @@ export async function createWalkScene(
     soundPressure: run.soundPressure,
     scarePhase: run.scarePhase,
     activeVoice: run.activeVoice,
+    voiceSource: run.voiceSource,
+    micVoiceStatus: micVoice.status,
     inSlickZone: run.inSlickZone,
     nearestRemoteVisibility: Math.max(0, ...[...remoteVisuals.values()].map((visual) => visual.visibility)),
     remoteVisibleCount: [...remoteVisuals.values()].filter((visual) => visual.visibility > 0.05).length,
@@ -1659,9 +1730,18 @@ export async function createWalkScene(
     syncHudState();
   };
   const voiceForSmoke = (command: VoiceCommand): number => {
-    const noise = applyVoiceCommand(command, playerPos());
+    const noise = applyVoiceSignal(voiceSignalFromCommand(command, 'smoke'), playerPos());
     run.soundPressure = clamp(run.soundPressure + noise * 0.58, 0, 1);
-    run.voiceLevel = voiceLevelFromNoise(noise, run.soundPressure);
+    run.voiceLevel = run.activeVoice ?? voiceLevelFromNoise(noise, run.soundPressure);
+    syncRunToEcs();
+    syncHudState();
+    return noise;
+  };
+  const voicePressureForSmoke = (pressure: number): number => {
+    const signal = voiceSignalFromPressure(pressure, 'smoke');
+    const noise = applyVoiceSignal(signal, playerPos());
+    run.soundPressure = clamp(run.soundPressure + noise * 0.58, 0, 1);
+    run.voiceLevel = run.activeVoice ?? voiceLevelFromNoise(noise, run.soundPressure);
     syncRunToEcs();
     syncHudState();
     return noise;
@@ -1705,6 +1785,7 @@ export async function createWalkScene(
     setRemotePoseForSmoke,
     setFlashlightForSmoke,
     voiceForSmoke,
+    voicePressureForSmoke,
     interactForSmoke,
     fireForSmoke,
     fixedStep(dt) {
@@ -1713,7 +1794,10 @@ export async function createWalkScene(
       const before = playerPos();
       const active = run.stage !== 'dead' && run.stage !== 'won';
       run.voiceTimer = Math.max(0, run.voiceTimer - dt);
-      if (run.voiceTimer <= 0) run.activeVoice = null;
+      if (run.voiceTimer <= 0) {
+        run.activeVoice = null;
+        run.voiceSource = null;
+      }
 
       if (controls.consumeFlashlightToggle()) {
         setFlashlightOn(!run.flashlightOn);
@@ -1802,8 +1886,10 @@ export async function createWalkScene(
       collectPickups(pos);
       if (active && controls.consumeInteract()) playerNoise += handleInteract(pos);
       if (active && controls.consumeFire()) playerNoise += handleFire(pos);
+      const micSignal = active ? micVoice.update() : voiceSignalFromPressure(0, 'mic');
+      if (micSignal.level !== 'silent') playerNoise += applyVoiceSignal(micSignal, pos, dt);
       const voice = active ? controls.consumeVoiceCommand() : null;
-      if (voice) playerNoise += applyVoiceCommand(voice, pos);
+      if (voice) playerNoise += applyVoiceSignal(voiceSignalFromCommand(voice, 'keyboard'), pos);
       run.soundPressure = clamp(run.soundPressure + playerNoise * 0.58 - dt * 0.42, 0, 1);
       run.voiceLevel = run.activeVoice ?? voiceLevelFromNoise(playerNoise, run.soundPressure);
       if (run.voiceLevel === 'scream' && !storyFlags.heardSoundWarning) {
@@ -1910,6 +1996,9 @@ export async function createWalkScene(
       camera.updateProjectionMatrix();
     },
     dispose() {
+      canvas.removeEventListener('pointerdown', requestMicVoice);
+      window.removeEventListener('keydown', requestMicVoice);
+      micVoice.dispose();
       controls.dispose();
       localUnit?.dispose();
       monsterUnit?.dispose();
