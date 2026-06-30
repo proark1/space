@@ -46,6 +46,7 @@ interface RunStateView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly voiceLevel: 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
+  readonly activeVoice: 'whisper' | 'talk' | 'scream' | null;
   readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
   readonly scareDebt: number;
   readonly inSlickZone: boolean;
@@ -82,6 +83,7 @@ interface UiFeedbackView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
+  readonly activeVoice: 'whisper' | 'talk' | 'scream' | null;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
   readonly remoteVisibleCount: number;
@@ -189,6 +191,10 @@ async function setFlashlight(page: Page, on: boolean): Promise<void> {
   await page.evaluate((next) => (window as any).__sl.setFlashlightForSmoke(next), on);
 }
 
+async function voice(page: Page, command: 'whisper' | 'talk' | 'scream'): Promise<void> {
+  await page.evaluate((next) => (window as any).__sl.voiceForSmoke(next), command);
+}
+
 async function interact(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__sl.interactForSmoke());
 }
@@ -294,6 +300,37 @@ async function main(): Promise<void> {
     state = await capture('far-crew-dark-hidden');
     assert(state.nearbyCrew === 0, 'far crew should not count as nearby in darkness');
     assert(ui.nearestRemoteVisibility < 0.08, `far crew should fade into darkness, got ${ui.nearestRemoteVisibility}`);
+
+    await setPlayer(page, { x: 0, y: 1, z: 0 }, 0);
+    await setMonster(page, { x: 0, y: 1, z: -12 });
+    await setFlashlight(page, false);
+    await voice(page, 'whisper');
+    await stepFrames(page, 2);
+    monster = await monsterState(page);
+    state = await capture('voice-whisper-hide');
+    assert(state.activeVoice === 'whisper', `expected active whisper voice, got ${state.activeVoice}`);
+    assert(state.voiceLevel === 'whisper', `expected whisper voice level, got ${state.voiceLevel}`);
+    assert(monster.mode !== 'chase' && monster.mode !== 'attack', `whisper should not hard-chase at range, got ${monster.mode}`);
+
+    await voice(page, 'scream');
+    await stepFrames(page, 2);
+    monster = await monsterState(page);
+    state = await capture('voice-scream-bait');
+    assert(state.activeVoice === 'scream', `expected active scream voice, got ${state.activeVoice}`);
+    assert(state.voiceLevel === 'scream', `expected scream voice level, got ${state.voiceLevel}`);
+    assert(state.soundPressure > 0.55, `scream should spike sound pressure, got ${state.soundPressure}`);
+    assert(monster.mode === 'chase' || monster.mode === 'attack', `scream should bait a chase, got ${monster.mode}`);
+
+    await setMonster(page, { x: 12, y: 1, z: -12 });
+    await setRemote(page, { x: 1.5, y: 1, z: 0 });
+    await stepFrames(page, 90);
+    const resolveBeforeTalk = (await runState(page)).resolve;
+    await voice(page, 'talk');
+    state = await capture('voice-talk-survive');
+    assert(state.activeVoice === 'talk', `expected active talk voice, got ${state.activeVoice}`);
+    assert(state.voiceLevel === 'talk', `expected talk voice level, got ${state.voiceLevel}`);
+    assert(state.resolve > resolveBeforeTalk, `talking near crew should recover resolve from ${resolveBeforeTalk}, got ${state.resolve}`);
+
     await setRemote(page, { x: 12, y: 1, z: 12 });
     await setFlashlight(page, true);
 

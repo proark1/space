@@ -2,14 +2,16 @@
  * First-person input for the walkable slice. Pointer-lock mouse-look drives yaw/pitch; WASD drives a
  * raw move vector; Space is an edge-triggered jump. Yaw/pitch are reported in radians matching the
  * three.js camera convention (yaw 0 ⇒ facing -Z) so they drop straight into PlayerController.MoveInput
- * and the camera's YXZ euler. E interacts, F toggles the flashlight, left click fires a stun pulse
- * once pointer lock is held, Shift sprints, and Ctrl/C crouches.
+ * and the camera's YXZ euler. E interacts, F toggles the flashlight, left click fires a stun pulse,
+ * Q/T/V send whisper/talk/scream voice pulses, Shift sprints, and Ctrl/C crouches.
  *
  * Keys are read off a global key-set that works whether or not the pointer is locked, so a headless
  * harness can prove movement by dispatching synthetic `keydown`/`keyup` (pointer-lock can't engage
  * without a real user gesture). Mouse-look only applies while locked. `setLook` is the scripted /
  * test hook for driving the heading directly.
  */
+export type VoiceCommand = 'whisper' | 'talk' | 'scream';
+
 export interface FirstPersonControls {
   /** Heading in radians (yaw 0 ⇒ facing -Z). */
   readonly yaw: number;
@@ -27,6 +29,8 @@ export interface FirstPersonControls {
   consumeFlashlightToggle(): boolean;
   /** True at most once per press/click: was a stun pulse requested since the last call? */
   consumeFire(): boolean;
+  /** True at most once per voice key press: Q whispers, T talks, V screams. */
+  consumeVoiceCommand(): VoiceCommand | null;
   /** Held movement modifiers. */
   readonly sprinting: boolean;
   readonly crouching: boolean;
@@ -57,6 +61,7 @@ export function createFirstPersonControls(
   let interactLatched = false;
   let flashlightLatched = false;
   let fireLatched = false;
+  let voiceLatched: VoiceCommand | null = null;
   let moveOverride: { x: number; z: number } | undefined;
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -64,6 +69,9 @@ export function createFirstPersonControls(
     if (e.code === 'Space') jumpLatched = true;
     if (e.code === 'KeyE') interactLatched = true;
     if (e.code === 'KeyF') flashlightLatched = true;
+    if (e.code === 'KeyQ') voiceLatched = 'whisper';
+    if (e.code === 'KeyT') voiceLatched = 'talk';
+    if (e.code === 'KeyV') voiceLatched = 'scream';
   };
   const onKeyUp = (e: KeyboardEvent): void => {
     pressed.delete(e.code);
@@ -135,6 +143,11 @@ export function createFirstPersonControls(
       if (!fireLatched) return false;
       fireLatched = false;
       return true;
+    },
+    consumeVoiceCommand() {
+      const voice = voiceLatched;
+      voiceLatched = null;
+      return voice;
     },
     setLook(nextYaw: number, nextPitch: number) {
       yaw = nextYaw;
