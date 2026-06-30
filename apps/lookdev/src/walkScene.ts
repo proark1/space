@@ -1,4 +1,4 @@
-import { Scene, PerspectiveCamera, Euler, Mesh, MeshStandardMaterial, CapsuleGeometry } from 'three';
+import { Scene, PerspectiveCamera, Euler, Mesh, MeshStandardMaterial, CapsuleGeometry, type Object3D } from 'three';
 import { Game } from '@sl/engine';
 import { Health, PlayerState, Transform, queryRemotePlayers, type GameWorld } from '@sl/ecs';
 import { createFlashlight } from '@sl/render';
@@ -7,9 +7,18 @@ import { hudSync } from '@sl/ui';
 import type { HarnessScene } from './scene';
 import { buildCorridor } from './corridor';
 import { createFirstPersonControls, type FirstPersonControls } from './input';
+import { loadPlayerUnitFactory, type PlayerUnitFactory, type PlayerUnitInstance } from './playerUnit';
 
 /** Eye height above the capsule centre. Capsule rest centre ≈1.0 (radius .4 + halfHeight .6) ⇒ eye ≈1.62. */
 const EYE_OFFSET = 0.62;
+
+interface RemotePlayerVisual {
+  readonly root: Object3D;
+  readonly unit: PlayerUnitInstance | null;
+  readonly capsule: Mesh | null;
+  lastX: number;
+  lastZ: number;
+}
 
 /** Internal hook surface for headless verification (player position + the controls + grounded state). */
 export interface WalkSceneHandle extends HarnessScene {
@@ -35,6 +44,7 @@ export async function createWalkScene(
 ): Promise<WalkSceneHandle> {
   const scene = new Scene();
   const { colliders, level } = buildCorridor(scene);
+  const playerUnitFactory = await loadPlayerUnitFactory();
 
   // Shared game root. Spawn near the near end-cap, facing -Z down the hall.
   const spawn = level.playerSpawn;
@@ -58,7 +68,7 @@ export async function createWalkScene(
   flashlight.addToScene(scene);
   const remoteMat = new MeshStandardMaterial({ color: 0x4db7ff, emissive: 0x0b2435, roughness: 0.75 });
   const remoteGeo = new CapsuleGeometry(0.33, 0.9, 5, 8);
-  const remoteMeshes = new Map<number, Mesh>();
+  const remoteVisuals = new Map<number, RemotePlayerVisual>();
   let remoteWorld: GameWorld | undefined;
   let objective = 'reach the aft bulkhead';
 
@@ -70,30 +80,64 @@ export async function createWalkScene(
     camera.quaternion.setFromEuler(euler);
     flashlight.update(camera);
   };
-  const syncRemoteMarkers = (): void => {
+  const yawFromTransform = (eid: number): number => {
+    const x = Transform.qx[eid] ?? 0;
+    const y = Transform.qy[eid] ?? 0;
+    const z = Transform.qz[eid] ?? 0;
+    const w = Transform.qw[eid] ?? 1;
+    return Math.atan2(2 * (w * y + x * z), 1 - 2 * (y * y + z * z));
+  };
+  const createRemoteVisual = (factory: PlayerUnitFactory | null, x: number, y: number, z: number): RemotePlayerVisual => {
+    const unit = factory?.createInstance() ?? null;
+    if (unit) {
+      unit.update({ x, y, z, yaw: 0, moving: false }, 0);
+      scene.add(unit.root);
+      return { root: unit.root, unit, capsule: null, lastX: x, lastZ: z };
+    }
+
+    const capsule = new Mesh(remoteGeo, remoteMat);
+    capsule.castShadow = true;
+    capsule.receiveShadow = true;
+    capsule.position.set(x, y + 0.15, z);
+    scene.add(capsule);
+    return { root: capsule, unit: null, capsule, lastX: x, lastZ: z };
+  };
+  const removeRemoteVisual = (visual: RemotePlayerVisual): void => {
+    visual.unit?.dispose();
+    scene.remove(visual.root);
+  };
+  const syncRemoteMarkers = (dt = 0): void => {
     if (!remoteWorld) {
-      for (const mesh of remoteMeshes.values()) scene.remove(mesh);
-      remoteMeshes.clear();
+      for (const visual of remoteVisuals.values()) removeRemoteVisual(visual);
+      remoteVisuals.clear();
       return;
     }
 
     const seen = new Set<number>();
     for (const eid of queryRemotePlayers(remoteWorld)) {
       seen.add(eid);
-      let mesh = remoteMeshes.get(eid);
-      if (!mesh) {
-        mesh = new Mesh(remoteGeo, remoteMat);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        remoteMeshes.set(eid, mesh);
-        scene.add(mesh);
+      const x = Transform.x[eid] ?? 0;
+      const y = Transform.y[eid] ?? 1;
+      const z = Transform.z[eid] ?? 0;
+      let visual = remoteVisuals.get(eid);
+      if (!visual) {
+        visual = createRemoteVisual(playerUnitFactory, x, y, z);
+        remoteVisuals.set(eid, visual);
       }
-      mesh.position.set(Transform.x[eid] ?? 0, (Transform.y[eid] ?? 1) + 0.15, Transform.z[eid] ?? 0);
+
+      const moving = Math.hypot(x - visual.lastX, z - visual.lastZ) > 0.001;
+      visual.lastX = x;
+      visual.lastZ = z;
+      if (visual.unit) {
+        visual.unit.update({ x, y, z, yaw: yawFromTransform(eid), moving }, dt);
+      } else if (visual.capsule) {
+        visual.capsule.position.set(x, y + 0.15, z);
+      }
     }
-    for (const [eid, mesh] of remoteMeshes) {
+    for (const [eid, visual] of remoteVisuals) {
       if (seen.has(eid)) continue;
-      scene.remove(mesh);
-      remoteMeshes.delete(eid);
+      removeRemoteVisual(visual);
+      remoteVisuals.delete(eid);
     }
   };
   placeCamera();
@@ -130,16 +174,16 @@ export async function createWalkScene(
         status: game.playerController.isGrounded ? 'grounded' : 'airborne',
       });
     },
-    frameUpdate() {
+    frameUpdate(dt) {
       placeCamera();
-      syncRemoteMarkers();
+      syncRemoteMarkers(dt);
     },
     resize(width, height) {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     },
     dispose() {
-      for (const mesh of remoteMeshes.values()) scene.remove(mesh);
+      for (const visual of remoteVisuals.values()) removeRemoteVisual(visual);
       remoteGeo.dispose();
       remoteMat.dispose();
       game.dispose();
