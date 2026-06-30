@@ -17,6 +17,11 @@
   #start{font:600 13px ui-monospace,monospace;letter-spacing:2px;color:#04140a;background:#7dffb0;border:0;border-radius:8px;padding:11px 20px;cursor:pointer}
   #start:hover{background:#9affc4} #start:disabled{opacity:.5;cursor:default}
   #status{font:11px ui-monospace,monospace;color:#9fd0ff;letter-spacing:2px;text-shadow:0 0 6px #000;min-height:14px}
+  #roomUi{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:min(720px,92vw)}
+  #roomUi input{width:112px;background:rgba(8,12,18,.84);border:1px solid #20303c;border-radius:6px;color:#cdd6e0;font:700 11px ui-monospace,monospace;letter-spacing:1px;padding:8px 9px;text-transform:uppercase}
+  #roomUi #roomSignal{width:180px;text-transform:none}
+  #roomUi button{background:rgba(8,12,18,.9);border:1px solid #2b4656;border-radius:6px;color:#9fd0ff;font:700 11px ui-monospace,monospace;letter-spacing:1px;padding:8px 10px;cursor:pointer}
+  #roomUi button.primary{border-color:#2c5a40;color:#7dffb0}
   #board{color:#7dffb0;text-decoration:none;border:1px solid #2c5a40;border-radius:8px;padding:9px 16px;font:600 12px ui-monospace,monospace;display:none}
   #lock{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font:12px ui-monospace,monospace;color:#cdd6e0;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:10px;padding:14px 20px;text-align:center;letter-spacing:1px}
   #lock b{color:#E8A33D}
@@ -28,7 +33,7 @@
 <div id="nav"><a href="/units">▸ crew</a><a href="/launch">▸ capsule</a></div>
 <div id="view">VIEW: FIRST PERSON</div>
 <div id="hud"><b>WASD</b> walk · <b>mouse</b> look · <b>V</b> first/third person · host: <b>Enter</b> to start</div>
-<div id="panel"><div id="status">● 4 CREW READY · WAITING FOR HOST</div><button id="start">▶ HOST · START LAUNCH SEQUENCE</button><a id="board" href="/launch">▸ BOARD THE CAPSULE</a></div>
+  <div id="panel"><div id="status">● 4 CREW READY · WAITING FOR HOST</div><div id="roomUi"><input id="roomName" maxlength="18" placeholder="NAME"><input id="roomCode" maxlength="8" placeholder="ROOM"><input id="roomSignal" placeholder="SIGNAL URL"><button id="createRoom" class="primary" type="button">CREATE</button><button id="joinRoom" type="button">JOIN</button><button id="copyInvite" type="button">INVITE</button></div><button id="start">▶ HOST · START LAUNCH SEQUENCE</button><a id="board" href="/launch">▸ BOARD THE CAPSULE</a></div>
 <div id="lock"><b>click</b> to enter the lobby<br>WASD walk · mouse look · <b>V</b> toggle view</div>
 
 <script type="importmap">
@@ -352,13 +357,60 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 
 // ---- host sequence ----
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
+const roomNameEl=document.getElementById('roomName'), roomCodeEl=document.getElementById('roomCode'), roomSignalEl=document.getElementById('roomSignal');
+const createRoomBtn=document.getElementById('createRoom'), joinRoomBtn=document.getElementById('joinRoom'), copyInviteBtn=document.getElementById('copyInvite');
 boardLink.onclick=e=>{ e.preventDefault(); goNext('/pad?flow=1'); };   // board -> the launch sequence
 let phase='wait', doorOpen=0, seqT=0, flowBoarded=false;
-function startSeq(){ if(phase!=='wait')return; phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY';
+let localReady=false; const readyPeers=new Set();
+function randomRoom(){ return Math.random().toString(36).replace(/[^a-z0-9]/g,'').slice(2,8).toUpperCase().padEnd(6,'7'); }
+function roomLink(code=roomCodeEl.value.trim().toUpperCase()){
+  const url=new URL('/lobby',location.href);
+  if(FLOW)url.searchParams.set('flow','1');
+  url.searchParams.set('room',code);
+  url.searchParams.set('name',(roomNameEl.value||MULTI.name||'PLAYER').trim().slice(0,18));
+  const signal=roomSignalEl.value.trim();
+  if(signal)url.searchParams.set('signal',signal);
+  return url;
+}
+function goRoom(code){
+  const name=(roomNameEl.value||MULTI.name||'PLAYER').trim().slice(0,18).toUpperCase();
+  localStorage.setItem('sl-player-name',name);
+  location.href=roomLink(code).toString();
+}
+function updateRoomStatus(){
+  roomNameEl.value=roomNameEl.value||MULTI.name||'';
+  roomCodeEl.value=roomCodeEl.value||MULTI.code||'';
+  roomSignalEl.value=roomSignalEl.value||new URLSearchParams(location.search).get('signal')||localStorage.getItem('sl-signal-url')||'';
+  const st=MULTI.state();
+  if(st.code){
+    const ready=readyPeers.size+(localReady?1:0)+(st.isHost?1:0);
+    statusEl.textContent=`● ROOM ${st.code} · ${st.isHost?'HOST':'CLIENT'} · ${st.peers+1}/4 CREW · READY ${Math.min(4,ready)}/4`;
+    startBtn.textContent=st.isHost?'▶ HOST · START LAUNCH SEQUENCE':(localReady?'✓ READY · WAITING FOR HOST':'READY UP');
+  } else {
+    statusEl.textContent='● 4 CREW READY · CREATE OR JOIN A ROOM';
+    startBtn.textContent='▶ SOLO HOST · START LAUNCH SEQUENCE';
+  }
+}
+createRoomBtn.onclick=()=>goRoom(randomRoom());
+joinRoomBtn.onclick=()=>{ const code=roomCodeEl.value.trim().toUpperCase(); if(code)goRoom(code); };
+copyInviteBtn.onclick=async()=>{ const code=roomCodeEl.value.trim().toUpperCase()||MULTI.code||randomRoom(); roomCodeEl.value=code; try{ await navigator.clipboard.writeText(roomLink(code).toString()); copyInviteBtn.textContent='COPIED'; setTimeout(()=>copyInviteBtn.textContent='INVITE',1200); }catch(e){ copyInviteBtn.textContent='COPY FAIL'; } };
+MULTI.onRoster(updateRoomStatus);
+MULTI.onHostChange(updateRoomStatus);
+MULTI.onTask(event=>{
+  if(event.type==='ready'){ if(event.payload?.ready)readyPeers.add(event.from); else readyPeers.delete(event.from); updateRoomStatus(); }
+  if(event.type==='lobby-start' && phase==='wait') startSeq(true);
+});
+function toggleReady(){ localReady=!localReady; MULTI.broadcastTask('ready',{ready:localReady}); updateRoomStatus(); }
+function startSeq(fromRemote=false){
+  if(phase!=='wait')return;
+  if(!fromRemote && MULTI.code && !MULTI.isHost()){ toggleReady(); return; }
+  if(!fromRemote && MULTI.code) MULTI.broadcastTask('lobby-start',{});
+  phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY';
   if(FLOW&&AUTO_START){ setTimeout(()=>{ if(flowBoarded)return; flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); },7600); }
 }
-startBtn.onclick=startSeq;
+startBtn.onclick=()=>startSeq();
 if(AUTO_START) setTimeout(startSeq,900);
+updateRoomStatus();
 
 const clock=new THREE.Clock(); const _f=new THREE.Vector3();
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;

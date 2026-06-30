@@ -359,8 +359,14 @@ MULTI.onTask(event=>{
     say(crewLine(event.name, event.payload?.text || 'I am on it.'),2.2);
   } else if(event.type==='noise'){
     director.hear(new THREE.Vector3(Number(event.payload?.x)||0,0,Number(event.payload?.z)||camera.position.z),Number(event.payload?.amount)||35,'remote-noise');
+  } else if(event.type==='intent' && isRoomHost()){
+    applyHostIntent(event.payload||{},event.from);
+  } else if(event.type==='state-request' && isRoomHost()){
+    broadcastRoomState(true);
   }
 });
+MULTI.onRoomState(state=>applyRoomState(state));
+MULTI.onHostChange(()=>{ if(isRoomHost()) broadcastRoomState(true); else MULTI.requestRoomState(); });
 
 // ---------- monster ----------
 const mob=new THREE.Group();
@@ -565,6 +571,8 @@ let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0,
 const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,command:false};
 const sideDone=new Set();
 const RUN_VARIANT=Math.floor(Math.random()*3);
+let roomStateRev=0, lastRoomStateAt=0, applyingRoomState=false;
+function isRoomHost(){ return MULTI.isHost(); }
 function say(html,hold=3.2){ crewTalkEl.innerHTML=html; crewTalkEl.style.opacity='1'; talkHideAt=performance.now()+hold*1000; }
 const fmtTime=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
 function statLine(){
@@ -634,6 +642,7 @@ function useSideInteract(item){
   MULTI.broadcastTask('noise',{x:item.pos.x,z:item.pos.z,amount:item.noise});
   MULTI.broadcastTask('objective',{text:item.line});
   if(item.id==='motion'||(item.id==='badge'&&RUN_VARIANT===2)) scareBeat(item.id==='motion'?'vent':'voice');
+  broadcastRoomState(true);
   say(crewSayLine(item.id==='badge'?0:item.id==='relay'?1:2,item.line),3.0);
 }
 function enterHide(h){
@@ -654,6 +663,7 @@ function startBreaker(){
   director.hear(BREAKER,50,'breaker');
   MULTI.broadcastTask('noise',{x:BREAKER.x,z:BREAKER.z,amount:50});
   MULTI.broadcastTask('objective',{text:'power reroute started. get ready to move.'});
+  broadcastRoomState(true);
   say(crewSayLine(1,'I need three seconds. naturally it sounds like a dinner bell.'),3.2);
 }
 function finishBreaker(){
@@ -661,6 +671,7 @@ function finishBreaker(){
   SCRL=['> EARTH LINK POWERED','> PAYLOAD: FINAL LOGS','> WARNING: CHORUS PATTERN','> RETURN TO COMMAND','> SEND?']; scrScroll=0; drawScreen();
   setObj('RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH');
   MULTI.broadcastTask('objective',{text:'earth link is powered. back to command.'});
+  broadcastRoomState(true);
   say(crewSayLine(1,'link is powered. I hated every second of that.'),3.0);
 }
 function startValve(){
@@ -671,6 +682,7 @@ function startValve(){
   director.hear(VALVE,55,'coolant');
   MULTI.broadcastTask('noise',{x:VALVE.x,z:VALVE.z,amount:55});
   MULTI.broadcastTask('objective',{text:'coolant valve is turning. it heard that.'});
+  broadcastRoomState(true);
   say(crewSayLine(2,'this valve is screaming. why does a valve scream?'),3.1);
 }
 function finishValve(){
@@ -679,7 +691,12 @@ function finishValve(){
   SCRL=['> COOLANT PRESSURE SEALED','> EARTH LINK OFFLINE','> PAYLOAD: FINAL LOGS','> AUX POWER REQUIRED','> SECTOR 7 BREAKER']; scrScroll=0; drawScreen();
   setObj('REROUTE POWER AT SECTOR 7 BREAKER');
   MULTI.broadcastTask('objective',{text:'coolant sealed. reroute power at sector seven.'});
+  broadcastRoomState(true);
   say(crewSayLine(0,'good. now leave before it applauds.'),2.8);
+}
+function sendIntent(action,payload={}){
+  MULTI.broadcastTask('intent',{action,...payload,x:camera.position.x,z:camera.position.z});
+  say(crewLine(MULTI.name,'copy. asking host to sync that.'),1.5);
 }
 function tryInteract(){
   if(caught||won||breakerFixing||valveFixing) return;
@@ -687,23 +704,24 @@ function tryInteract(){
   const h=nearestHide();
   if(h && (mActive||enraged||transmitting)){ enterHide(h); return; }
   const side=nearestSideInteract();
-  if(side){ useSideInteract(side); return; }
-  if(needValve && !valveDone && camera.position.distanceTo(VALVE)<2.0){ startValve(); return; }
-  if(needBreaker && !breakerDone && camera.position.distanceTo(BREAKER)<2.0){ startBreaker(); return; }
+  if(side){ if(!isRoomHost()){ sendIntent('side',{id:side.id}); return; } useSideInteract(side); return; }
+  if(needValve && !valveDone && camera.position.distanceTo(VALVE)<2.0){ if(!isRoomHost()){ sendIntent('valve'); return; } startValve(); return; }
+  if(needBreaker && !breakerDone && camera.position.distanceTo(BREAKER)<2.0){ if(!isRoomHost()){ sendIntent('breaker'); return; } startBreaker(); return; }
   if(camera.position.distanceTo(CONSOLE)>=3.4) return;
-  if(!restored) recoverRecordings();
-  else if(readyToSend&&!transmitting) sendToEarth();
+  if(!restored){ if(!isRoomHost()){ sendIntent('recordings'); return; } recoverRecordings(); }
+  else if(readyToSend&&!transmitting){ if(!isRoomHost()){ sendIntent('send'); return; } sendToEarth(); }
 }
 function recoverRecordings(){ restored=true; restoredAt=performance.now(); readyToSend=false; lightFactor=0.26; lightStun=0.55; flashOn=false; shake=0.32; spendSilence(0.78); playClip('crt-call',0.85);
   SCRL=['> FINAL REC 001','> commander hale','> "we opened the dock"','> FINAL REC 002','> "it used reyes voice"','> FINAL REC 003','> "do not transmit--"']; scrScroll=0; drawScreen();
   setObj('FINAL RECORDINGS FOUND · LISTEN');
   MULTI.broadcastTask('objective',{text:'final recordings recovered. listen close.'});
+  broadcastRoomState(true);
   promptEl.style.display='none';
   say('<b>STATION LOG</b>: day 41. we locked the command deck. it kept knocking with our voices.',4.2);
   setTimeout(()=>{ if(!restored||caught||won)return; say('<b>STATION LOG</b>: day 42. if it says it is rescue, do not open the door.',4.0); },2200);
   setTimeout(()=>{ if(!restored||caught||won)return; say(crewSayLine(1,'tiny note, the console is begging us not to press send.'),3.3); },4300);
-  setTimeout(()=>{ if(!restored||caught||won)return; needValve=true; flashOn=true; lightStun=0.18; setObj('SEAL COOLANT LEAK IN AFT SERVICE'); SCRL=['> COOLANT LEAK DETECTED','> PAYLOAD: FINAL LOGS','> AUX POWER LOCKED','> AFT SERVICE VALVE','> station says no','> mission says yes']; scrScroll=0; drawScreen(); },6200);
-  setTimeout(()=>{ if(!restored||caught||won)return; enraged=true; shake=0.75; director.hear(camera.position,70,'recordings'); if(!playClip('vox-chorus-1',1.0)) sting(); setObj(breakerDone||readyToSend?'RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH':valveDone?'IT HEARD THE RECORDINGS · REROUTE POWER':'IT HEARD THE RECORDINGS · SEAL COOLANT LEAK'); mob.position.set(camera.position.x,0,camera.position.z-11.0); say(crewSayLine(2,'that was behind us. that was absolutely behind us.'),3.2); },7600);
+  setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; needValve=true; flashOn=true; lightStun=0.18; setObj('SEAL COOLANT LEAK IN AFT SERVICE'); SCRL=['> COOLANT LEAK DETECTED','> PAYLOAD: FINAL LOGS','> AUX POWER LOCKED','> AFT SERVICE VALVE','> station says no','> mission says yes']; scrScroll=0; drawScreen(); broadcastRoomState(true); },6200);
+  setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; enraged=true; shake=0.75; director.hear(camera.position,70,'recordings'); if(!playClip('vox-chorus-1',1.0)) sting(); setObj(breakerDone||readyToSend?'RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH':valveDone?'IT HEARD THE RECORDINGS · REROUTE POWER':'IT HEARD THE RECORDINGS · SEAL COOLANT LEAK'); mob.position.set(camera.position.x,0,camera.position.z-11.0); say(crewSayLine(2,'that was behind us. that was absolutely behind us.'),3.2); broadcastRoomState(true); },7600);
 }
 function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=false; enraged=true; transmitStart=performance.now(); lightFactor=0.12; shake=0.5; flashOn=true; spendSilence(0.4); if(!playClip('crt-call',0.9)) click();
   SCRL=['> TRANSMITTING TO EARTH','> 00%','> do not listen','> hold channel','> hold channel','> hold channel']; scrScroll=0; drawScreen();
@@ -711,11 +729,12 @@ function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=fal
   director.hear(CONSOLE,100,'transmission');
   MULTI.broadcastTask('noise',{x:CONSOLE.x,z:CONSOLE.z,amount:100});
   MULTI.broadcastTask('objective',{text:'transmission started. hold the room.'});
+  broadcastRoomState(true);
   say(crewSayLine(0,'I am holding the hatch. please make that button worth it.'),3.4);
 }
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
-  showDebrief('death'); }
+  showDebrief('death'); broadcastRoomState(true); }
 function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
   Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
   sideDone.clear();
@@ -725,7 +744,7 @@ function respawn(){ caught=false; won=false; restored=false; needValve=false; va
   valveStatus.material.emissive.setHex(0xff2b18); valveStatus.material.emissiveIntensity=2.3;
   director.reset();
   crewMates.forEach((c,i)=>{ c.root.position.set(c.slot*0.55,0,-0.3+i*0.58); c.root.rotation.y=Math.PI; c.root.visible=SHOWCASE!=='monster'; });
-  SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer']; scrScroll=0; drawScreen(); }
+  SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer']; scrScroll=0; drawScreen(); broadcastRoomState(true); }
 
 const director={
   mode:'dormant',
@@ -797,6 +816,68 @@ const director={
 };
 function noisyTarget(){ if(valveFixing)return VALVE; if(breakerFixing)return BREAKER; return camera.position; }
 
+function roomSnapshot(){
+  const transmitProgress=transmitting?Math.min(1,(performance.now()-transmitStart)/4300):0;
+  return {
+    rev:++roomStateRev,
+    restored,needValve,valveDone,valveFixing,valveT,needBreaker,breakerDone,breakerFixing,breakerT,
+    readyToSend,transmitting,transmitProgress,transmitWarned,enraged,mActive,caught,won,lightFactor,flashOn,
+    sideDone:[...sideDone],
+    objective:objEl.textContent,
+    prompt:promptEl.textContent,
+    scrl:SCRL,
+    mob:{x:mob.position.x,y:mob.position.y,z:mob.position.z,ry:mob.rotation.y},
+    director:{mode:director.mode,suspicion:director.suspicion,patrol:director.patrol,searchT:director.searchT,reason:director.reason,lastKnown:{x:director.lastKnown.x,z:director.lastKnown.z}},
+  };
+}
+function broadcastRoomState(force=false){
+  if(!isRoomHost())return;
+  const now=performance.now();
+  if(!force && now-lastRoomStateAt<180)return;
+  lastRoomStateAt=now;
+  MULTI.publishRoomState(roomSnapshot(),roomStateRev);
+}
+function applyRoomState(state){
+  if(isRoomHost()||!state||typeof state!=='object')return;
+  if((Number(state.rev)||0)<roomStateRev)return;
+  applyingRoomState=true;
+  roomStateRev=Number(state.rev)||roomStateRev;
+  restored=!!state.restored; needValve=!!state.needValve; valveDone=!!state.valveDone; valveFixing=!!state.valveFixing; valveT=Number(state.valveT)||0;
+  needBreaker=!!state.needBreaker; breakerDone=!!state.breakerDone; breakerFixing=!!state.breakerFixing; breakerT=Number(state.breakerT)||0;
+  readyToSend=!!state.readyToSend; transmitting=!!state.transmitting; transmitWarned=!!state.transmitWarned; enraged=!!state.enraged; mActive=!!state.mActive;
+  lightFactor=Number.isFinite(Number(state.lightFactor))?Number(state.lightFactor):lightFactor; flashOn=!!state.flashOn;
+  sideDone.clear(); for(const id of (Array.isArray(state.sideDone)?state.sideDone:[])) sideDone.add(id);
+  if(typeof state.objective==='string') setObj(state.objective);
+  if(Array.isArray(state.scrl)){ SCRL=state.scrl.map(String); scrScroll=0; drawScreen(); }
+  if(state.mob){ mob.position.set(Number(state.mob.x)||0,Number(state.mob.y)||0,Number(state.mob.z)||mob.position.z); mob.rotation.y=Number(state.mob.ry)||0; }
+  if(state.director){
+    director.mode=String(state.director.mode||director.mode); director.suspicion=Number(state.director.suspicion)||0; director.patrol=Number(state.director.patrol)||0; director.searchT=Number(state.director.searchT)||0; director.reason=String(state.director.reason||'');
+    if(state.director.lastKnown) director.lastKnown.set(Number(state.director.lastKnown.x)||0,0,Number(state.director.lastKnown.z)||-18);
+  }
+  if(transmitting) transmitStart=performance.now()-Math.min(1,Math.max(0,Number(state.transmitProgress)||0))*4300;
+  valveStatus.material.emissive.setHex(valveDone?0x7dffb0:0xff2b18); valveStatus.material.emissiveIntensity=valveDone?2.2:2.3;
+  const remoteWon=!!state.won, remoteCaught=!!state.caught;
+  if(remoteWon&&!won){ won=true; caught=false; sentAt=performance.now(); showDebrief('win'); }
+  else if(remoteCaught&&!caught&&!won){ caught=true; showDebrief('death'); }
+  else if(!remoteWon&&!remoteCaught&&(won||caught)){
+    won=false; caught=false; overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN';
+  }
+  applyingRoomState=false;
+}
+function applyHostIntent(payload,peerId=''){
+  if(!isRoomHost()||!payload)return;
+  const action=String(payload.action||'');
+  if(action==='side'){
+    const item=SIDE_INTERACTS.find(s=>s.id===payload.id&&!sideDone.has(s.id));
+    if(item) useSideInteract(item);
+  } else if(action==='valve' && needValve&&!valveDone&&!valveFixing) startValve();
+  else if(action==='breaker' && needBreaker&&!breakerDone&&!breakerFixing) startBreaker();
+  else if(action==='recordings' && !restored) recoverRecordings();
+  else if(action==='send' && readyToSend&&!transmitting) sendToEarth();
+  if(peerId) say(crewLine((MULTI.peers().find(p=>p.id===peerId)?.name)||'CREW','synced.'),1.4);
+  broadcastRoomState(true);
+}
+
 function scareBeat(kind){
   scarePulseT=0.55; shake=Math.max(shake,kind==='voice'?0.55:0.35); lightStun=Math.max(lightStun,0.25); spendSilence(0.28);
   if(kind==='vent'){ thump(); director.hear(camera.position,34,'vent'); SCRL=['> AUDIO SPIKE','> ventilation: closed','> ventilation: opened','> ventilation: not ours']; say(crewSayLine(1,'the vent just answered back. that is new.'),2.9); }
@@ -860,6 +941,7 @@ function animate(){ requestAnimationFrame(animate);
   stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip('sfx-step',0.35); }
   if(controls.isLocked && !caught && !won) storyBeatCheck();
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:camera.rotation.y,hidden});
+  broadcastRoomState();
   updateCrew(dt,t,moving);
   if(performance.now()>talkHideAt) crewTalkEl.style.opacity='0';
   if(breakerFixing){
@@ -921,9 +1003,9 @@ function animate(){ requestAnimationFrame(animate);
     const pct=String(Math.floor(k*100)).padStart(2,'0');
     SCRL=['> TRANSMITTING TO EARTH',`> ${pct}%`,'> CHORUS PATTERN ATTACHED','> CREW LOGS SEALED','> hold channel','> hold channel']; drawScreen();
     if(!transmitWarned && k>0.32){ transmitWarned=true; say(crewSayLine(1,'if this uploads the monster too, I am resigning.'),2.6); }
-    if(k>=1){ sentAt=performance.now(); transmitting=false; won=true; SCRL=['> TRANSMISSION COMPLETE','> EARTH HAS THE LOGS','> SIGNAL LOST','> FIRST LOOP COMPLETE']; drawScreen(); showDebrief('win'); }
+    if(k>=1&&isRoomHost()){ sentAt=performance.now(); transmitting=false; won=true; SCRL=['> TRANSMISSION COMPLETE','> EARTH HAS THE LOGS','> SIGNAL LOST','> FIRST LOOP COMPLETE']; drawScreen(); showDebrief('win'); broadcastRoomState(true); }
   }
-  if(mActive && !caught && !won){
+  if(mActive && !caught && !won && isRoomHost()){
     const px=mob.position.x-camera.position.x, pz=mob.position.z-camera.position.z, pl=Math.hypot(px,pz)||1;
     camera.getWorldDirection(fwd);
     const facing=fwd.x*(px/pl)+fwd.z*(pz/pl);
@@ -946,7 +1028,12 @@ function animate(){ requestAnimationFrame(animate);
     for(let i=0;i<tendrils.length;i++){ tendrils[i].rotation.z=Math.sin(t*2.4+tendrils[i].userData.wiggle)*0.13; tendrils[i].rotation.x=Math.cos(t*1.8+i)*0.05; }
     mGlow.intensity = mThroat.material.emissiveIntensity*0.7;
     if(dM<13){ heart-=dt; const iv=THREE.MathUtils.lerp(0.4,1.05,Math.min(1,(dM-3)/10)); if(heart<=0){ thump(); if(dM<7)setTimeout(thump,165); heart=iv; } }
-    if(!hidden && dM<1.5) die();
+    if(isRoomHost()){
+      for(const pose of Object.values(MULTI.remotePoses())){
+        if(!pose.hidden && Math.hypot(mob.position.x-pose.x,mob.position.z-pose.z)<1.5){ die(); break; }
+      }
+    }
+    if(isRoomHost() && !hidden && dM<1.5) die();
   }
   // drive the forged CHORUS model's animation by state (no-op for the procedural monster)
   if(mobUnit){
@@ -977,11 +1064,12 @@ function animate(){ requestAnimationFrame(animate);
   camera.position.x+=ox; camera.position.y+=oy; composer.render(); camera.position.x-=ox; camera.position.y-=oy;
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, get crewCount(){return crewMates.length;},
-  get state(){return {hidden,mActive,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+  get state(){return {hidden,mActive,restored,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
     forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; activeHide=h; hidden=true; camera.position.copy(h.pos); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},
     makeNoise(x,z,amount=70){director.hear(new THREE.Vector3(x,0,z),amount,'smoke-noise');},
+    interact(){tryInteract();},
     moveTo(x,z){camera.position.set(x,1.6,z);}
   }:null
 };   // inspect the forged CHORUS model

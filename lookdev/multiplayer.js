@@ -51,10 +51,14 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
   const peers = new Map();
   const rosterCallbacks = new Set();
   const taskCallbacks = new Set();
+  const stateCallbacks = new Set();
+  const hostCallbacks = new Set();
   let ws = null;
   let selfId = '';
+  let hostId = '';
   let status = code && enabled ? 'connecting' : 'offline';
   let lastPoseAt = 0;
+  let lastStateRev = -1;
 
   if (signal) localStorage.setItem('sl-signal-url', signal);
 
@@ -62,6 +66,14 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
   const emitRoster = () => {
     const list = snapshot();
     rosterCallbacks.forEach(cb => cb(list));
+  };
+  const electHost = (preferred = '') => {
+    const previous = hostId;
+    if (preferred) hostId = preferred;
+    else if (!hostId || (hostId !== selfId && !peers.has(hostId))) {
+      hostId = [selfId, ...peers.keys()].filter(Boolean).sort()[0] || '';
+    }
+    if (hostId !== previous) hostCallbacks.forEach(cb => cb(hostId, hostId === selfId));
   };
   const send = (to, data) => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !to) return;
@@ -94,14 +106,17 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
         if (msg.t === 'welcome') {
           selfId = msg.self || '';
           (msg.peers || []).forEach(id => peers.set(id, peers.get(id) || { name: `CREW ${peers.size + 2}`, scene: '', pose: null, lastSeen: 0 }));
+          electHost((msg.peers && msg.peers[0]) || selfId);
           emitRoster();
           peers.forEach((_, id) => hello(id));
         } else if (msg.t === 'peer-join' && msg.peerId) {
           peers.set(msg.peerId, peers.get(msg.peerId) || { name: `CREW ${peers.size + 2}`, scene: '', pose: null, lastSeen: 0 });
+          electHost();
           emitRoster();
           hello(msg.peerId);
         } else if (msg.t === 'peer-leave' && msg.peerId) {
           peers.delete(msg.peerId);
+          electHost();
           emitRoster();
         } else if (msg.t === 'signal' && msg.from && msg.data) {
           const peer = peers.get(msg.from) || { name: `CREW ${peers.size + 2}`, scene: '', pose: null, lastSeen: 0 };
@@ -118,6 +133,14 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
             peers.set(msg.from, peer);
           } else if (msg.data.kind === 'task') {
             taskCallbacks.forEach(cb => cb({ from: msg.from, name: peer.name, type: msg.data.type, payload: msg.data.payload || {} }));
+          } else if (msg.data.kind === 'room-state') {
+            const rev = Number(msg.data.rev) || 0;
+            if (rev >= lastStateRev) {
+              lastStateRev = rev;
+              stateCallbacks.forEach(cb => cb(msg.data.state || {}, { from: msg.from, rev }));
+            }
+          } else if (msg.data.kind === 'state-request' && hostId === selfId) {
+            taskCallbacks.forEach(cb => cb({ from: msg.from, name: peer.name, type: 'state-request', payload: {} }));
           }
         }
       });
@@ -130,7 +153,9 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
     code,
     name,
     get selfId() { return selfId; },
-    state() { return { status, code, selfId, name, peers: peers.size, scene }; },
+    get hostId() { return hostId; },
+    isHost() { return Boolean(code && selfId && hostId === selfId) || !code; },
+    state() { return { status, code, selfId, hostId, isHost: Boolean(selfId && hostId === selfId), name, peers: peers.size, scene }; },
     peers: snapshot,
     remoteNames() { return snapshot().map(peer => peer.name); },
     remotePose(id) { return peers.get(id)?.pose || null; },
@@ -141,6 +166,8 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
     },
     onRoster(cb) { rosterCallbacks.add(cb); cb(snapshot()); return () => rosterCallbacks.delete(cb); },
     onTask(cb) { taskCallbacks.add(cb); return () => taskCallbacks.delete(cb); },
+    onRoomState(cb) { stateCallbacks.add(cb); return () => stateCallbacks.delete(cb); },
+    onHostChange(cb) { hostCallbacks.add(cb); return () => hostCallbacks.delete(cb); },
     publishPose(pose) {
       const now = performance.now();
       if (!code || status !== 'connected' || now - lastPoseAt < 80) return;
@@ -148,6 +175,11 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
       broadcast({ kind: 'pose', pose: { ...clonePose(pose), scene } });
     },
     broadcastTask(type, payload = {}) { broadcast({ kind: 'task', type, payload }); },
+    publishRoomState(state, rev = Date.now()) {
+      if (!code || status !== 'connected' || hostId !== selfId) return;
+      broadcast({ kind: 'room-state', rev, state });
+    },
+    requestRoomState() { broadcast({ kind: 'state-request' }); },
     close() { if (ws) ws.close(); }
   };
 }

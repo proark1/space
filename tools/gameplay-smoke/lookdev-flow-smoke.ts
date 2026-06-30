@@ -328,9 +328,26 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
   }, null, { timeout: TIMEOUT_MS });
   const liveCrew = await client.evaluate(() => (window as any).__chorus.state.liveCrew);
   assert(liveCrew.some((member: { remote: boolean; name: string }) => member.remote && member.name === 'HOST'), `expected HOST to replace an NPC slot, got ${JSON.stringify(liveCrew)}`);
+  await host.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -52.7));
+  await host.evaluate(() => (window as any).__chorus.smoke.interact());
+  try {
+    await client.waitForFunction(() => (window as any).__chorus.state.restored === true, null, { timeout: TIMEOUT_MS });
+  } catch (err) {
+    const context = {
+      host: await host.evaluate(() => (window as any).__chorus.state),
+      client: await client.evaluate(() => (window as any).__chorus.state),
+    };
+    throw new Error(`timed out waiting for restored sync: ${JSON.stringify(context)}\n${String(err)}`);
+  }
+  await client.waitForFunction(() => (window as any).__chorus.state.needValve === true, null, { timeout: TIMEOUT_MS });
+  await client.evaluate(() => (window as any).__chorus.camera.position.set(1.28, 1.6, -36.5));
+  await client.evaluate(() => (window as any).__chorus.smoke.interact());
+  await host.waitForFunction(() => (window as any).__chorus.state.valveFixing === true || (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
+  await client.waitForFunction(() => (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
+  await host.close();
+  await client.waitForFunction(() => (window as any).__chorus.state.multiplayer.isHost === true, null, { timeout: TIMEOUT_MS });
   await assertNoPageErrors(hostErrors, 'station multiplayer host');
   await assertNoPageErrors(clientErrors, 'station multiplayer client');
-  await host.close();
   await client.close();
 }
 
