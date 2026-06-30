@@ -194,9 +194,15 @@ const COLLAR=new THREE.Vector3(), AX=new THREE.Vector3(), SIDE=new THREE.Vector3
 // ---- arriving capsule ----
 const cap=new THREE.Group();
 const capMat=new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:false});
+const capGlassMat=new THREE.MeshStandardMaterial({color:0x092638,emissive:0x4db8ff,emissiveIntensity:0.55,roughness:0.08,metalness:0.28,transparent:true,opacity:0.72,side:THREE.DoubleSide,depthWrite:false});
 const nose=new THREE.Mesh(new THREE.ConeGeometry(1.2,3,12),capMat); nose.rotation.x=-Math.PI/2; nose.position.z=-1.7; cap.add(nose);
 const cbody=new THREE.Mesh(new THREE.CylinderGeometry(1.25,1.5,2.8,12),capMat); cbody.rotation.x=Math.PI/2; cbody.position.z=0.5; cap.add(cbody);
-cap.add(pos(new THREE.Mesh(new THREE.SphereGeometry(0.6,12,12),new THREE.MeshStandardMaterial({color:0x02060a,emissive:0x9fd0ff,emissiveIntensity:1.7})),0,0.65,-1.0));
+cap.add(pos(new THREE.Mesh(new THREE.SphereGeometry(0.62,16,12),capGlassMat.clone()),0,0.65,-1.0));
+const roofGlass=new THREE.Mesh(new THREE.PlaneGeometry(1.5,2.7),capGlassMat); roofGlass.position.set(0,0.92,-0.1); roofGlass.rotation.x=-Math.PI/2; cap.add(roofGlass);
+for(const sx of [-1,1]){
+  const pane=new THREE.Mesh(new THREE.PlaneGeometry(2.2,0.95),capGlassMat.clone());
+  pane.position.set(sx*1.04,0.16,-0.05); pane.rotation.y=Math.PI/2; cap.add(pane);
+}
 const probe=new THREE.Mesh(new THREE.TorusGeometry(0.5,0.08,8,20),M.metal); probe.position.z=-3.1; cap.add(probe); // nose probe that mates the collar
 const thrMat=new THREE.MeshStandardMaterial({color:0x050608,emissive:0xff8a3a,emissiveIntensity:1.5,roughness:1}); const thr=[];
 [[-0.6,0],[0.6,0],[0,0.6]].forEach(([x,y])=>{ const tc=new THREE.Mesh(new THREE.ConeGeometry(0.36,0.9,10),thrMat); tc.rotation.x=Math.PI/2; tc.position.set(x,y,2.2); cap.add(tc); thr.push(tc); });

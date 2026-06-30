@@ -104,6 +104,7 @@ const M={
   rust:    new THREE.MeshStandardMaterial({color:0x6e4733,map:grime,roughness:0.95,metalness:0.15,flatShading:false}),
   nozzle:  new THREE.MeshStandardMaterial({color:0x26282c,roughness:0.5,metalness:0.7,flatShading:false}),
   capsule: new THREE.MeshStandardMaterial({color:0xc8c4b6,roughness:0.45,metalness:0.4,flatShading:false}),
+  capGlass:new THREE.MeshStandardMaterial({color:0x092638,emissive:0x4db8ff,emissiveIntensity:0.5,roughness:0.08,metalness:0.28,transparent:true,opacity:0.72,depthWrite:false,flatShading:false}),
   hazard:  new THREE.MeshStandardMaterial({color:0x1a1204,emissive:0xE8A33D,emissiveIntensity:0.9,roughness:1}),
   beacon:  new THREE.MeshStandardMaterial({color:0x1a0303,emissive:0xff3525,emissiveIntensity:2.4,roughness:1}),
   flood:   new THREE.MeshStandardMaterial({color:0x222,emissive:0xdfeaff,emissiveIntensity:3.0,roughness:1}),
@@ -176,6 +177,11 @@ const rocket=new THREE.Group(); scene.add(rocket); rocket.position.set(0,3,0);
   part(CYL(1.7,2.0,2.4,16),M.dark,g,0,36,0);                                    // adapter
   part(CYL(1.5,1.7,2.6,16),M.capsule,g,0,38.6,0);                               // capsule body
   part(CONE(1.5,2.4,16),M.capsule,g,0,41.4,0);                                  // capsule nose
+  part(CYL(1.26,1.46,0.34,16),M.capGlass,g,0,39.7,0);                           // panoramic glass belt
+  part(CYL(0.55,1.18,1.2,16),M.capGlass,g,0,41.15,0);                           // glass roof/canopy below the escape tower
+  for(const a of [0,Math.PI*0.5,Math.PI,Math.PI*1.5]){
+    part(BOX(0.08,1.25,0.86),M.capGlass,g,Math.cos(a)*1.48,38.75,Math.sin(a)*1.48,0,-a,0);
+  }
   part(CYL(0.18,0.18,4.2,10),M.steel,g,0,44.8,0);                               // launch-escape tower
   part(CONE(0.5,1.2,10),M.rust,g,0,47.4,0);
   // fins / strakes

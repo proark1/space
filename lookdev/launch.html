@@ -119,7 +119,7 @@ const M={
   cyan: new THREE.MeshStandardMaterial({color:0x04121a,emissive:0x7fd2ff,emissiveIntensity:1.3,roughness:1}),
   red:  new THREE.MeshStandardMaterial({color:0x1a0404,emissive:0xff4030,emissiveIntensity:1.1,roughness:1}),
   visor:new THREE.MeshStandardMaterial({color:0x05121a,emissive:0x6fd0ff,emissiveIntensity:0.85,roughness:0.3,metalness:0.6}),
-  glass:new THREE.MeshStandardMaterial({color:0x0a1822,transparent:true,opacity:0.07,roughness:0.2,metalness:0.4,side:THREE.DoubleSide,depthWrite:false}),
+  glass:new THREE.MeshStandardMaterial({color:0x0b2634,emissive:0x18384a,emissiveIntensity:0.12,transparent:true,opacity:0.16,roughness:0.08,metalness:0.35,side:THREE.DoubleSide,depthWrite:false}),
   engine:new THREE.MeshStandardMaterial({color:0x04140f,emissive:0x37e0c0,emissiveIntensity:2.2,roughness:1}),
 };
 [M.hull,M.dark,M.metal,M.seat,M.suit,M.suit2].forEach(snap);
@@ -180,19 +180,34 @@ ship.position.set(64,12,-340);
 // ---- COCKPIT (fixed shell around the camera; window opening faces -Z) ----
 const cabin=new THREE.Group(); scene.add(cabin);
 part(BOX(3.4,0.2,3.8),M.dark,cabin,0,-1.25,-0.1);     // floor
-part(BOX(3.4,0.2,3.8),M.dark,cabin,0,1.15,-0.1);      // ceiling
-part(BOX(0.2,2.6,3.8),M.hull,cabin,-1.6,-0.05,-0.1);  // left wall
-part(BOX(0.2,2.6,3.8),M.hull,cabin,1.6,-0.05,-0.1);   // right wall
+// Panoramic canopy: the capsule has a glass roof and broad side panes, with only structural rails.
+part(new THREE.PlaneGeometry(2.85,3.35),M.glass,cabin,0,1.16,-0.1,-Math.PI/2,0,0); // full glass roof
+part(BOX(3.35,0.16,0.18),M.metal,cabin,0,1.12,-1.78);  // forward roof bow
+part(BOX(3.35,0.16,0.18),M.metal,cabin,0,1.12,1.55);   // rear roof bow
+part(BOX(0.16,0.16,3.55),M.metal,cabin,-1.55,1.12,-0.1);
+part(BOX(0.16,0.16,3.55),M.metal,cabin,1.55,1.12,-0.1);
+part(BOX(0.18,0.36,3.6),M.dark,cabin,-1.6,-1.02,-0.1); // left lower sill
+part(BOX(0.18,0.36,3.6),M.dark,cabin,1.6,-1.02,-0.1);  // right lower sill
+part(new THREE.PlaneGeometry(3.2,1.85),M.glass,cabin,-1.52,0.02,-0.12,0,Math.PI/2,0);
+part(new THREE.PlaneGeometry(3.2,1.85),M.glass,cabin,1.52,0.02,-0.12,0,Math.PI/2,0);
+for(const x of [-1.6,1.6]){
+  part(BOX(0.18,2.18,0.16),M.metal,cabin,x,0.02,-1.72);
+  part(BOX(0.18,2.18,0.16),M.metal,cabin,x,0.02,1.52);
+  part(BOX(0.14,2.0,0.12),M.metal,cabin,x,0.04,-0.12);
+}
 part(BOX(3.4,2.6,0.2),M.hull,cabin,0,-0.05,1.78);     // back wall
 part(BOX(1.2,1.4,0.16),M.dark,cabin,0,-0.1,1.7);      // back hatch
-for(let i=-1;i<=1;i++){ part(BOX(0.12,2.5,0.18),M.metal,cabin,-1.5,0,-0.6+i*0.7); part(BOX(0.12,2.5,0.18),M.metal,cabin,1.5,0,-0.6+i*0.7); }
-// window frame (front)
-part(BOX(3.2,0.35,0.25),M.metal,cabin,0,1.0,-1.62);
-part(BOX(3.2,0.5,0.25),M.dark,cabin,0,-0.78,-1.62);
-part(BOX(0.32,2.2,0.25),M.metal,cabin,-1.45,0.1,-1.62);
-part(BOX(0.32,2.2,0.25),M.metal,cabin,1.45,0.1,-1.62);
-part(BOX(0.14,1.7,0.2),M.metal,cabin,0,0.1,-1.62);
-part(new THREE.PlaneGeometry(2.7,1.5),M.glass,cabin,0,0.15,-1.6);
+part(BOX(0.08,0.1,2.5),M.metal,cabin,-1.5,-0.82,-0.2);
+part(BOX(0.08,0.1,2.5),M.metal,cabin,1.5,-0.82,-0.2);
+// window frame (front) — widened so launch, Earth, and the derelict stay visible while free-looking.
+part(BOX(3.25,0.22,0.25),M.metal,cabin,0,1.02,-1.62);
+part(BOX(3.25,0.28,0.25),M.dark,cabin,0,-0.92,-1.62);
+part(BOX(0.22,2.28,0.25),M.metal,cabin,-1.48,0.02,-1.62);
+part(BOX(0.22,2.28,0.25),M.metal,cabin,1.48,0.02,-1.62);
+part(new THREE.PlaneGeometry(2.95,1.95),M.glass,cabin,0,0.05,-1.6);
+for(const x of [-0.95,0.95]) part(BOX(0.08,1.88,0.18),M.metal,cabin,x,0.05,-1.61);
+part(BOX(2.75,0.06,0.18),M.cyan,cabin,0,0.97,-1.6);
+part(BOX(2.75,0.06,0.18),M.cyan,cabin,0,-0.85,-1.6);
 // dash console
 part(BOX(3.0,0.5,0.7),M.dark,cabin,0,-0.62,-1.15,-0.5,0,0);
 const readout=(mat,w,h,x,z,base)=>{ const m=part(BOX(w,h,0.02),mat,cabin,x,-0.5,z,-0.5,0,0); flick.push({m,b:base,s:Math.random()*9}); return m; };
