@@ -55,7 +55,7 @@ const scene=new THREE.Scene(); scene.background=new THREE.Color(0x03050b);
 scene.fog=new THREE.FogExp2(0x05080f,0.0010);
 const camera=new THREE.PerspectiveCamera(62,1,0.04,8000);
 camera.rotation.order='YXZ'; camera.position.set(0,0.02,0.85);   // YOU sit in the back seat of the ring
-const FLOW_FAST=FLOW && new URLSearchParams(location.search).get('fast')==='1';
+const FLOW_FAST=new URLSearchParams(location.search).get('fast')==='1';
 const CREW_SLOTS=buildCrewSlots({search: location.search});
 const ACTIVE_CREW=CREW_SLOTS.slice(1);
 const CREW_SUMMARY=crewSummary(CREW_SLOTS);
@@ -125,7 +125,7 @@ const M={
   cyan: new THREE.MeshStandardMaterial({color:0x04121a,emissive:0x7fd2ff,emissiveIntensity:1.3,roughness:1}),
   red:  new THREE.MeshStandardMaterial({color:0x1a0404,emissive:0xff4030,emissiveIntensity:1.1,roughness:1}),
   visor:new THREE.MeshStandardMaterial({color:0x05121a,emissive:0x6fd0ff,emissiveIntensity:0.85,roughness:0.3,metalness:0.6}),
-  glass:new THREE.MeshStandardMaterial({color:0x123c52,emissive:0x2f8fc0,emissiveIntensity:0.36,transparent:true,opacity:0.36,roughness:0.04,metalness:0.28,side:THREE.DoubleSide,depthWrite:false}),
+  glass:new THREE.MeshPhysicalMaterial({color:0x1b6f91,emissive:0x43cfff,emissiveIntensity:0.36,transparent:true,opacity:0.3,roughness:0.02,metalness:0.08,clearcoat:1,clearcoatRoughness:0.02,side:THREE.DoubleSide,depthWrite:false}),
   engine:new THREE.MeshStandardMaterial({color:0x04140f,emissive:0x37e0c0,emissiveIntensity:2.2,roughness:1}),
 };
 [M.hull,M.dark,M.metal,M.seat,M.suit,M.suit2].forEach(snap);
@@ -166,8 +166,17 @@ const ship=new THREE.Group(); world.add(ship);
   for(let i=0;i<5;i++){ const z=-16+i*8; part(BOX(7,5,8),seg[i%2],g,0,0,z); part(BOX(7.3,0.7,8),M.dark,g,0,2.6,z); part(BOX(7.3,0.7,8),M.dark,g,0,-2.6,z); }
   part(BOX(5,4,7),M.hull,g,0,0,-22); part(BOX(3.6,2.6,5),M.dark,g,0,0,-27);                 // nose
   part(BOX(6,3,7),M.dark,g,0,3.6,-11); part(BOX(4.5,2.2,5),M.hull,g,0,5.4,-11); part(BOX(4,1.1,4),M.amber,g,0,6.6,-11); // command tower
-  // docking face visible during final approach; this matches the manual-docking target language.
-  buildApproachDockFaceZ({THREE,parent:g,part,BOX,CYL,SPH,M,baseZ:-30});
+  // Launch-facing docking collar: the capsule approaches this visible target before /dock.
+  const approachDockZ=24;
+  buildApproachDockFaceZ({THREE,parent:g,part,BOX,CYL,SPH,M,baseZ:approachDockZ});
+  const dockBeacon=new THREE.MeshBasicMaterial({color:0x9ffcff,fog:false,depthWrite:false,toneMapped:false});
+  const dockBeaconAmber=new THREE.MeshBasicMaterial({color:0xffc36a,fog:false,depthWrite:false,toneMapped:false});
+  part(new THREE.TorusGeometry(3.55,0.08,10,72),dockBeaconAmber,g,0,0,approachDockZ+1.35);
+  part(new THREE.TorusGeometry(2.45,0.075,10,64),dockBeaconAmber,g,0,0,approachDockZ+1.58);
+  part(new THREE.TorusGeometry(1.55,0.065,10,56),dockBeacon,g,0,0,approachDockZ+1.78);
+  part(new THREE.TorusGeometry(0.72,0.05,8,44),dockBeacon,g,0,0,approachDockZ+1.94);
+  for(let i=0;i<10;i++){ const an=i/10*Math.PI*2; part(SPH(0.08,8,8),dockBeacon,g,Math.cos(an)*2.75,Math.sin(an)*2.75,approachDockZ+1.5); }
+  for(const sgn of [-1,1]) for(let i=0;i<5;i++) part(SPH(0.09,8,8),dockBeacon,g,sgn*4.25,-3.0+i*1.5,approachDockZ+1.25);
   // station-like silhouette: truss, radiator/solar wings, and dishes so it reads as a place, not only a hull.
   part(BOX(38,0.35,0.35),M.metal,g,0,8,-2);
   part(BOX(24,0.28,8),M.dark,g,-26,8,-2,0,0,0.08);
@@ -189,15 +198,23 @@ part(BOX(3.4,0.2,3.8),M.dark,cabin,0,-1.25,-0.1);     // floor
 // Panoramic canopy: the capsule has a glass roof and broad side panes, with only structural rails.
 const canopyGlass=M.glass.clone();
 canopyGlass.opacity=0.34;
-canopyGlass.emissiveIntensity=0.42;
+canopyGlass.emissiveIntensity=0.48;
 const canopy=part(new THREE.SphereGeometry(1.62,36,16,0,Math.PI*2,0,Math.PI*0.58),canopyGlass,cabin,0,-0.42,-0.1);
 canopy.scale.z=1.18; canopy.renderOrder=3; // curved transparent shell visible from the seat
-part(new THREE.PlaneGeometry(2.95,3.45),M.glass,cabin,0,1.16,-0.1,-Math.PI/2,0,0); // full glass roof
-part(BOX(0.09,0.12,3.45),M.cyan,cabin,0,1.18,-0.1);
-part(BOX(3.35,0.16,0.18),M.metal,cabin,0,1.12,-1.78);  // forward roof bow
-part(BOX(3.35,0.16,0.18),M.metal,cabin,0,1.12,1.55);   // rear roof bow
-part(BOX(0.16,0.16,3.55),M.metal,cabin,-1.55,1.12,-0.1);
-part(BOX(0.16,0.16,3.55),M.metal,cabin,1.55,1.12,-0.1);
+const roofPane=M.glass.clone(); roofPane.opacity=0.38; roofPane.emissiveIntensity=0.52;
+part(new THREE.PlaneGeometry(2.95,3.45),roofPane,cabin,0,1.16,-0.1,-Math.PI/2,0,0); // full glass roof
+const roofEdge=new THREE.MeshBasicMaterial({color:0xc8f5ff,transparent:true,opacity:0.28,depthWrite:false});
+part(new THREE.PlaneGeometry(2.42,0.035),roofEdge,cabin,0,1.171,-1.15,-Math.PI/2,0,0);
+part(new THREE.PlaneGeometry(1.75,0.03),roofEdge,cabin,-0.34,1.174,0.66,-Math.PI/2,0,0.18);
+part(new THREE.PlaneGeometry(1.1,0.025),roofEdge,cabin,0.72,1.176,-0.14,-Math.PI/2,0,-0.22);
+part(BOX(0.13,0.14,3.45),M.cyan,cabin,0,1.18,-0.1);
+part(BOX(3.45,0.2,0.22),M.metal,cabin,0,1.12,-1.78);  // forward roof bow
+part(BOX(3.45,0.2,0.22),M.metal,cabin,0,1.12,1.55);   // rear roof bow
+part(BOX(0.2,0.2,3.55),M.metal,cabin,-1.55,1.12,-0.1);
+part(BOX(0.2,0.2,3.55),M.metal,cabin,1.55,1.12,-0.1);
+part(BOX(2.9,0.08,0.06),M.cyan,cabin,0,1.2,-0.08);
+part(BOX(0.06,0.08,3.0),M.cyan,cabin,-0.76,1.2,-0.08);
+part(BOX(0.06,0.08,3.0),M.cyan,cabin,0.76,1.2,-0.08);
 part(BOX(0.18,0.36,3.6),M.dark,cabin,-1.6,-1.02,-0.1); // left lower sill
 part(BOX(0.18,0.36,3.6),M.dark,cabin,1.6,-1.02,-0.1);  // right lower sill
 part(new THREE.PlaneGeometry(3.2,1.85),M.glass,cabin,-1.52,0.02,-0.12,0,Math.PI/2,0);
@@ -276,8 +293,8 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   earth.position.set(lerp(-26,-78,e), lerp(-12,-22,e), lerp(-92,-320,e));
   earth.scale.setScalar(lerp(1.0,0.42,e)); earthBall.rotation.y+=dt*0.012;
   // the derelict closes from a far speck → looms in the window
-  ship.position.set(lerp(64,7,e), lerp(12,1.2,e), lerp(-340,-30,e));
-  ship.scale.setScalar(lerp(0.55,2.7,e)); ship.rotation.y=lerp(0.7,0.12,e); ship.rotation.x=Math.sin(t*0.1)*0.02;
+  ship.position.set(lerp(64,-5.5,e), lerp(12,9.5,e), lerp(-340,-120,e));
+  ship.scale.setScalar(lerp(0.55,2.8,e)); ship.rotation.y=lerp(0.7,0.0,e); ship.rotation.x=Math.sin(t*0.1)*0.02;
   shipGlow.intensity=7+Math.sin(t*4)*2;
   // micro cabin life (kept tiny so it doesn't fight free-look)
   cabin.rotation.z=Math.sin(t*0.32)*0.006; cabin.position.y=Math.sin(t*0.6)*0.004;

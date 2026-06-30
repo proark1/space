@@ -49,7 +49,7 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1
 
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x05070f);
 scene.fog=new THREE.FogExp2(0x070a14,0.00045);
-const camera=new THREE.PerspectiveCamera(54,1,0.5,6000); camera.position.set(120,42,96);
+const camera=new THREE.PerspectiveCamera(54,1,0.5,6000); camera.position.set(92,34,72);
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -72,7 +72,7 @@ function resize(){const w=innerWidth,h=innerHeight;
 
 const controls=new OrbitControls(camera,canvas);
 controls.enableDamping=true; controls.dampingFactor=0.06; controls.autoRotate=false;
-controls.minDistance=30; controls.maxDistance=480; controls.target.set(13,1,-13);
+controls.minDistance=30; controls.maxDistance=480; controls.target.set(16.5,1,-12);
 
 const pos=(o,x,y,z)=>{ y===undefined ? o.position.copy(x) : o.position.set(x,y,z); return o; }; // .position is read-only in three; mutate, never reassign
 // ---- lights ----
@@ -164,28 +164,43 @@ ship.rotation.y=adminShipRotationY;
 // ===== REAL DOCKING PORT (recessed bay + guidance funnel + collar + petals + ring lights + approach ladder) =====
 const dock=new THREE.Group(); dock.position.set(6.5,1,-12); ship.add(dock);
 const dpart=(geo,m,x,y,z,rx,ry,rz)=>{const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);o.rotation.set(rx||0,ry||0,rz||0);o.castShadow=o.receiveShadow=true;dock.add(o);return o;};
+const dockRubber=new THREE.MeshStandardMaterial({color:0x05070a,roughness:0.72,metalness:0.08});
+const dockSeal=new THREE.MeshStandardMaterial({color:0x0b0e12,roughness:0.38,metalness:0.2});
 bx(8,2.2,2.6,M.metal,4,0,0,dock); bx(8,0.4,0.4,M.amber,4,1.2,0,dock); bx(8,0.4,0.4,M.amber,4,-1.2,0,dock);  // boom + lit rails
 // recessed bay set into the hull — reads as a real docking berth, not a bare pipe
-bx(6.4,6.4,1.0,M.dark,7.0,0,0,dock); bx(5.2,5.2,1.2,M.hull2,7.0,0,0,dock);
-bx(6.8,0.5,1.6,M.amber,7.0,3.1,0,dock); bx(6.8,0.5,1.6,M.amber,7.0,-3.1,0,dock);                              // lit bay rim (top/bottom)
-bx(0.5,6.4,1.6,M.amber,3.9,0,0,dock);                                                                        // lit bay rim (inboard)
+bx(7.4,7.4,1.15,M.dark,7.0,0,0,dock); bx(5.9,5.9,1.25,M.hull2,7.05,0,0,dock); bx(4.9,4.9,0.75,dockRubber,7.65,0,0,dock);
+bx(7.3,0.55,1.9,M.amber,7.0,3.55,0,dock); bx(7.3,0.55,1.9,M.amber,7.0,-3.55,0,dock);                          // lit bay rim (top/bottom)
+bx(0.55,7.3,1.9,M.amber,3.7,0,0,dock); bx(0.35,6.4,1.5,M.cyan,10.15,0,0,dock);                                  // lit bay rim + outboard status rail
+for(const sy of [-2.86,2.86]){ bx(5.6,0.18,0.22,M.metal,8.35,sy,1.18,dock); bx(5.6,0.18,0.22,M.metal,8.35,sy,-1.18,dock); }
 for(let i=0;i<4;i++) cl(1.7,1.7,0.7,(i%2?M.dark:M.metal),5.2+i*0.75,0,0,dock,0,Math.PI/2,16);                // concertina airlock tube
-bx(0.5,3,3,new THREE.MeshStandardMaterial({color:0,emissive:0x8fd6ff,emissiveIntensity:1.8,roughness:1}),8.0,0,0,dock); // glowing airlock door
+bx(0.42,3.2,3.2,new THREE.MeshStandardMaterial({color:0,emissive:0x8fd6ff,emissiveIntensity:1.9,roughness:1}),8.0,0,0,dock); // glowing airlock door
 // painted concentric alignment target on the door (the capsule lines up to this)
 const tgtMat=new THREE.MeshStandardMaterial({color:0,emissive:0x7dffb0,emissiveIntensity:1.3,roughness:1});
 dpart(new THREE.TorusGeometry(0.9,0.06,8,40),tgtMat,8.25,0,0,0,Math.PI/2,0);
 dpart(new THREE.TorusGeometry(1.6,0.06,8,40),tgtMat,8.25,0,0,0,Math.PI/2,0);
 cl(2.0,2.0,1.2,M.metal,8.7,0,0,dock,0,Math.PI/2,20);                                                          // the docking collar
 dpart(new THREE.TorusGeometry(2.0,0.16,12,40),M.amber,9.0,0,0,0,Math.PI/2,0);                                 // lit collar rim
+dpart(new THREE.TorusGeometry(1.72,0.1,12,40),dockSeal,9.25,0,0,0,Math.PI/2,0);                                // black pressure gasket
+dpart(new THREE.TorusGeometry(1.42,0.045,8,36),M.cyan,9.42,0,0,0,Math.PI/2,0);                                 // inner status ring
 // guidance funnel — the alignment cone the capsule slides into (wide mouth outboard)
 dpart(new THREE.CylinderGeometry(2.05,3.1,2.4,28,1,true),new THREE.MeshStandardMaterial({color:0x6a7686,roughness:0.4,metalness:0.7,side:THREE.DoubleSide}),10.2,0,0,0,0,Math.PI/2);
 // hazard chevrons ringing the funnel mouth
 for(let a=0;a<12;a++){ const an=a/12*Math.PI*2; dpart(new THREE.BoxGeometry(0.6,0.5,0.12),(a%2?M.amber:M.dark),11.3,Math.cos(an)*3.05,Math.sin(an)*3.05,an,0,0); }
 // static capture petals around the collar (visual teeth of the latch ring)
-for(let a=0;a<6;a++){ const an=a/6*Math.PI*2+0.25; dpart(new THREE.BoxGeometry(1.2,0.14,0.9),M.metal,9.6,Math.cos(an)*2.15,Math.sin(an)*2.15,an,0,0); }
-const ringLights=[]; for(let a=0;a<12;a++){ const ang=a/12*Math.PI*2; const lm=new THREE.Mesh(new THREE.SphereGeometry(0.17,6,6),new THREE.MeshStandardMaterial({color:0,emissive:0xff5030,emissiveIntensity:3,roughness:1})); lm.position.set(9.1,Math.cos(ang)*2.1,Math.sin(ang)*2.1); dock.add(lm); ringLights.push(lm.material); }
+for(let a=0;a<8;a++){ const an=a/8*Math.PI*2+0.25; dpart(new THREE.BoxGeometry(1.24,0.14,0.9),M.metal,9.6,Math.cos(an)*2.15,Math.sin(an)*2.15,an,0,0); dpart(new THREE.BoxGeometry(0.74,0.08,0.36),dockRubber,9.96,Math.cos(an)*1.84,Math.sin(an)*1.84,an,0,0); }
+const ringLights=[]; for(let a=0;a<16;a++){ const ang=a/16*Math.PI*2; const lm=new THREE.Mesh(new THREE.SphereGeometry(0.18,6,6),new THREE.MeshStandardMaterial({color:0,emissive:0xff5030,emissiveIntensity:3.2,roughness:1})); lm.position.set(9.16,Math.cos(ang)*2.23,Math.sin(ang)*2.23); dock.add(lm); ringLights.push(lm.material); }
 // articulated capture clamps (swing closed on hard dock)
-const clamps=[]; for(let a=0;a<4;a++){ const ang=a/4*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(8.6,Math.cos(ang)*2.25,Math.sin(ang)*2.25); piv.rotation.set(ang,0,0); dock.add(piv); bx(1.8,0.36,0.6,M.metal,0.8,-0.8,0,piv); clamps.push(piv); }
+const clamps=[]; for(let a=0;a<4;a++){ const ang=a/4*Math.PI*2+0.4; const piv=new THREE.Group(); piv.position.set(8.6,Math.cos(ang)*2.38,Math.sin(ang)*2.38); piv.rotation.set(ang,0,0); dock.add(piv); bx(1.95,0.36,0.62,M.metal,0.85,-0.82,0,piv); bx(0.34,0.55,0.66,dockRubber,1.72,-0.82,0,piv); clamps.push(piv); }
+for(let a=0;a<4;a++){
+  const ang=a/4*Math.PI*2+Math.PI/4;
+  const cable=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(6.8,Math.cos(ang)*3.0,Math.sin(ang)*3.0),
+    new THREE.Vector3(8.8,Math.cos(ang)*3.45,Math.sin(ang)*3.45),
+    new THREE.Vector3(11.5,Math.cos(ang)*2.85,Math.sin(ang)*2.85),
+  ]);
+  const tube=new THREE.Mesh(new THREE.TubeGeometry(cable,16,0.04,5,false),dockRubber);
+  tube.castShadow=tube.receiveShadow=true; dock.add(tube);
+}
 const dockLight=new THREE.PointLight(0xff7050,10,22,2); dockLight.position.set(11,0,0); dock.add(dockLight);
 // approach-light ladder leading out from the collar (paired strobes form a clear corridor)
 const guides=[]; for(let i=1;i<=8;i++){ for(const sgn of [1,-1]){ const gm=new THREE.Mesh(new THREE.SphereGeometry(0.26,8,8),new THREE.MeshStandardMaterial({color:0,emissive:0xff9040,emissiveIntensity:3,roughness:1})); gm.position.set(6.5+9.4+i*4.6,1+sgn*1.8,-12); ship.add(gm); guides.push({m:gm.material,i}); } }
