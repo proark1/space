@@ -33,6 +33,7 @@ type VoiceLevel = 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
 type ActiveVoiceLevel = Exclude<VoiceLevel, 'silent'>;
 type VoiceSource = 'mic' | 'keyboard' | 'remote' | 'smoke';
 type MicVoiceStatus = 'unsupported' | 'idle' | 'requesting' | 'active' | 'denied' | 'error';
+type ScareKind = 'blackout' | 'mimic' | 'scrape' | 'breath' | 'crewShadow' | 'wetKnock' | 'radioPing';
 
 interface RunStateView {
   readonly stage: 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extract' | 'won' | 'dead';
@@ -91,6 +92,8 @@ interface UiFeedbackView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
+  readonly lastScareKind: ScareKind | null;
+  readonly scareBurstIntensity: number;
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
@@ -202,6 +205,10 @@ async function setRemote(page: Page, pos: Vec3, yaw = 0): Promise<void> {
 
 async function setFlashlight(page: Page, on: boolean): Promise<void> {
   await page.evaluate((next) => (window as any).__sl.setFlashlightForSmoke(next), on);
+}
+
+async function forceScare(page: Page, kind: ScareKind): Promise<void> {
+  await page.evaluate((next) => (window as any).__sl.forceScareForSmoke(next), kind);
 }
 
 async function voicePressure(page: Page, pressure: number): Promise<void> {
@@ -317,6 +324,12 @@ async function main(): Promise<void> {
     state = await capture('far-crew-dark-hidden');
     assert(state.nearbyCrew === 0, 'far crew should not count as nearby in darkness');
     assert(ui.nearestRemoteVisibility < 0.08, `far crew should fade into darkness, got ${ui.nearestRemoteVisibility}`);
+
+    await forceScare(page, 'crewShadow');
+    ui = await uiFeedback(page);
+    assert(ui.scarePhase === 'peak', `forced scare should enter peak phase, got ${ui.scarePhase}`);
+    assert(ui.lastScareKind === 'crewShadow', `ui should expose forced scare kind, got ${ui.lastScareKind}`);
+    assert(ui.scareBurstIntensity > 0.9, `scare burst should be visible immediately, got ${ui.scareBurstIntensity}`);
 
     await setPlayer(page, { x: 8, y: 1, z: 0 }, Math.PI / 2);
     await setRemote(page, { x: 0, y: 1, z: -12 });

@@ -72,7 +72,7 @@ type RunStage = 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extra
 type MonsterMode = 'patrol' | 'investigate' | 'chase' | 'attack' | 'stunned';
 type EncounterPhase = 'idle' | 'telegraph' | 'cross' | 'recover' | 'done';
 type ScarePhase = 'lull' | 'build' | 'peak' | 'relax';
-type ScareKind = 'blackout' | 'mimic' | 'scrape' | 'breath' | 'crewShadow' | 'wetKnock' | 'radioPing';
+export type ScareKind = 'blackout' | 'mimic' | 'scrape' | 'breath' | 'crewShadow' | 'wetKnock' | 'radioPing';
 type AudioCue =
   | 'pickup'
   | 'door'
@@ -180,6 +180,8 @@ export interface WalkUiFeedbackView {
   readonly lightExposure: number;
   readonly soundPressure: number;
   readonly scarePhase: ScarePhase;
+  readonly lastScareKind: ScareKind | null;
+  readonly scareBurstIntensity: number;
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
@@ -267,6 +269,7 @@ export interface WalkSceneHandle extends HarnessScene {
   setMonsterPoseForSmoke(pose: SmokePose): void;
   setRemotePoseForSmoke(pose: SmokeRemotePose): void;
   setFlashlightForSmoke(on: boolean): void;
+  forceScareForSmoke(kind?: ScareKind): void;
   voiceForSmoke(command: VoiceCommand): number;
   voicePressureForSmoke(pressure: number): number;
   remoteVoicePressureForSmoke(pressure: number, netId?: number): number;
@@ -603,6 +606,7 @@ export async function createWalkScene(
   const micStatusEl = document.getElementById('micStatus');
   const encounterFlashEl = document.getElementById('encounterFlash');
   const damageFlashEl = document.getElementById('damageFlash');
+  const scareBurstEl = document.getElementById('scareBurst');
   const radioLineEl = document.getElementById('radioLine');
   const endScreenEl = document.getElementById('endScreen');
   const endTitleEl = document.getElementById('endTitle');
@@ -611,6 +615,9 @@ export async function createWalkScene(
   let damageFlash = 0;
   let encounterFlash = 0;
   let blackoutTimer = 0;
+  let scareBurstTimer = 0;
+  let scareBurstDuration = 0;
+  let lastScareKind: ScareKind | null = null;
   let radioText = '';
   let radioUntil = 0;
   let lastEndStage: RunStage | null = null;
@@ -625,6 +632,7 @@ export async function createWalkScene(
   let slickMoveX = 0;
   let slickMoveZ = 0;
   const storyFlags = {
+    heardOpeningBrief: false,
     heardLightWarning: false,
     heardDarkCrewHint: false,
     heardSoundWarning: false,
@@ -1334,6 +1342,27 @@ export async function createWalkScene(
     }
   };
 
+  const showScareBurst = (kind: ScareKind, intensity = 1): void => {
+    lastScareKind = kind;
+    scareBurstDuration = kind === 'blackout' ? 1.15 : kind === 'crewShadow' ? 0.82 : kind === 'radioPing' ? 0.72 : 0.58;
+    scareBurstTimer = Math.max(scareBurstTimer, scareBurstDuration * clamp(intensity, 0.2, 1.35));
+    if (scareBurstEl) scareBurstEl.className = kind;
+  };
+
+  const scareBurstIntensity = (): number => (scareBurstDuration > 0 ? clamp(scareBurstTimer / scareBurstDuration, 0, 1) : 0);
+
+  const updateScareBurst = (dt: number): void => {
+    scareBurstTimer = Math.max(0, scareBurstTimer - dt);
+    if (!scareBurstEl) return;
+    const intensity = scareBurstIntensity();
+    const className = lastScareKind ?? '';
+    if (scareBurstEl.className !== className) scareBurstEl.className = className;
+    const maxOpacity = lastScareKind === 'blackout' ? 0.88 : lastScareKind === 'breath' ? 0.46 : 0.72;
+    const jitter = intensity > 0 ? Math.sin(run.simTime * 58) * intensity * 2.6 : 0;
+    scareBurstEl.style.opacity = String(intensity * maxOpacity);
+    scareBurstEl.style.transform = `translate3d(${jitter}px, ${-jitter * 0.45}px, 0) scale(${1 + (1 - intensity) * 0.035})`;
+  };
+
   const triggerScarePeak = (pos: Vector3): void => {
     const hotSound = run.soundPressure > 0.5;
     const hotLight = run.lightExposure > 0.42 || flashlightBeamHitsMonster(pos);
@@ -1352,6 +1381,7 @@ export async function createWalkScene(
     run.scareDebt = clamp(run.scareDebt + 0.28, 0, 1);
     run.nextScareAt = run.simTime + 10 + rng() * 8 + run.scareDebt * 7;
     encounterFlash = Math.max(encounterFlash, kind === 'blackout' ? 0.95 : 0.62);
+    showScareBurst(kind, hotSound || hotLight ? 1.05 : 0.82);
 
     if (kind === 'blackout') {
       blackoutTimer = 1.65;
@@ -1824,6 +1854,8 @@ export async function createWalkScene(
     lightExposure: run.lightExposure,
     soundPressure: run.soundPressure,
     scarePhase: run.scarePhase,
+    lastScareKind,
+    scareBurstIntensity: scareBurstIntensity(),
     activeVoice: run.activeVoice,
     voiceSource: run.voiceSource,
     micVoiceStatus: micVoice.status,
@@ -1872,6 +1904,15 @@ export async function createWalkScene(
   const setFlashlightForSmoke = (on: boolean): void => {
     setFlashlightOn(on, false);
     syncRunToEcs();
+    syncHudState();
+  };
+  const forceScareForSmoke = (kind: ScareKind = 'scrape'): void => {
+    run.scarePhase = 'peak';
+    run.scareTimer = 0.62;
+    run.lastScareAt = run.simTime;
+    encounterFlash = Math.max(encounterFlash, 0.75);
+    if (kind === 'blackout') blackoutTimer = 1.15;
+    showScareBurst(kind);
     syncHudState();
   };
   const voiceForSmoke = (command: VoiceCommand): number => {
@@ -1943,6 +1984,7 @@ export async function createWalkScene(
     setMonsterPoseForSmoke,
     setRemotePoseForSmoke,
     setFlashlightForSmoke,
+    forceScareForSmoke,
     voiceForSmoke,
     voicePressureForSmoke,
     remoteVoicePressureForSmoke,
@@ -1952,6 +1994,10 @@ export async function createWalkScene(
     fireForSmoke,
     fixedStep(dt) {
       run.simTime += dt;
+      if (!storyFlags.heardOpeningBrief && run.simTime > 1.15 && run.stage !== 'dead' && run.stage !== 'won') {
+        storyFlags.heardOpeningBrief = true;
+        radioSay('VESTA: Sound is the monster. Talk to survive, whisper to hide. Light is bait.');
+      }
       let playerNoise = 0;
       const before = playerPos();
       const active = run.stage !== 'dead' && run.stage !== 'won';
@@ -2083,6 +2129,7 @@ export async function createWalkScene(
       if (damageFlashEl) damageFlashEl.style.opacity = String(damageFlash * 0.82);
       encounterFlash = Math.max(0, encounterFlash - dt * 1.65);
       if (encounterFlashEl) encounterFlashEl.style.opacity = String(encounterFlash * (0.35 + run.tension / 180));
+      updateScareBurst(dt);
       blackoutTimer = Math.max(0, blackoutTimer - dt);
       stunBeamTimer = Math.max(0, stunBeamTimer - dt);
       stunBeam.visible = stunBeamTimer > 0;

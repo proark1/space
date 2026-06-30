@@ -14,7 +14,7 @@ import { createCorridorScene } from './corridorScene';
 import { configureLookdevPost } from './look';
 import { createWalkScene } from './walkScene';
 import type { HarnessScene } from './scene';
-import type { WalkSceneHandle } from './walkScene';
+import type { ScareKind, WalkSceneHandle } from './walkScene';
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const hud = document.getElementById('hud');
@@ -339,6 +339,9 @@ async function main(): Promise<void> {
     },
     setFlashlightForSmoke: (on: boolean) => {
       if (isWalkScene(harness)) harness.setFlashlightForSmoke(on);
+    },
+    forceScareForSmoke: (kind?: ScareKind) => {
+      if (isWalkScene(harness)) harness.forceScareForSmoke(kind);
     },
     voiceForSmoke: (command: 'whisper' | 'talk' | 'scream') => (isWalkScene(harness) ? harness.voiceForSmoke(command) : 0),
     voicePressureForSmoke: (pressure: number) => (isWalkScene(harness) ? harness.voicePressureForSmoke(pressure) : 0),
