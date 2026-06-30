@@ -50,12 +50,16 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
-import { CREW_MANIFEST, NPC_CREW, PLAYER_CREW } from './crew.js';
+import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
 const QUERY=new URLSearchParams(location.search);
 const AUTO_START = QUERY.has('auto');
 const ADMIN_UNIT = QUERY.get('adminUnit') || '';
+const CREW_SLOTS = buildCrewSlots({search: location.search});
+const PLAYER_CREW = CREW_SLOTS[0];
+const ACTIVE_CREW = CREW_SLOTS.slice(1);
+const CREW_SUMMARY = crewSummary(CREW_SLOTS);
 let adminUnitSettings={height:1.8,scale:1,yaw:0,positionY:0,colliderRadius:0.35,colliderHeight:1.8,materialEnabled:false,materialColor:'#566065',emissiveEnabled:false,emissiveColor:'#36e0d0',emissiveIntensity:0,showCollider:true};
 function normalizeUnitSettings(value,fallback=adminUnitSettings){
   const source=value&&typeof value==='object'?value:{};
@@ -160,7 +164,7 @@ function drawBig(cur){
   gx.fillStyle='#ff6a5a'; gx.font='bold 27px monospace'; gx.fillText('! DO NOT ANSWER ANYTHING',56,454);
   gx.fillText('  THAT ANSWERS BACK'+(cur?' _':''),56,488);
   gx.fillStyle='#7fd0ff'; gx.font='bold 30px monospace'; gx.fillText('// CREW READINESS',840,176);
-  CREW_MANIFEST.forEach((m,i)=>{ const y=226+i*42;
+  CREW_SLOTS.forEach((m,i)=>{ const y=226+i*42;
     gx.fillStyle=m.css; gx.beginPath(); gx.arc(858,y-9,9,0,7); gx.fill();
     gx.fillStyle='#8fa39a'; gx.font='22px monospace'; gx.fillText(m.role,886,y);
     gx.fillStyle='#d6ece0'; gx.font='26px monospace'; gx.fillText(m.label||m.name,1006,y);
@@ -234,7 +238,7 @@ const placLight=new THREE.PointLight(0xffe6b8,0.95,3.4,2); placLight.position.se
 const player=makeAstronaut({accent:PLAYER_CREW.accent,tone:PLAYER_CREW.tone}); scene.add(player);
 const POS=[[-2.2,1.0,0.4],[2.4,-0.4,-0.7],[-0.6,2.6,1.2]];   // x, z, facing
 const aiCrew=[];
-POS.forEach((p,i)=>{ const member=NPC_CREW[i]; const a=makeAstronaut({accent:member.accent, tone:member.tone}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
+POS.forEach((p,i)=>{ const member=ACTIVE_CREW[i]; const a=makeAstronaut({accent:member.accent, tone:member.tone}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
   aiCrew.push({member,a, from:new THREE.Vector3(p[0],0,p[1]), to:new THREE.Vector3(member.slot*0.5,0,-7.8), delay:i*0.4, s:Math.random()*9}); });
 // ==BUILD END==
 
@@ -390,7 +394,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,phase}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,phase}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

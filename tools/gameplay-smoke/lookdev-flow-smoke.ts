@@ -206,6 +206,10 @@ async function checkStationFlowEntry(page: Page, baseUrl: string): Promise<void>
   const button = await page.locator('#go').textContent();
   assert(title === 'AIRLOCK OPEN', `expected AIRLOCK OPEN flow entry title, got ${title}`);
   assert(button === 'ENTER STATION', `expected ENTER STATION flow entry button, got ${button}`);
+  await page.goto(`${baseUrl}/?flow=1&players=ana,bob`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => (window as any).__chorus?.state?.crewSummary?.remote === 2, null, { timeout: TIMEOUT_MS });
+  const remoteCrew = await page.evaluate(() => (window as any).__chorus.state.crewSummary);
+  assert(remoteCrew.remote === 2 && remoteCrew.npc === 1 && remoteCrew.total === 4, `expected 2 remote players plus 1 NPC fallback, got ${JSON.stringify(remoteCrew)}`);
   await assertNoPageErrors(errors, 'station flow entry');
 }
 
@@ -225,6 +229,13 @@ async function checkStationHideMechanic(page: Page, baseUrl: string): Promise<vo
   }, null, { timeout: TIMEOUT_MS });
   const hidden = await page.evaluate(() => (window as any).__chorus.state);
   assert(hidden.prompt === '[E] LEAVE LOCKER', `expected leave-locker prompt while hidden, got ${hidden.prompt}`);
+  await page.evaluate(() => (window as any).__chorus.smoke.makeNoise(0.75, -12.05, 85));
+  await page.waitForFunction(() => {
+    const mode = (window as any).__chorus.state.director.mode;
+    return mode === 'investigate' || mode === 'search' || mode === 'chase';
+  }, null, { timeout: TIMEOUT_MS });
+  await page.evaluate(() => (window as any).__chorus.smoke.forceSearchLocker());
+  await page.waitForFunction(() => (window as any).__chorus.state.director.mode === 'search', null, { timeout: TIMEOUT_MS });
   await page.keyboard.press('KeyE');
   await page.waitForFunction(() => (window as any).__chorus.state.hidden === false, null, { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'station hide');

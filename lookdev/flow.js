@@ -21,5 +21,16 @@ let going = false;
 export function goNext(url) {
   if (going) return; going = true;
   const e = ensure(); e.style.opacity = '1';
-  setTimeout(() => { location.href = url; }, 1100);
+  setTimeout(() => { location.href = withCrewParams(url); }, 1100);
+}
+
+function withCrewParams(url) {
+  const current = new URLSearchParams(location.search);
+  const keep = ['players', 'peers', 'crew'];
+  if (!keep.some(key => current.has(key))) return url;
+  const next = new URL(url, location.href);
+  keep.forEach(key => {
+    if (current.has(key) && !next.searchParams.has(key)) next.searchParams.set(key, current.get(key));
+  });
+  return next.pathname + next.search + next.hash;
 }

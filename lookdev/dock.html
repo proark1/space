@@ -63,7 +63,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
-import { NPC_CREW, crewLine } from './crew.js';
+import { crewLine } from './crew.js';
+import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
 import { buildDockingBerthZ } from './station_parts.js';
 
@@ -77,6 +78,10 @@ const scene=new THREE.Scene(); scene.background=new THREE.Color(0x03040b);
 scene.fog=new THREE.FogExp2(0x04060e,0.0016);
 const camera=new THREE.PerspectiveCamera(60,1,0.05,6000); camera.rotation.order='YXZ';   // capsule axis, looking -Z
 const DOCK_AUTO=FLOW && new URLSearchParams(location.search).get('auto')==='1';
+const CREW_SLOTS=buildCrewSlots({search: location.search});
+const ACTIVE_CREW=CREW_SLOTS.slice(1);
+const CREW_SUMMARY=crewSummary(CREW_SLOTS);
+const crewLineFor=(index,text)=>crewLine(ACTIVE_CREW[index%ACTIVE_CREW.length].name,text);
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -158,7 +163,7 @@ part(BOX(CW,CH,0.3),cmWall2,ship,0,CH/2,ZEND); part(BOX(1.5,2.2,0.18),M.dark,shi
 const deepLight=new THREE.PointLight(0xff3a2a,0,7,2); deepLight.position.set(0,1.6,ZEND-1.5); ship.add(deepLight);
 const shipAmb=new THREE.AmbientLight(0x223040,0); scene.add(shipAmb);
 const flash=new THREE.SpotLight(0xffe6c0,0,28,0.55,0.5,1.3); const flashT=new THREE.Object3D(); scene.add(flashT); flash.target=flashT; scene.add(flash);
-const transferCrew=NPC_CREW.map((c,i)=>{
+const transferCrew=ACTIVE_CREW.map((c,i)=>{
   const root=makeAstronaut({accent:c.accent,tone:c.tone});
   root.scale.setScalar(0.56);
   root.position.set(c.slot*0.62,0,-4.4-i*1.35);
@@ -206,7 +211,7 @@ addEventListener('pointerdown',startAudio);
 // --- step into the ship: the docking minigame hands off to a first-person walk (same page) ---
 function board(){ if(state==='board'||state==='inside')return; state='board'; boardT=0; result.style.display='none';
   document.getElementById('cross').style.display='none'; document.getElementById('stats').style.display='none'; capture.style.display='none'; assist.style.display='none';
-  frame.visible=false; ship.visible=true; shipAmb.intensity=0.22; transferCrew.forEach(c=>c.root.visible=true); crewSay(crewLine(NPC_CREW[2].name,'do we step through first or dramatically last?'),2.8); }
+  frame.visible=false; ship.visible=true; shipAmb.intensity=0.22; transferCrew.forEach(c=>c.root.visible=true); crewSay(crewLineFor(2,'do we step through first or dramatically last?'),2.8); }
 addEventListener('mousemove',e=>{ if(state==='inside' && document.pointerLockElement===canvas){ yaw-=e.movementX*0.0023; pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*0.0023)); } });
 addEventListener('keydown',e=>{ if(state==='inside' && e.code==='KeyE' && pos.z<ZEND+3) goNext(FLOW?'/?flow=1':'/'); });
 canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLockElement!==canvas) canvas.requestPointerLock(); });
@@ -216,7 +221,7 @@ const TOL=0.72, SPEED_MAX=1.85, THR=3.4, CLOSE=3.0, DAMP=0.8;
 let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
 const PROMPT_DOCK='<b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow';
 function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=4.2*sgn; apprY0=2.6; apprXt=2.0*sgn; apprYt=-0.9; offX=apprX0; offY=apprY0; voffX=voffY=0; dist=120; vdist=0; apprT=0; driftP=DOCK_AUTO?0:Math.random()*9; state='approach'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
-  softT=0; stationQueued=false; lastCrewHint=''; clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ; }); crewSay(crewLine(NPC_CREW[0].name,'visual on the collar. autopilot has us.'),2.8);
+  softT=0; stationQueued=false; lastCrewHint=''; clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ; }); crewSay(crewLineFor(0,'visual on the collar. autopilot has us.'),2.8);
   transferCrew.forEach((c,i)=>{ c.root.visible=false; c.root.position.set(c.member.slot*0.62,0,-4.4-i*1.35); });
   frame.visible=true; ship.visible=false; world.visible=true; shipAmb.intensity=0; flash.intensity=0; camera.position.set(0,0,0); camera.rotation.set(0,0,0);
   document.getElementById('cross').style.display=''; document.getElementById('stats').style.display=''; capture.style.display=''; assist.style.display='';
@@ -241,7 +246,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     ringLights.forEach((m,i)=>{ m.emissive.setHex(0xff5030); m.emissiveIntensity=1+1.6*Math.max(0,Math.sin(t*4-i*0.4)); });
     tgt.material.emissive.setHex(0xffcf50);
     const grab=(DOCK_AUTO&&apprT>0.9)||(apprT>0.7 && (keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight));
-    if(k>=1||grab){ if(k>=1){ dist=38; offX=apprXt; offY=apprYt; } if(DOCK_AUTO){ dist=10; offX=0.18; offY=-0.12; } state='align'; voffX=voffY=0; vdist=0; crewSay(crewLine(NPC_CREW[1].name,'manual control. keep the green dot inside the collar.'),3.2);
+    if(k>=1||grab){ if(k>=1){ dist=38; offX=apprXt; offY=apprYt; } if(DOCK_AUTO){ dist=10; offX=0.18; offY=-0.12; } state='align'; voffX=voffY=0; vdist=0; crewSay(crewLineFor(1,'manual control. keep the green dot inside the collar.'),3.2);
       document.getElementById('prompt').innerHTML=PROMPT_DOCK; }
   } else if(state==='align'){
     const dfx=Math.sin(t*0.7+driftP)*0.9+Math.sin(t*1.7)*0.4, dfy=Math.cos(t*0.5+driftP)*0.8;   // wandering drift
@@ -269,28 +274,28 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     tgt.material.emissive.setHex(aligned?0x7dffb0:0xffcf50);
     const hint=vdist>SPEED_MAX?'speed':off>2.2?'offset':aligned?'aligned':'steady';
     if(hint!==lastCrewHint && performance.now()>crewHideAt-400){ lastCrewHint=hint;
-      if(hint==='speed') crewSay(crewLine(NPC_CREW[0].name,'too fast. bleed it off.'),1.7);
-      else if(hint==='offset') crewSay(crewLine(NPC_CREW[1].name,'lateral drift. walk it back to center.'),1.8);
-      else if(hint==='aligned') crewSay(crewLine(NPC_CREW[2].name,'that is either perfect or terrifying.'),1.9);
+      if(hint==='speed') crewSay(crewLineFor(0,'too fast. bleed it off.'),1.7);
+      else if(hint==='offset') crewSay(crewLineFor(1,'lateral drift. walk it back to center.'),1.8);
+      else if(hint==='aligned') crewSay(crewLineFor(2,'that is either perfect or terrifying.'),1.9);
     }
     if(dist<=0.6){
       if(off<TOL && vdist<SPEED_MAX){ state='soft'; softT=0; if(A)A.clunk();
-        setAssist('good','SOFT CAPTURE · CLAMPS CLOSING'); rtxt.textContent='SOFT CAPTURE'; rtxt.className='good'; enter.style.display='none'; result.style.display='flex'; crewSay(crewLine(NPC_CREW[1].name,'soft capture. clamps are hunting...'),2.4); }
+        setAssist('good','SOFT CAPTURE · CLAMPS CLOSING'); rtxt.textContent='SOFT CAPTURE'; rtxt.className='good'; enter.style.display='none'; result.style.display='flex'; crewSay(crewLineFor(1,'soft capture. clamps are hunting...'),2.4); }
       else { state='boom'; boomT=0; if(A)A.boom(); shake=1; debris.material.opacity=1;
         for(let i=0;i<DEB;i++){ debPos[i*3]=-offX; debPos[i*3+1]=-offY; debPos[i*3+2]=-0.5; debVel[i].set((Math.random()-0.5)*16,(Math.random()-0.5)*16,(Math.random()-0.5)*16+4); }
-        setAssist('bad','COLLISION · CAPTURE MISSED'); rtxt.textContent='✗ COLLISION'; rtxt.className='bad'; result.style.display='flex'; crewSay(crewLine(NPC_CREW[2].name,'nobody write that in the report.'),2.8); }
+        setAssist('bad','COLLISION · CAPTURE MISSED'); rtxt.textContent='✗ COLLISION'; rtxt.className='bad'; result.style.display='flex'; crewSay(crewLineFor(2,'nobody write that in the report.'),2.8); }
     }
   } else if(state==='boom'){ boomT+=dt; shake*=Math.exp(-3*dt);
     for(let i=0;i<DEB;i++){ debPos[i*3]+=debVel[i].x*dt; debPos[i*3+1]+=debVel[i].y*dt; debPos[i*3+2]+=debVel[i].z*dt; }
     debGeo.attributes.position.needsUpdate=true; debris.material.opacity=Math.max(0,1-boomT*0.5);
     renderer.toneMappingExposure=BASE_EXP*(1+Math.max(0,1.4-boomT*3));
   } else if(state==='soft'){ setAssist('good','SOFT CAPTURE · HARD DOCK IN PROGRESS'); softT+=dt; softPulse(t,Math.min(1,softT/1.45));
-    if(softT>=1.45){ state='docked'; if(A)A.clunk(); setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; crewSay(crewLine(NPC_CREW[0].name,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
+    if(softT>=1.45){ state='docked'; if(A)A.clunk(); setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
   else if(state==='docked'){ setAssist('good','HARD DOCK · READY TO BOARD'); collarPulse(t); }
   else if(state==='board'){ setAssist('good','TRANSFER TUNNEL · CREW MOVING'); collarPulse(t); boardT+=dt; const k=Math.min(1,boardT/2.4), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
     camera.position.set(0,1.6*e,-1-e*4.4); flash.intensity=120*e; flash.position.copy(camera.position); flashT.position.set(0,1.4,camera.position.z-3);
     if(k>=1){ state='inside'; world.visible=false; pos.set(0,0,camera.position.z); document.getElementById('prompt').innerHTML='<b>WASD</b> walk · <b>mouse</b> look · reach the bulkhead · <b>E</b> deeper in'; if(!DOCK_AUTO&&canvas.requestPointerLock) canvas.requestPointerLock();
-      if(FLOW&&!stationQueued){ stationQueued=true; crewSay(crewLine(NPC_CREW[1].name,'inner hatch is cycling. station side in three...'),2.2); setTimeout(()=>goNext('/?flow=1'),1900); } } }
+      if(FLOW&&!stationQueued){ stationQueued=true; crewSay(crewLineFor(1,'inner hatch is cycling. station side in three...'),2.2); setTimeout(()=>goNext('/?flow=1'),1900); } } }
   else if(state==='inside'){
     const s=Math.sin(yaw),cc=Math.cos(yaw),fx=-s,fz=-cc,rxx=cc,rzz=-s; let mx=0,mz=0;
     if(keys.KeyW||keys.ArrowUp){mx+=fx;mz+=fz;} if(keys.KeyS||keys.ArrowDown){mx-=fx;mz-=fz;}
@@ -325,7 +330,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
 function softPulse(t,k){ ringLights.forEach((m,i)=>{ m.emissive.setHex(k>0.8?0x35ff70:0xffcf50); m.emissiveIntensity=1.6+2.0*Math.max(0,Math.sin(t*6+i*0.45)); }); clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ+0.52*k; }); tgt.material.emissive.setHex(0x7dffb0); }
-window.__dock={get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,stationQueued}; }};
+window.__dock={crewSummary:CREW_SUMMARY,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,crewSummary:CREW_SUMMARY,stationQueued}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

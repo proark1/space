@@ -41,7 +41,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { FLOW, fadeIn, goNext } from './flow.js';
-import { NPC_CREW } from './crew.js';
+import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { buildApproachDockFaceZ } from './station_parts.js';
 
 const canvas=document.getElementById('c');
@@ -55,6 +55,9 @@ scene.fog=new THREE.FogExp2(0x05080f,0.0010);
 const camera=new THREE.PerspectiveCamera(62,1,0.04,8000);
 camera.rotation.order='YXZ'; camera.position.set(0,0.02,0.85);   // YOU sit in the back seat of the ring
 const FLOW_FAST=FLOW && new URLSearchParams(location.search).get('fast')==='1';
+const CREW_SLOTS=buildCrewSlots({search: location.search});
+const ACTIVE_CREW=CREW_SLOTS.slice(1);
+const CREW_SUMMARY=crewSummary(CREW_SLOTS);
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -213,9 +216,9 @@ function seat(px,pz,faceY,accent,tone){
 }
 // ring: YOU at the back (camera), up to 3 crew facing inward — everyone sees everyone
 seat(0,0.85,0,null);                  // YOU (back seat / camera) — face the centre & window
-seat(0,-0.85,Math.PI,NPC_CREW[0].accent,NPC_CREW[0].tone);       // Reyes — pilot, faces you
-seat(-0.85,0,-Math.PI/2,NPC_CREW[1].accent,NPC_CREW[1].tone);    // Koro — engineer
-seat(0.85,0,Math.PI/2,NPC_CREW[2].accent,NPC_CREW[2].tone);      // Lina — medic
+seat(0,-0.85,Math.PI,ACTIVE_CREW[0].accent,ACTIVE_CREW[0].tone);       // pilot, faces you
+seat(-0.85,0,-Math.PI/2,ACTIVE_CREW[1].accent,ACTIVE_CREW[1].tone);    // engineer
+seat(0.85,0,Math.PI/2,ACTIVE_CREW[2].accent,ACTIVE_CREW[2].tone);      // medic
 // ==BUILD END==
 
 // ---- transit timeline + render loop ----
@@ -262,7 +265,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__launch={get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
+window.__launch={crewSummary:CREW_SUMMARY,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
