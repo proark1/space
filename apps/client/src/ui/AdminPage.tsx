@@ -4,6 +4,7 @@ import { Admin3DOverviewPanel, SceneAdminPanel, UnitsAdminPanel, type ModelAdmin
 
 type AdminTab = 'audio' | 'image' | 'overview' | 'units' | 'spaceship' | 'lobby';
 type AssetStatus = 'approved' | 'generated' | 'missing' | 'stale';
+type StatusFilter = AssetStatus | 'all';
 type AssetUse = 'landing' | 'game' | 'shared' | 'admin';
 
 interface BaseAsset {
@@ -179,6 +180,28 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
   missing: 'missing',
   stale: 'stale',
 };
+
+const ADMIN_TABS: Array<{ id: AdminTab; label: string; title: string; copy: string; section: string }> = [
+  { id: 'overview', label: 'Overview', title: 'Production Overview', copy: 'Scan the model pipeline, scene readiness, and the next areas that need attention.', section: 'Command' },
+  { id: 'audio', label: 'Audio', title: 'Audio Assets', copy: 'Generate, preview, and approve music, sound effects, and scripted voice lines.', section: 'Assets' },
+  { id: 'image', label: 'Images', title: 'Image Assets', copy: 'Create, upload, resize, and approve landing, UI, scene, item, and character art.', section: 'Assets' },
+  { id: 'units', label: 'Units', title: 'Unit Models', copy: 'Tune playable units, props, and enemy metadata against live scene previews.', section: '3D' },
+  { id: 'spaceship', label: 'Space ship', title: 'Space Ship Scene', copy: 'Adjust the derelict exterior model, lighting, fog, and material mood.', section: '3D' },
+  { id: 'lobby', label: 'Lobby', title: 'Lobby Scene', copy: 'Tune the departure lobby preview, screen glow, room lighting, and scene model.', section: '3D' },
+];
+
+const STATUS_METRICS: Array<{
+  status: StatusFilter;
+  label: string;
+  tone: string;
+  value: (stats: PanelStats) => number;
+}> = [
+  { status: 'all', label: 'total', tone: 'total', value: (stats) => stats.total },
+  { status: 'approved', label: 'approved', tone: 'approved', value: (stats) => stats.approved },
+  { status: 'generated', label: 'generated', tone: 'generated', value: (stats) => stats.generated },
+  { status: 'missing', label: 'missing', tone: 'missing', value: (stats) => stats.missing },
+  { status: 'stale', label: 'stale', tone: 'stale', value: (stats) => stats.stale },
+];
 
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
@@ -357,6 +380,12 @@ function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function fileLabel(file: string): string {
+  const clean = file.split('?')[0] ?? file;
+  const parts = clean.split('/').filter(Boolean);
+  return parts.at(-1) ?? file;
 }
 
 function readStorage(key: string, fallback = ''): string {
@@ -655,7 +684,7 @@ function grouped<T extends BaseAsset>(items: T[]): Array<[string, T[]]> {
   return [...map.entries()];
 }
 
-function useFilteredAssets<T extends BaseAsset>(items: T[], query: string, status: AssetStatus | 'all'): T[] {
+function useFilteredAssets<T extends BaseAsset>(items: T[], query: string, status: StatusFilter): T[] {
   return useMemo(() => {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
@@ -667,9 +696,9 @@ function useFilteredAssets<T extends BaseAsset>(items: T[], query: string, statu
 }
 
 export function AdminPage() {
-  const [tab, setTab] = useState<AdminTab>('audio');
+  const [tab, setTab] = useState<AdminTab>('overview');
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<AssetStatus | 'all'>('all');
+  const [status, setStatus] = useState<StatusFilter>('all');
   const [apiKey, setApiKey] = useState(() => readStorage('sl-eleven-key'));
   const [geminiKey, setGeminiKey] = useState(() => readStorage('sl-gemini-key'));
   const [voiceId, setVoiceId] = useState(() => readStorage('sl-eleven-voice'));
@@ -729,6 +758,8 @@ export function AdminPage() {
         stale: statusCount(assets, 'stale'),
       }
     : panelStats[tab] ?? { total: 0, approved: 0, generated: 0, missing: 0, stale: 0 };
+  const currentTab = ADMIN_TABS.find((item) => item.id === tab) ?? ADMIN_TABS[0]!;
+  const needsWork = visibleStats.missing + visibleStats.stale;
 
   const updatePanelStats = useCallback((nextTab: AdminTab, stats: PanelStats): void => {
     setPanelStats((current) => ({ ...current, [nextTab]: stats }));
@@ -1120,46 +1151,89 @@ export function AdminPage() {
 
   return (
     <main className="admin">
-      <header className="admin-header">
+      <aside className="admin-sidebar" aria-label="Admin navigation">
         <div>
           <a className="admin-brand" href="/">
             <span className="nav__mark" aria-hidden="true" />
             SIGNAL LOST
           </a>
-          <p className="eyebrow">Asset admin</p>
-          <h1>Forge Control</h1>
+          <div className="admin-sidebar__title">
+            <span>Admin console</span>
+            <strong>Forge Control</strong>
+          </div>
         </div>
-        <div className="admin-status" aria-label="Asset status counts">
-          <span><strong>{visibleStats.total}</strong> total</span>
-          <span><strong>{visibleStats.approved}</strong> approved</span>
-          <span><strong>{visibleStats.generated}</strong> generated</span>
-          <span><strong>{visibleStats.missing}</strong> missing</span>
-          <span><strong>{visibleStats.stale}</strong> stale</span>
+
+        <nav className="admin-tabs" aria-label="Admin sections">
+          {['Command', 'Assets', '3D'].map((section) => (
+            <div className="admin-tabs__group" key={section}>
+              <span className="admin-tabs__label">{section}</span>
+              {ADMIN_TABS.filter((item) => item.section === section).map((item) => {
+                const dirty = dirtyTab === item.id;
+                return (
+                  <button
+                    className={tab === item.id ? 'active' : ''}
+                    key={item.id}
+                    onClick={() => requestTab(item.id)}
+                    type="button"
+                  >
+                    <span>{item.label}</span>
+                    {dirty ? <span className="admin-tab-dot" aria-label="unsaved changes">*</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className="admin-sidebar__summary">
+          <span>Current page</span>
+          <strong>{visibleStats.total}</strong>
+          <p>{needsWork ? `${needsWork} need work` : 'Nothing blocking'}</p>
         </div>
+
+        <figure className="admin-sidebar__art">
+          <img src={heroImage} alt="" />
+          <figcaption>Published landing hero</figcaption>
+        </figure>
+      </aside>
+
+      <section className="admin-main">
+      <header className="admin-header">
+        <div className="admin-header__title">
+          <p className="eyebrow">{assetTab ? 'Asset admin' : 'Scene admin'}</p>
+          <h1>{currentTab.title}</h1>
+          <p>{currentTab.copy}</p>
+        </div>
+        <AdminStatusSummary
+          stats={visibleStats}
+          activeStatus={assetTab ? status : undefined}
+          onStatusSelect={assetTab ? setStatus : undefined}
+        />
       </header>
 
-      <section className={`admin-toolbar ${assetTab ? '' : 'admin-toolbar--models'}`} aria-label="Admin controls">
-        <div className="admin-tabs" role="tablist" aria-label="Asset type">
-          <button className={tab === 'audio' ? 'active' : ''} onClick={() => requestTab('audio')} role="tab" aria-selected={tab === 'audio'}>Audio</button>
-          <button className={tab === 'image' ? 'active' : ''} onClick={() => requestTab('image')} role="tab" aria-selected={tab === 'image'}>Image</button>
-          <button className={tab === 'overview' ? 'active' : ''} onClick={() => requestTab('overview')} role="tab" aria-selected={tab === 'overview'}>Overview</button>
-          <button className={tab === 'units' ? 'active' : ''} onClick={() => requestTab('units')} role="tab" aria-selected={tab === 'units'}>Units{dirtyTab === 'units' ? ' *' : ''}</button>
-          <button className={tab === 'spaceship' ? 'active' : ''} onClick={() => requestTab('spaceship')} role="tab" aria-selected={tab === 'spaceship'}>Space Ship{dirtyTab === 'spaceship' ? ' *' : ''}</button>
-          <button className={tab === 'lobby' ? 'active' : ''} onClick={() => requestTab('lobby')} role="tab" aria-selected={tab === 'lobby'}>Lobby{dirtyTab === 'lobby' ? ' *' : ''}</button>
-        </div>
+      <section className="admin-controlbar" aria-label="Admin controls">
         {assetTab ? (
-          <>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search id, prompt, group, usage" aria-label="Search assets" />
-            <select value={status} onChange={(event) => setStatus(event.target.value as AssetStatus | 'all')} aria-label="Filter by status">
-              <option value="all">All status</option>
-              <option value="approved">Approved</option>
-              <option value="generated">Generated</option>
-              <option value="missing">Missing</option>
-              <option value="stale">Stale</option>
-            </select>
-            <button className="admin-export" onClick={() => void refreshManifest()}>Refresh files</button>
-            <button className="admin-export" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
-          </>
+          <div className="admin-filters">
+            <label className="admin-filter">
+              <span>Search</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ID, prompt, group, use" aria-label="Search assets" />
+            </label>
+            <label className="admin-filter admin-filter--status">
+              <span>Status</span>
+              <select value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)} aria-label="Filter by status">
+                <option value="all">All status</option>
+                <option value="approved">Approved</option>
+                <option value="generated">Generated</option>
+                <option value="missing">Missing</option>
+                <option value="stale">Stale</option>
+              </select>
+            </label>
+            <div className="admin-toolbar__actions">
+              <button className="admin-export" type="button" onClick={() => void refreshManifest()}>Refresh files</button>
+              <button className="admin-export" type="button" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
+            </div>
+            <span className="admin-result">{filtered.length} of {assets.length} {tab} assets</span>
+          </div>
         ) : (
           <div className="admin-toolbar__hint">
             {dirtyTab ? 'Unsaved 3D editor changes are active.' : '3D changes save to the admin content store and are read by the live scenes on reload.'}
@@ -1176,34 +1250,52 @@ export function AdminPage() {
       ) : null}
 
       {assetTab ? (
-        <section className="admin-keybar" aria-label="Generation keys">
-          <input
-            value={apiKey}
-            onChange={(event) => setStoredApiKey(event.target.value)}
-            type="password"
-            placeholder="ElevenLabs API key, or leave blank for server key"
-            aria-label="ElevenLabs API key"
-          />
-          <input
-            value={geminiKey}
-            onChange={(event) => setStoredGeminiKey(event.target.value)}
-            type="password"
-            placeholder="Gemini image API key, or leave blank for server key"
-            aria-label="Gemini API key"
-          />
-          <button className="admin-export" onClick={() => void connectVoices()}>Connect voices</button>
-          <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Fallback Signal Lost voice">
-            <option value="">Auto SL voice by row</option>
-            {voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
-          </select>
-          <select value={modelId} onChange={(event) => setStoredModel(event.target.value)} aria-label="Text to speech model">
-            <option value="eleven_v3">TTS v3</option>
-            <option value="eleven_multilingual_v2">Multilingual v2</option>
-            <option value="eleven_turbo_v2_5">Turbo v2.5</option>
-            <option value="eleven_flash_v2_5">Flash v2.5</option>
-          </select>
-          <span>Keys are sent only to this server and saved in this browser.</span>
-        </section>
+        <details className="admin-keybar">
+          <summary>
+            <span>Generation settings</span>
+            <small>ElevenLabs, Gemini, voice, and model controls</small>
+          </summary>
+          <div className="admin-keybar__grid" aria-label="Generation keys">
+            <label className="admin-key-field">
+              <span>ElevenLabs key</span>
+              <input
+                value={apiKey}
+                onChange={(event) => setStoredApiKey(event.target.value)}
+                type="password"
+                placeholder="Server key if blank"
+                aria-label="ElevenLabs API key"
+              />
+            </label>
+            <label className="admin-key-field">
+              <span>Gemini key</span>
+              <input
+                value={geminiKey}
+                onChange={(event) => setStoredGeminiKey(event.target.value)}
+                type="password"
+                placeholder="Server key if blank"
+                aria-label="Gemini API key"
+              />
+            </label>
+            <button className="admin-export admin-export--primary" type="button" onClick={() => void connectVoices()}>Connect voices</button>
+            <label className="admin-key-field">
+              <span>Voice</span>
+              <select value={voiceId} onChange={(event) => setStoredVoice(event.target.value)} aria-label="Fallback Signal Lost voice">
+                <option value="">Auto SL voice by row</option>
+                {voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
+              </select>
+            </label>
+            <label className="admin-key-field">
+              <span>Model</span>
+              <select value={modelId} onChange={(event) => setStoredModel(event.target.value)} aria-label="Text to speech model">
+                <option value="eleven_v3">TTS v3</option>
+                <option value="eleven_multilingual_v2">Multilingual v2</option>
+                <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+                <option value="eleven_flash_v2_5">Flash v2.5</option>
+              </select>
+            </label>
+            <span className="admin-keybar__note">Keys are saved in this browser and sent only to this server.</span>
+          </div>
+        </details>
       ) : null}
 
       <section className="admin-note" aria-live="polite">{toast}</section>
@@ -1273,7 +1365,44 @@ export function AdminPage() {
           onDirtyChange={(dirty) => setDirtyFor('lobby', dirty)}
         />
       )}
+      </section>
     </main>
+  );
+}
+
+function AdminStatusSummary(props: {
+  stats: PanelStats;
+  activeStatus?: StatusFilter;
+  onStatusSelect?: (status: StatusFilter) => void;
+}) {
+  return (
+    <div className="admin-status" aria-label="Status counts">
+      {STATUS_METRICS.map((metric) => {
+        const active = props.activeStatus === metric.status;
+        const className = `admin-status__item admin-status__item--${metric.tone}${active ? ' active' : ''}`;
+        const content = (
+          <>
+            <strong>{metric.value(props.stats)}</strong>
+            <span>{metric.label}</span>
+          </>
+        );
+        return props.onStatusSelect ? (
+          <button
+            aria-pressed={active}
+            className={className}
+            key={metric.status}
+            onClick={() => props.onStatusSelect?.(metric.status)}
+            type="button"
+          >
+            {content}
+          </button>
+        ) : (
+          <span className={className} key={metric.status}>
+            {content}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1284,7 +1413,10 @@ function AssetGroups<T extends BaseAsset>(props: { groups: Array<[string, T[]]>;
       {props.groups.map(([group, items]) => (
         <section className="asset-group" key={group}>
           <div className="asset-group__head">
-            <h2>{group}</h2>
+            <div>
+              <h2>{group}</h2>
+              <p>{items.filter((item) => item.status === 'approved').length} approved, {items.filter((item) => item.status === 'missing' || item.status === 'stale').length} need work</p>
+            </div>
             <span>{items.length} assets</span>
           </div>
           <div className="asset-list">
@@ -1311,7 +1443,7 @@ function AudioRow(props: {
   const isVoiceDesign = isVoiceDesignAsset(asset);
   const generateLabel = props.busy ? (isVoiceDesign ? 'Designing...' : 'Generating...') : isVoiceDesign ? 'Generate SL voice' : asset.file ? 'Regenerate' : 'Generate';
   return (
-    <article className="asset-row">
+    <article className={`asset-row asset-row--${asset.status}`}>
       <div className="asset-row__main">
         <div className="asset-row__title">
           <span className={`asset-status asset-status--${asset.status}`}>{STATUS_LABEL[asset.status]}</span>
@@ -1324,7 +1456,7 @@ function AudioRow(props: {
           <span>{asset.duration}</span>
           <span>{asset.use}</span>
           {asset.voice ? <span>{asset.voice}</span> : null}
-          {asset.file ? <span>{asset.file}</span> : null}
+          {asset.file ? <span title={asset.file}>{fileLabel(asset.file)}</span> : null}
           {asset.size ? <span>{formatBytes(asset.size)}</span> : null}
           {asset.createdAt ? <span>{formatDate(asset.createdAt)}</span> : null}
         </div>
@@ -1350,9 +1482,9 @@ function AudioRow(props: {
         {asset.file ? <audio controls src={asset.file} /> : <span>{isVoiceDesign ? 'Saved SL voice' : 'No clip'}</span>}
       </div>
       <div className="asset-actions">
-        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{generateLabel}</button>
-        {isVoiceDesign ? <button disabled={props.busy} onClick={() => void props.onCheckVoice(asset)}>Check SL voice</button> : null}
-        <button disabled={props.busy || !asset.file} onClick={() => void props.onApprove(asset)}>{asset.status === 'approved' ? 'Approved' : 'Approve'}</button>
+        <button className="asset-action--primary" disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{generateLabel}</button>
+        {isVoiceDesign ? <button disabled={props.busy} onClick={() => void props.onCheckVoice(asset)}>Check voice</button> : null}
+        <button className="asset-action--approve" disabled={props.busy || !asset.file} onClick={() => void props.onApprove(asset)}>{asset.status === 'approved' ? 'Approved' : 'Approve'}</button>
       </div>
     </article>
   );
@@ -1374,7 +1506,7 @@ function ImageRow(props: {
   const hasImage = Boolean(imageSource(asset));
   const fileInputRef = useRef<HTMLInputElement>(null);
   return (
-    <article className="asset-row">
+    <article className={`asset-row asset-row--${asset.status}`}>
       <div className={`asset-thumb ${isIconAsset(asset) ? 'asset-thumb--icon' : ''}`} aria-label={`${asset.name} preview`}>
         {asset.preview ? <img src={asset.preview} alt="" /> : <span>{asset.ratio}</span>}
       </div>
@@ -1389,13 +1521,13 @@ function ImageRow(props: {
           <span>{asset.kind}</span>
           <span>{asset.ratio}</span>
           <span>{asset.use}</span>
-          {asset.file ? <span>{asset.file}</span> : null}
+          {asset.file ? <span title={asset.file}>{fileLabel(asset.file)}</span> : null}
           {asset.size ? <span>{formatBytes(asset.size)}</span> : null}
           {asset.createdAt ? <span>{formatDate(asset.createdAt)}</span> : null}
         </div>
       </div>
       <div className="asset-actions">
-        <button disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Working...' : asset.preview ? 'Regenerate' : 'Generate'}</button>
+        <button className="asset-action--primary" disabled={props.busy} onClick={() => void props.onGenerate(asset)}>{props.busy ? 'Working...' : asset.preview ? 'Regenerate' : 'Generate'}</button>
         <label className="asset-size-control">
           <span>Max</span>
           <select value={props.imageSize} onChange={(event) => props.onSizeChange(Number(event.target.value))} aria-label={`Maximum saved size for ${asset.name}`}>
@@ -1406,7 +1538,7 @@ function ImageRow(props: {
         <button disabled={props.busy || !hasImage} onClick={() => void props.onCutout(asset)}>Cut out</button>
         <button disabled={props.busy || !hasImage} onClick={() => void props.onCompress(asset)} title="Re-encode smaller and show the new file size">Compress</button>
         <button disabled={props.busy} onClick={() => fileInputRef.current?.click()}>Upload</button>
-        <button disabled={props.busy || !asset.file} onClick={() => void props.onApprove(asset)}>{asset.status === 'approved' ? 'Approved' : 'Approve'}</button>
+        <button className="asset-action--approve" disabled={props.busy || !asset.file} onClick={() => void props.onApprove(asset)}>{asset.status === 'approved' ? 'Approved' : 'Approve'}</button>
         <input
           ref={fileInputRef}
           className="asset-upload-input"
