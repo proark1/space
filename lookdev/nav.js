@@ -2,7 +2,7 @@
 // Replaces each scene's ad-hoc nav with one standard bar (current scene highlighted),
 // and hides itself during pointer-lock so it never clutters immersive play.
 const SCENES = [
-  [location.pathname === '/' ? '/' : '/game', 'game'], ['/lobby', 'lobby'], ['/launch', 'capsule'], ['/pad', 'pad'],
+  ['/game', 'game'], ['/lobby', 'lobby'], ['/launch', 'capsule'], ['/pad', 'pad'],
   ['/dock', 'dock'], ['/exterior', 'derelict'], ['/units', 'crew'], ['/admin', 'forge'],
 ];
 const here = location.pathname.replace(/\/+$/, '') || '/';

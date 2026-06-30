@@ -97,20 +97,32 @@ export function buildDockingBerthZ({ THREE, parent, part, BOX, CYL, M, ringLight
 }
 
 export function buildApproachDockFaceZ({ THREE, parent, part, BOX, CYL, SPH, M, baseZ = -30 }) {
-  part(BOX(6.8, 6.8, 1.2), M.dark, parent, 0, 0, baseZ);
-  part(BOX(5.2, 5.2, 0.7), M.hull, parent, 0, 0, baseZ - 0.8);
-  part(CYL(2.5, 2.5, 1.0, 36), M.metal, parent, 0, 0, baseZ - 1.4, Math.PI / 2, 0, 0);
-  part(new THREE.TorusGeometry(2.55, 0.2, 12, 44), M.amber, parent, 0, 0, baseZ - 2.0);
-  part(new THREE.TorusGeometry(1.45, 0.06, 8, 32), M.cyan, parent, 0, 0, baseZ - 2.06);
-  part(CYL(0.45, 0.45, 0.18, 20), M.cyan, parent, 0, 0, baseZ - 2.2, Math.PI / 2, 0, 0);
+  part(BOX(8.8, 8.8, 1.1), M.dark, parent, 0, 0, baseZ + 0.3);
+  part(BOX(6.8, 6.8, 1.2), M.dark, parent, 0, 0, baseZ - 0.3);
+  part(BOX(5.2, 5.2, 0.7), M.hull, parent, 0, 0, baseZ - 1.0);
+  part(BOX(4.2, 0.42, 1.5), M.amber, parent, 0, 2.35, baseZ - 1.1);
+  part(BOX(4.2, 0.42, 1.5), M.amber, parent, 0, -2.35, baseZ - 1.1);
+  for (let i = 0; i < 4; i++) {
+    part(CYL(2.15, 2.15, 0.36, 36), i & 1 ? M.dark : M.metal, parent, 0, 0, baseZ - 1.25 - i * 0.36, Math.PI / 2, 0, 0);
+  }
+  part(CYL(3.0, 3.3, 0.62, 36), M.metal, parent, 0, 0, baseZ - 2.35, Math.PI / 2, 0, 0);
+  part(new THREE.TorusGeometry(2.55, 0.2, 12, 44), M.amber, parent, 0, 0, baseZ - 2.75);
+  part(new THREE.TorusGeometry(1.55, 0.07, 8, 36), M.cyan, parent, 0, 0, baseZ - 2.83);
+  part(new THREE.TorusGeometry(0.82, 0.05, 8, 32), M.cyan, parent, 0, 0, baseZ - 2.86);
+  part(CYL(0.45, 0.45, 0.18, 20), M.cyan, parent, 0, 0, baseZ - 3.0, Math.PI / 2, 0, 0);
 
   for (let a = 0; a < 12; a++) {
     const an = (a / 12) * Math.PI * 2;
-    part(BOX(0.5, 0.35, 0.14), a & 1 ? M.amber : M.dark, parent, Math.cos(an) * 2.95, Math.sin(an) * 2.95, baseZ - 1.9, 0, 0, an);
+    part(BOX(0.5, 0.35, 0.14), a & 1 ? M.amber : M.dark, parent, Math.cos(an) * 2.95, Math.sin(an) * 2.95, baseZ - 2.72, 0, 0, an);
+  }
+
+  for (let a = 0; a < 4; a++) {
+    const an = (a / 4) * Math.PI * 2 + 0.4;
+    part(BOX(1.1, 0.22, 0.46), M.metal, parent, Math.cos(an) * 2.55, Math.sin(an) * 2.55, baseZ - 2.55, 0, 0, an);
   }
 
   for (let i = 0; i < 6; i++) {
-    const z = baseZ - 14 + i * 2.2;
+    const z = baseZ - 16 + i * 2.4;
     part(SPH(0.18, 8, 8), M.amber, parent, -2.9, 0, z);
     part(SPH(0.18, 8, 8), M.amber, parent, 2.9, 0, z);
   }

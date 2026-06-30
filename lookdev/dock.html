@@ -44,7 +44,7 @@
 <div id="crewline"></div>
 <div id="prompt"><b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow</div>
 <div id="assist">WAITING FOR APPROACH VECTOR</div>
-<div id="result"><div id="rtxt"></div><a id="enter" href="/">▸ STEP INTO THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
+<div id="result"><div id="rtxt"></div><a id="enter" href="/game">▸ STEP INTO THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
 
 <script type="importmap">
 { "imports": {
@@ -189,7 +189,15 @@ for(let z=-4;z>ZEND;z-=4){ part(BOX(0.3,CH,0.5),cmWall2,ship,-CW/2+0.15,CH/2,z);
   part(new THREE.CylinderGeometry(0.06,0.06,CW-0.3,8),M.metal,ship,0,CH-0.42,z+1,0,0,Math.PI/2);
   const lit=(((z/4)|0)%2===0); part(BOX(0.9,0.06,0.5),lit?M.amber:cyanM,ship,0,CH-0.42,z+2);
   const pl=new THREE.PointLight(lit?0xE8A33D:0x9FD0FF,lit?4:1.4,8,1.6); pl.position.set(0,CH-0.6,z+2); ship.add(pl); corLights.push({pl,base:pl.intensity,seed:Math.random()*9}); }
-part(BOX(CW,CH,0.3),cmWall2,ship,0,CH/2,ZEND); part(BOX(1.5,2.2,0.18),M.dark,ship,0,1.3,ZEND+0.2); part(BOX(1.1,0.18,0.06),M.amber,ship,0,2.5,ZEND+0.25);   // bulkhead door (deeper in)
+part(BOX(CW,CH,0.3),cmWall2,ship,0,CH/2,ZEND);
+part(BOX(2.15,2.72,0.22),M.metal,ship,0,1.42,ZEND+0.2);          // pressure-door frame
+part(BOX(1.68,2.34,0.18),M.dark,ship,0,1.34,ZEND+0.31);          // sealed door slab
+part(BOX(0.07,2.26,0.22),M.metal,ship,0,1.34,ZEND+0.43);         // center seam
+part(BOX(1.72,0.1,0.22),M.amber,ship,0,2.52,ZEND+0.44);
+part(BOX(1.72,0.1,0.22),M.amber,ship,0,0.17,ZEND+0.44);
+part(BOX(0.12,2.18,0.22),cyanM,ship,-1.16,1.33,ZEND+0.4);
+part(BOX(0.12,2.18,0.22),cyanM,ship,1.16,1.33,ZEND+0.4);
+part(BOX(0.72,0.18,0.08),M.amber,ship,0,2.82,ZEND+0.5);          // door status placard
 const deepLight=new THREE.PointLight(0xff3a2a,0,7,2); deepLight.position.set(0,1.6,ZEND-1.5); ship.add(deepLight);
 const shipAmb=new THREE.AmbientLight(0x223040,0); scene.add(shipAmb);
 const flash=new THREE.SpotLight(0xffe6c0,0,28,0.55,0.5,1.3); const flashT=new THREE.Object3D(); scene.add(flashT); flash.target=flashT; scene.add(flash);
@@ -251,12 +259,13 @@ function board(){ if(state==='board'||state==='inside')return; state='board'; bo
   document.getElementById('cross').style.display='none'; document.getElementById('stats').style.display='none'; capture.style.display='none'; assist.style.display='none';
   frame.visible=false; ship.visible=true; shipAmb.intensity=0.22; transferCrew.forEach(c=>c.root.visible=true); MULTI.broadcastTask('objective',{text:'boarding through the transfer tunnel.'}); crewSay(crewLineFor(2,'do we step through first or dramatically last?'),2.8); }
 addEventListener('mousemove',e=>{ if(state==='inside' && document.pointerLockElement===canvas){ yaw-=e.movementX*0.0023; pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*0.0023)); } });
-addEventListener('keydown',e=>{ if(state==='inside' && e.code==='KeyE' && pos.z<ZEND+3) goNext(FLOW?'/?flow=1':'/'); });
+addEventListener('keydown',e=>{ if(state==='inside' && e.code==='KeyE' && pos.z<ZEND+3) goNext(FLOW?'/game?flow=1':'/game'); });
+addEventListener('keydown',e=>{ if(state==='inside' && e.code==='Space' && jumpY<=0.001){ jumpV=2.35; e.preventDefault(); } });
 canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLockElement!==canvas) canvas.requestPointerLock(); });
 
 // ---- state / physics ----
 const TOL=0.72, SPEED_MAX=1.85, THR=3.4, CLOSE=3.0, DAMP=0.8;
-let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
+let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0,jumpY=0,jumpV=0; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
 const PROMPT_DOCK='<b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow';
 function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=4.2*sgn; apprY0=2.6; apprXt=2.0*sgn; apprYt=-0.9; offX=apprX0; offY=apprY0; voffX=voffY=0; dist=120; vdist=0; apprT=0; driftP=DOCK_AUTO?0:Math.random()*9; state='approach'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
   softT=0; stationQueued=false; lastCrewHint=''; clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ; }); crewSay(crewLineFor(0,'visual on the collar. autopilot has us.'),2.8);
@@ -334,15 +343,16 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   else if(state==='docked'){ setAssist('good','HARD DOCK · READY TO BOARD'); collarPulse(t); }
   else if(state==='board'){ setAssist('good','TRANSFER TUNNEL · CREW MOVING'); collarPulse(t); boardT+=dt; const k=Math.min(1,boardT/2.4), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
     camera.position.set(0,1.6*e,-1-e*4.4); flash.intensity=120*e; flash.position.copy(camera.position); flashT.position.set(0,1.4,camera.position.z-3);
-    if(k>=1){ state='inside'; world.visible=false; pos.set(0,0,camera.position.z); document.getElementById('prompt').innerHTML='<b>WASD</b> walk · <b>mouse</b> look · reach the bulkhead · <b>E</b> deeper in'; if(!DOCK_AUTO&&canvas.requestPointerLock) canvas.requestPointerLock();
-      if(FLOW&&!stationQueued){ stationQueued=true; crewSay(crewLineFor(1,'inner hatch is cycling. station side in three...'),2.2); setTimeout(()=>goNext('/?flow=1'),1900); } } }
+    if(k>=1){ state='inside'; world.visible=false; pos.set(0,0,camera.position.z); document.getElementById('prompt').innerHTML='<b>WASD</b> walk · <b>mouse</b> look · <b>SPACE</b> jump · reach the bulkhead · <b>E</b> enter station'; if(!DOCK_AUTO&&canvas.requestPointerLock) canvas.requestPointerLock();
+      if(FLOW&&!stationQueued){ stationQueued=true; crewSay(crewLineFor(1,'inner hatch is cycling. station side in three...'),2.2); setTimeout(()=>goNext('/game?flow=1'),1900); } } }
   else if(state==='inside'){
     const s=Math.sin(yaw),cc=Math.cos(yaw),fx=-s,fz=-cc,rxx=cc,rzz=-s; let mx=0,mz=0;
     if(keys.KeyW||keys.ArrowUp){mx+=fx;mz+=fz;} if(keys.KeyS||keys.ArrowDown){mx-=fx;mz-=fz;}
     if(keys.KeyD||keys.ArrowRight){mx+=rxx;mz+=rzz;} if(keys.KeyA||keys.ArrowLeft){mx-=rxx;mz-=rzz;}
     if(mx||mz){ const l=Math.hypot(mx,mz); pos.x+=mx/l*2.6*dt; pos.z+=mz/l*2.6*dt; }
     pos.x=Math.max(-CW/2+0.4,Math.min(CW/2-0.4,pos.x)); pos.z=Math.max(ZEND+0.9,Math.min(-1.2,pos.z));
-    camera.position.set(pos.x,1.6+((mx||mz)?Math.sin(t*9)*0.04:0),pos.z); camera.rotation.set(pitch,yaw,0);
+    if(jumpV||jumpY>0){ jumpY+=jumpV*dt; jumpV-=5.1*dt; if(jumpY<0){ jumpY=0; jumpV=0; } }
+    camera.position.set(pos.x,1.6+jumpY+((mx||mz)?Math.sin(t*9)*0.04:0),pos.z); camera.rotation.set(pitch,yaw,0);
     flash.position.copy(camera.position); camera.getWorldDirection(_fw); flashT.position.copy(camera.position).add(_fw); flash.intensity=120;
     for(const L of corLights){ const n=Math.sin(t*16+L.seed)*0.5+0.5; L.pl.intensity=L.base*(0.4+0.6*n); }
     deepLight.intensity=0.5+0.5*Math.sin(t*3);

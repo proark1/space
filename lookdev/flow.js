@@ -1,4 +1,4 @@
-// SIGNAL LOST — cold-open flow: fade-to-black transitions + auto-advance chain.
+// SIGNAL LOST — playable flow: fade-to-black transitions + auto-advance chain.
 // A scene loaded with ?flow=1 auto-advances to the next at its natural end; without it,
 // the scene runs standalone (loops) for inspection. Reused by lobby -> pad -> launch -> dock -> game.
 export const FLOW = new URLSearchParams(location.search).has('flow');

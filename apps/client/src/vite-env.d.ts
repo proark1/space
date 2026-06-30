@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Optional URL for the playable lookdev cold-open demo. */
+  /** Optional URL for the playable lookdev game flow. */
   readonly VITE_LOOKDEV_DEMO_URL?: string;
   /** Comma-separated full TURN URLs (preferred — e.g. metered.ca on ports 80/443). */
   readonly VITE_TURN_URLS?: string;

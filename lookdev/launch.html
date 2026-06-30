@@ -19,8 +19,8 @@
 <body>
 <canvas id="c"></canvas>
 <div id="title">SIGNAL&nbsp;LOST · OUTBOUND</div>
-<div id="nav"><a href="/exterior">▸ the derelict</a><a href="/">▸ aboard</a></div>
-<div id="hud"><b>drag</b> to look around the cabin · you're strapped in · the derelict is ahead</div>
+<div id="nav"><a href="/exterior">▸ the derelict</a><a href="/game">▸ aboard</a></div>
+<div id="hud"><b>drag</b> look · <b>WASD</b> walk when standing · <b>SPACE</b> stand/sit · the derelict is ahead</div>
 <div id="stat">▸ APPROACHING THE DERELICT</div>
 
 <script type="importmap">
@@ -80,13 +80,19 @@ function resize(){const w=innerWidth,h=innerHeight;
  renderer.setSize(w,h,false); composer.setSize(w,h); Grade.uniforms.uRes.value.set(w*DPR,h*DPR);
  camera.aspect=w/h; camera.updateProjectionMatrix();}
 
-// ---- free-look (seated; clamped to a human neck cone, no translation) ----
+// ---- free-look + tiny capsule walk space ----
 let yaw=0, pitch=0, dragging=false, lx=0, ly=0;
 const YAWMAX=1.65, PITCHMAX=1.12;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const keys={};
+const seatedPos=new THREE.Vector3(0,0.02,0.85);
+const targetCamPos=seatedPos.clone();
+let standing=false;
 addEventListener('pointerdown',e=>{dragging=true;lx=e.clientX;ly=e.clientY;document.body.classList.add('look');});
 addEventListener('pointerup',()=>{dragging=false;document.body.classList.remove('look');});
 addEventListener('pointermove',e=>{ if(!dragging)return; yaw=clamp(yaw-(e.clientX-lx)*0.0034,-YAWMAX,YAWMAX); pitch=clamp(pitch-(e.clientY-ly)*0.0034,-PITCHMAX,PITCHMAX); lx=e.clientX; ly=e.clientY; });
+addEventListener('keydown',e=>{ keys[e.code]=true; if(e.code==='Space'){ standing=!standing; e.preventDefault(); } if(['KeyW','KeyA','KeyS','KeyD'].includes(e.code)) e.preventDefault(); });
+addEventListener('keyup',e=>{ keys[e.code]=false; });
 
 // ---- PS1 vertex snap ----
 function snap(m){ return m; }   // outer scene: no PS1 vertex snap — crisp, smooth geometry
@@ -119,7 +125,7 @@ const M={
   cyan: new THREE.MeshStandardMaterial({color:0x04121a,emissive:0x7fd2ff,emissiveIntensity:1.3,roughness:1}),
   red:  new THREE.MeshStandardMaterial({color:0x1a0404,emissive:0xff4030,emissiveIntensity:1.1,roughness:1}),
   visor:new THREE.MeshStandardMaterial({color:0x05121a,emissive:0x6fd0ff,emissiveIntensity:0.85,roughness:0.3,metalness:0.6}),
-  glass:new THREE.MeshStandardMaterial({color:0x123c52,emissive:0x2f8fc0,emissiveIntensity:0.24,transparent:true,opacity:0.28,roughness:0.04,metalness:0.28,side:THREE.DoubleSide,depthWrite:false}),
+  glass:new THREE.MeshStandardMaterial({color:0x123c52,emissive:0x2f8fc0,emissiveIntensity:0.36,transparent:true,opacity:0.36,roughness:0.04,metalness:0.28,side:THREE.DoubleSide,depthWrite:false}),
   engine:new THREE.MeshStandardMaterial({color:0x04140f,emissive:0x37e0c0,emissiveIntensity:2.2,roughness:1}),
 };
 [M.hull,M.dark,M.metal,M.seat,M.suit,M.suit2].forEach(snap);
@@ -182,10 +188,12 @@ const cabin=new THREE.Group(); scene.add(cabin);
 part(BOX(3.4,0.2,3.8),M.dark,cabin,0,-1.25,-0.1);     // floor
 // Panoramic canopy: the capsule has a glass roof and broad side panes, with only structural rails.
 const canopyGlass=M.glass.clone();
-canopyGlass.opacity=0.23;
+canopyGlass.opacity=0.34;
+canopyGlass.emissiveIntensity=0.42;
 const canopy=part(new THREE.SphereGeometry(1.62,36,16,0,Math.PI*2,0,Math.PI*0.58),canopyGlass,cabin,0,-0.42,-0.1);
 canopy.scale.z=1.18; canopy.renderOrder=3; // curved transparent shell visible from the seat
-part(new THREE.PlaneGeometry(2.85,3.35),M.glass,cabin,0,1.16,-0.1,-Math.PI/2,0,0); // full glass roof
+part(new THREE.PlaneGeometry(2.95,3.45),M.glass,cabin,0,1.16,-0.1,-Math.PI/2,0,0); // full glass roof
+part(BOX(0.09,0.12,3.45),M.cyan,cabin,0,1.18,-0.1);
 part(BOX(3.35,0.16,0.18),M.metal,cabin,0,1.12,-1.78);  // forward roof bow
 part(BOX(3.35,0.16,0.18),M.metal,cabin,0,1.12,1.55);   // rear roof bow
 part(BOX(0.16,0.16,3.55),M.metal,cabin,-1.55,1.12,-0.1);
@@ -227,7 +235,6 @@ function seat(px,pz,faceY,accent,tone){
   part(BOX(0.7,0.12,0.7),M.seat,s,0,-0.95,0);
   part(BOX(0.7,1.0,0.12),M.seat,s,0,-0.5,0.32);
   part(BOX(0.12,0.5,0.7),M.seat,s,-0.31,-0.7,0); part(BOX(0.12,0.5,0.7),M.seat,s,0.31,-0.7,0);
-  part(BOX(0.08,0.7,0.04),M.metal,s,-0.16,-0.45,-0.28,0.25,0,0.2); part(BOX(0.08,0.7,0.04),M.metal,s,0.16,-0.45,-0.28,0.25,0,-0.2);
   if(accent!=null){
     const c=new THREE.Group(); c.position.set(0,-0.95,0.04); c.rotation.y=Math.PI; c.userData.by=-0.95; s.add(c);
     const a=makeAstronaut({accent,seated:true,tone}); a.scale.setScalar(0.56); c.add(a);
@@ -248,6 +255,19 @@ const lerp=(a,b,k)=>a+(b-a)*k;
 const ease=k=>k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
 const clock=new THREE.Clock(); const LOOP=FLOW_FAST?22:46;
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
+  if(standing){
+    const s=Math.sin(yaw), c=Math.cos(yaw), fx=-s, fz=-c, rx=c, rz=-s;
+    let mx=0,mz=0;
+    if(keys.KeyW){mx+=fx;mz+=fz;} if(keys.KeyS){mx-=fx;mz-=fz;}
+    if(keys.KeyD){mx+=rx;mz+=rz;} if(keys.KeyA){mx-=rx;mz-=rz;}
+    if(mx||mz){ const l=Math.hypot(mx,mz); targetCamPos.x+=mx/l*1.15*dt; targetCamPos.z+=mz/l*1.15*dt; }
+    targetCamPos.x=clamp(targetCamPos.x,-1.02,1.02);
+    targetCamPos.z=clamp(targetCamPos.z,-0.98,1.1);
+    targetCamPos.y+=(0.62-targetCamPos.y)*Math.min(1,dt*5.5);
+  } else {
+    targetCamPos.lerp(seatedPos,Math.min(1,dt*4.5));
+  }
+  camera.position.lerp(targetCamPos,Math.min(1,dt*8));
   camera.rotation.y=yaw; camera.rotation.x=pitch;
   MULTI.publishPose({x:0,y:0,z:0,yaw,hidden:false});
   const tt=(t%LOOP)/LOOP, e=ease(tt);
@@ -287,7 +307,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
+window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

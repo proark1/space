@@ -5,13 +5,15 @@ import { useNet } from './store';
 import { NetDebugHud } from './NetDebugHud';
 
 const PANIC_LINES = [
-  'VESTA: Crew volume is now classified as a hostile beacon.',
-  'Crew log: slipped with purpose, screamed with conviction.',
-  'The Chorus heard the group chat and joined uninvited.',
-  'Objective updated: stop calling the monster "bro".',
-  'Battery carrier has fallen. Morale somehow improved.',
-  'Flashlight on. Everyone within 40 metres is now on the menu.',
-  'Vote passed: the quiet one is definitely the monster now.',
+  'VESTA: Excellent news. Your scream has opened three doors and one problem.',
+  'Crew log: Dave blamed the floor. The floor has filed a counterclaim.',
+  'The Chorus repeated the room code, so legally it is in the crew now.',
+  'Objective updated: stop calling the unidentified lifeform "bestie".',
+  'Battery carrier fell over. Battery promoted itself to mission lead.',
+  'Flashlight on. Congratulations, you are the lighthouse for teeth.',
+  'Motion tracker says five crew. Payroll insists there are four.',
+  'VESTA: Whispering detected. So was whatever whispered back.',
+  'Crew vote passed: the bravest person opens the door from behind everyone else.',
 ] as const;
 
 interface ClipCard {
@@ -47,25 +49,25 @@ const TICKER_ITEMS = [
   'THE CHORUS: listening',
 ] as const;
 
-// The cold-open demo lives in the lookdev lobby. In production static_server.py
+// The playable experience lives in the lookdev lobby. In production static_server.py
 // serves /lobby on this very origin, so a relative path is correct and portable.
 // Under local `vite dev` only this SPA is served here, so the lobby runs on the
 // standalone python lookdev server at :8173. VITE_LOOKDEV_DEMO_URL overrides both.
-function resolveDemoUrl(): string {
+function resolvePlayUrl(): string {
   const override = import.meta.env.VITE_LOOKDEV_DEMO_URL;
   if (typeof override === 'string' && override.length > 0) return override;
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
   if (host === 'localhost' || host === '127.0.0.1') return 'http://127.0.0.1:8173/lobby?flow=1&auto=1';
   return '/lobby?flow=1&auto=1';
 }
-const DEMO_URL = resolveDemoUrl();
+const PLAY_URL = resolvePlayUrl();
 
 function scrollToLobby(): void {
   document.getElementById('capsule-lobby')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function playDemo(): void {
-  window.location.assign(DEMO_URL);
+function playNow(): void {
+  window.location.assign(PLAY_URL);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -168,12 +170,12 @@ export function LandingPage() {
             incriminating, and the rescue signal is absolutely not asking nicely.
           </p>
           <div className="hero__actions" aria-label="Main actions">
-            <button className="button button--primary button--glitch" onClick={playDemo} data-text="Play cold open">Play cold open</button>
+            <button className="button button--primary button--glitch" onClick={playNow} data-text="Play now">Play now</button>
             <button className="button button--ghost button--glitch" onClick={startRoom} data-text="Start a room">Start a room</button>
             <button className="button button--ghost button--glitch" onClick={scrollToLobby} data-text="Join a crew">Join a crew</button>
           </div>
           <div className="hero__panic" aria-label="Panic buttons">
-            <span className="hero__panic-label" aria-hidden="true">Panic array</span>
+            <span className="hero__panic-label" aria-hidden="true">Bad idea buttons</span>
             <button className="button button--danger button--glitch" onClick={panic} data-text="PANIC">PANIC</button>
             <button className="button button--danger button--glitch" onClick={panic} data-text="SCREAM">SCREAM</button>
             <button className="button button--danger button--glitch" onClick={panic} data-text="FLASHLIGHT">FLASHLIGHT</button>
@@ -244,8 +246,8 @@ export function LandingPage() {
           <p className="eyebrow">Capsule lobby</p>
           <h2>Open a room before anyone has time to become sensible.</h2>
           <p>
-            Host gets a room code. Friends bring poor judgment. The capsule launches once
-            everyone pretends they are ready.
+            Start alone and the NPC crew comes with you. Share a room code and friends can
+            replace them before the capsule launches.
           </p>
         </div>
         <div className="lobby-panel" aria-live="polite">
@@ -263,14 +265,14 @@ export function LandingPage() {
             <div className="lobby-panel__body">
               <span className="lobby-panel__label">{isHost ? 'Share this code' : 'Joined room'}</span>
               <div className="room-code">{code}</div>
-              <p>{peers.length ? `${peers.length} peer connected` : 'Waiting for a doomed friend.'}</p>
-              <button className="button button--primary" onClick={playDemo}>Launch cold open</button>
+              <p>{peers.length ? `${peers.length} peer connected` : 'NPC crew standing by.'}</p>
+              <button className="button button--primary" onClick={playNow}>Launch now</button>
               <button className="button button--danger" onClick={leave}>Leave room</button>
             </div>
           ) : (
             <div className="lobby-panel__body">
-              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={playDemo} data-text="Play local demo">Play local demo</button>
-              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-host'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={startRoom} data-text="Host game">Host game</button>
+              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={playNow} data-text="Play now">Play now</button>
+              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-host'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={startRoom} data-text="Start room">Start room</button>
               <div className="join-row">
                 <input
                   value={draft}

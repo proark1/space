@@ -264,13 +264,18 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   if(since>=-0.2){
     controls.autoRotate=false;
     controls.enabled=false;
-    const rocketY=rocket.position.y+31;
-    const follow=smooth(-0.2,3.2,since);
-    const high=smooth(CLIMB*0.4,CLIMB*0.98,since);
+    const rocketY=rocket.position.y+30;
+    const follow=smooth(-0.2,1.4,since);
+    const high=smooth(CLIMB*0.34,CLIMB*0.98,since);
     launchCamTarget.set(0,clamp(rocketY,18,430),0);
-    launchCamPos.set(lerp(58,32,follow)+high*30,launchCamTarget.y+lerp(18,38,high),lerp(70,112,follow)+high*52);
-    camera.position.lerp(launchCamPos,FLOW_FAST?0.24:0.16);
-    launchLook.copy(controls.target).lerp(launchCamTarget,FLOW_FAST?0.28:0.18);
+    launchCamPos.set(
+      lerp(58,38,follow)+high*32,
+      launchCamTarget.y+lerp(13,30,high),
+      lerp(70,92,follow)+high*44
+    );
+    const chase=FLOW_FAST?0.46:0.34;
+    camera.position.lerp(launchCamPos,follow?chase:0.2);
+    launchLook.copy(controls.target).lerp(launchCamTarget,follow?(FLOW_FAST?0.62:0.5):0.28);
     controls.target.copy(launchLook);
     camera.lookAt(controls.target);
   } else {

@@ -42,10 +42,10 @@
 <div id="ui"><div id="panel">
   <h1>SIGNAL&nbsp;LOST</h1>
   <p>Earth lost the derelict. VESTA found one signal still calling out.</p>
-  <p><b>Click</b> look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> light · <b>E</b> use · <b>R</b> retry</p>
+  <p><b>Click</b> look · <b>WASD</b> move · <b>SPACE</b> jump · <b>Shift</b> run · <b>F</b> light · <b>E</b> use · <b>R</b> retry</p>
   <p><small>Reach command, recover the final logs, and send them home.</small></p>
   <button id="go">ENTER THE SHIP</button>
-  <div style="margin-top:12px;display:grid;gap:6px"><a href="/lobby?flow=1&auto=1" style="color:#7dffb0;font:12px ui-monospace,monospace;text-decoration:none">▸ play the full cold open</a><a href="/exterior" style="color:#9fd0ff;font:12px ui-monospace,monospace;text-decoration:none">▸ or see the ship from outside</a></div>
+  <div style="margin-top:12px;display:grid;gap:6px"><a href="/lobby?flow=1&auto=1" style="color:#7dffb0;font:12px ui-monospace,monospace;text-decoration:none">▸ play from launch</a><a href="/exterior" style="color:#9fd0ff;font:12px ui-monospace,monospace;text-decoration:none">▸ or see the ship from outside</a></div>
 </div></div>
 
 <script type="importmap">
@@ -599,7 +599,7 @@ if(FLOW_ARRIVAL){
   panel.querySelector('h1').textContent='AIRLOCK OPEN';
   const p=panel.querySelectorAll('p');
   if(p[0])p[0].textContent='Hard dock confirmed. The inner hatch is open.';
-  if(p[1])p[1].innerHTML='<b>Click</b> enter station · <b>WASD</b> move · <b>E</b> use / hide';
+  if(p[1])p[1].innerHTML='<b>Click</b> enter station · <b>WASD</b> move · <b>SPACE</b> jump · <b>E</b> use / hide';
   if(p[2])p[2].innerHTML='<small>Recover the final logs, reroute power, and send them to Earth.</small>';
   goBtn.textContent='ENTER STATION';
 }
@@ -608,7 +608,7 @@ controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.disp
   if(FLOW_ARRIVAL&&!flowIntroPlayed){ flowIntroPlayed=true; setTimeout(()=>say(crewSayLine(0,'inner hatch is sealed. we are officially inside.'),3.0),500); setTimeout(()=>say(crewSayLine(1,'command center is forward. try not to touch anything that screams.'),3.2),3600); }
 });
 controls.addEventListener('unlock',()=>{ if(!caught&&!won) ui.style.display='flex'; cross.style.display='none'; });
-const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='KeyF'&&!caught&&!won){flashes++; flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
+const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='Space'){jumpQueued=true; e.preventDefault();} if(e.code==='KeyF'&&!caught&&!won){flashes++; flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
 addEventListener('keyup',e=>{keys[e.code]=false;});
 
 // ---------- objective / interaction ----------
@@ -617,7 +617,7 @@ let lightFactor=1;
 const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
 const setObj=t=>{ objEl.textContent=t; };
 setObj('REACH COMMAND CENTER · RECOVER FINAL RECORDINGS');
-let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0;
+let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0,jumpQueued=false,jumpY=0,jumpV=0;
 const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,command:false};
 const sideDone=new Set();
 const RUN_VARIANT=Math.floor(Math.random()*3);
@@ -806,7 +806,7 @@ function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=fal
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); broadcastRoomState(true); }
-function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
+function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0;
   Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
   sideDone.clear();
   overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; crewTalkEl.style.opacity='0'; setObj('REACH COMMAND CENTER · RECOVER FINAL RECORDINGS');
@@ -1007,7 +1007,17 @@ function animate(){ requestAnimationFrame(animate);
   clampWalkable(camera.position);
   if(hidden&&activeHide){ camera.position.copy(activeHide.pos); }
   bob += moving ? dt*(keys.ShiftLeft?13:9) : 0;
-  camera.position.y = hidden ? 1.32 : 1.6 + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
+  const canJump=controls.isLocked && !caught && !won && !hidden && !breakerFixing && !valveFixing;
+  if(canJump && jumpQueued && jumpY<=0.001) jumpV=2.75;
+  jumpQueued=false;
+  if(canJump && (jumpV||jumpY>0)){
+    jumpY+=jumpV*dt;
+    jumpV-=5.4*dt;
+    if(jumpY<0){ jumpY=0; jumpV=0; }
+  } else if(!canJump) {
+    jumpY=0; jumpV=0;
+  }
+  camera.position.y = hidden ? 1.32 : 1.6 + jumpY + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
   stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip('sfx-step',0.35); }
   if(controls.isLocked && !caught && !won) storyBeatCheck();
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:camera.rotation.y,hidden});

@@ -261,13 +261,13 @@ async function checkDockingHandoff(page: Page, baseUrl: string): Promise<void> {
   const capture = await page.evaluate(() => (window as any).__dock.state);
   assert(capture.off < 0.7, `expected auto-dock to align before capture, got offset ${capture.off}`);
   assert(capture.speed < 1.8, `expected auto-dock speed to be safe, got ${capture.speed}`);
-  await page.waitForURL('**/?flow=1', { timeout: TIMEOUT_MS });
+  await page.waitForURL('**/game?flow=1', { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'manual docking flow');
 }
 
 async function checkStationFlowEntry(page: Page, baseUrl: string): Promise<void> {
   const errors = collectPageErrors(page);
-  await page.goto(`${baseUrl}/?flow=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.goto(`${baseUrl}/game?flow=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForSelector('#go', { state: 'attached', timeout: TIMEOUT_MS });
   await page.waitForFunction(() => (window as any).__chorus?.crewCount === 3, null, { timeout: TIMEOUT_MS });
   await page.waitForFunction(() => document.querySelector('#panel h1')?.textContent === 'AIRLOCK OPEN', null, { timeout: TIMEOUT_MS });
@@ -275,7 +275,7 @@ async function checkStationFlowEntry(page: Page, baseUrl: string): Promise<void>
   const button = await page.locator('#go').textContent();
   assert(title === 'AIRLOCK OPEN', `expected AIRLOCK OPEN flow entry title, got ${title}`);
   assert(button === 'ENTER STATION', `expected ENTER STATION flow entry button, got ${button}`);
-  await page.goto(`${baseUrl}/?flow=1&players=ana,bob`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.goto(`${baseUrl}/game?flow=1&players=ana,bob`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForFunction(() => (window as any).__chorus?.state?.crewSummary?.remote === 2, null, { timeout: TIMEOUT_MS });
   const remoteCrew = await page.evaluate(() => (window as any).__chorus.state.crewSummary);
   assert(remoteCrew.remote === 2 && remoteCrew.npc === 1 && remoteCrew.total === 4, `expected 2 remote players plus 1 NPC fallback, got ${JSON.stringify(remoteCrew)}`);
@@ -284,7 +284,7 @@ async function checkStationFlowEntry(page: Page, baseUrl: string): Promise<void>
 
 async function checkStationHideMechanic(page: Page, baseUrl: string): Promise<void> {
   const errors = collectPageErrors(page);
-  await page.goto(`${baseUrl}/?smoke=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.goto(`${baseUrl}/game?smoke=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForFunction(() => Boolean((window as any).__chorus?.smoke), null, { timeout: TIMEOUT_MS });
   await page.evaluate(() => {
     (window as any).__chorus.smoke.moveTo(0.75, -12.05);
@@ -317,8 +317,8 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
   const hostErrors = collectPageErrors(host);
   const clientErrors = collectPageErrors(client);
   const qs = `smoke=1&room=${room}&signal=${encodeURIComponent(signalUrl)}`;
-  await host.goto(`${baseUrl}/?${qs}&name=host`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
-  await client.goto(`${baseUrl}/?${qs}&name=client`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await host.goto(`${baseUrl}/game?${qs}&name=host`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await client.goto(`${baseUrl}/game?${qs}&name=client`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await host.waitForFunction(() => (window as any).__chorus?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
   await client.waitForFunction(() => (window as any).__chorus?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
   await host.evaluate(() => (window as any).__chorus.camera.position.set(1.1, 1.6, -18.25));
@@ -353,7 +353,7 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
 
 async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<void> {
   const errors = collectPageErrors(page);
-  await page.goto(`${baseUrl}/`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.goto(`${baseUrl}/game`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForFunction(() => Boolean((window as any).__chorus?.camera), null, { timeout: TIMEOUT_MS });
   await page.waitForTimeout(1_500);
 
