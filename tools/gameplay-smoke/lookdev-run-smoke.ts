@@ -94,6 +94,8 @@ interface UiFeedbackView {
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
+  readonly micStatusText: string;
+  readonly voiceMeter: number;
   readonly remoteVoicePressure: number;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
@@ -331,6 +333,8 @@ async function main(): Promise<void> {
     assert(monster.mode === 'investigate', `remote scream should pull investigation, got ${monster.mode}`);
     assert(monster.z < -8.25, `monster should move toward remote scream, got z ${monster.z}`);
     assert(ui.remoteVoicePressure > 0.4, `ui should expose remote voice pressure, got ${ui.remoteVoicePressure}`);
+    assert(ui.voiceMeter > 0.35, `ui voice meter should reflect remote scream, got ${ui.voiceMeter}`);
+    assert(ui.micStatusText === 'crew scream', `ui mic status should label remote scream, got ${ui.micStatusText}`);
 
     await setPlayer(page, { x: 0, y: 1, z: 0 }, 0);
     await setMonster(page, { x: 0, y: 1, z: -12 });
@@ -343,6 +347,9 @@ async function main(): Promise<void> {
     assert(state.voiceLevel === 'whisper', `expected whisper voice level, got ${state.voiceLevel}`);
     assert(state.voiceSource === 'smoke', `expected smoke voice source, got ${state.voiceSource}`);
     assert(['idle', 'unsupported'].includes(state.micVoiceStatus), `smoke should not require live mic, got ${state.micVoiceStatus}`);
+    ui = await uiFeedback(page);
+    assert(ui.voiceMeter > 0, `ui voice meter should reflect smoke whisper, got ${ui.voiceMeter}`);
+    assert(ui.micStatusText === 'smoke whisper', `ui mic status should label smoke whisper, got ${ui.micStatusText}`);
     assert(monster.mode !== 'chase' && monster.mode !== 'attack', `whisper should not hard-chase at range, got ${monster.mode}`);
 
     await voicePressure(page, 1);

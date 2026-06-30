@@ -72,6 +72,25 @@ type RunStage = 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extra
 type MonsterMode = 'patrol' | 'investigate' | 'chase' | 'attack' | 'stunned';
 type EncounterPhase = 'idle' | 'telegraph' | 'cross' | 'recover' | 'done';
 type ScarePhase = 'lull' | 'build' | 'peak' | 'relax';
+type ScareKind = 'blackout' | 'mimic' | 'scrape' | 'breath' | 'crewShadow' | 'wetKnock' | 'radioPing';
+type AudioCue =
+  | 'pickup'
+  | 'door'
+  | 'power'
+  | 'comms'
+  | 'stun'
+  | 'hit'
+  | 'monster'
+  | 'step'
+  | 'scare'
+  | 'tension'
+  | 'radio'
+  | 'blackout'
+  | 'breath'
+  | 'ping'
+  | 'knock'
+  | 'win'
+  | 'dead';
 export interface SmokePose {
   readonly x: number;
   readonly y?: number;
@@ -164,6 +183,8 @@ export interface WalkUiFeedbackView {
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
+  readonly micStatusText: string;
+  readonly voiceMeter: number;
   readonly remoteVoicePressure: number;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
@@ -574,8 +595,12 @@ export async function createWalkScene(
   if (localUnitFill) scene.add(localUnitFill);
   const promptEl = document.getElementById('prompt');
   const tensionFillEl = document.getElementById('tensionFill');
+  const voiceFillEl = document.getElementById('voiceFill');
+  const soundFillEl = document.getElementById('soundFill');
+  const lightFillEl = document.getElementById('lightFill');
   const commsFillEl = document.getElementById('commsFill');
   const commsMeterEl = document.getElementById('commsMeter');
+  const micStatusEl = document.getElementById('micStatus');
   const encounterFlashEl = document.getElementById('encounterFlash');
   const damageFlashEl = document.getElementById('damageFlash');
   const radioLineEl = document.getElementById('radioLine');
@@ -607,6 +632,9 @@ export async function createWalkScene(
     heardFirstMimic: false,
     heardVoiceSurvivalHint: false,
     heardScreamBait: false,
+    heardCrewShadow: false,
+    heardWetDeckWarning: false,
+    heardMicStatus: false,
   };
   let audioContext: AudioContext | null = null;
   const ensureAudio = (): AudioContext | null => {
@@ -634,7 +662,7 @@ export async function createWalkScene(
     osc.start(start);
     osc.stop(start + duration + 0.02);
   };
-  const playCue = (cue: 'pickup' | 'door' | 'power' | 'comms' | 'stun' | 'hit' | 'monster' | 'step' | 'scare' | 'tension' | 'radio' | 'blackout' | 'win' | 'dead'): void => {
+  const playCue = (cue: AudioCue): void => {
     if (cue === 'pickup') playTone(880, 0.12, 0.04, 'triangle');
     else if (cue === 'door') playTone(82, 0.18, 0.08, 'sawtooth');
     else if (cue === 'power') {
@@ -666,6 +694,17 @@ export async function createWalkScene(
     } else if (cue === 'blackout') {
       playTone(38, 0.42, 0.09, 'sawtooth');
       playTone(910, 0.05, 0.04, 'square', 0.16);
+    } else if (cue === 'breath') {
+      playTone(118, 0.52, 0.024, 'sine');
+      playTone(74, 0.7, 0.018, 'triangle', 0.06);
+    } else if (cue === 'ping') {
+      playTone(920, 0.045, 0.032, 'square');
+      playTone(1240, 0.035, 0.024, 'square', 0.075);
+      playTone(590, 0.06, 0.018, 'sine', 0.145);
+    } else if (cue === 'knock') {
+      playTone(54, 0.08, 0.075, 'sawtooth');
+      playTone(54, 0.08, 0.065, 'sawtooth', 0.18);
+      playTone(38, 0.12, 0.055, 'square', 0.34);
     } else if (cue === 'win') {
       playTone(330, 0.18, 0.045, 'triangle');
       playTone(495, 0.18, 0.045, 'triangle', 0.15);
@@ -1299,9 +1338,16 @@ export async function createWalkScene(
     const hotSound = run.soundPressure > 0.5;
     const hotLight = run.lightExposure > 0.42 || flashlightBeamHitsMonster(pos);
     const roll = rng();
-    const kind = hotLight && roll < 0.44 ? 'blackout' : hotSound && roll < 0.78 ? 'mimic' : 'scrape';
+    let kind: ScareKind = 'scrape';
+    if (hotLight && roll < 0.36) kind = 'blackout';
+    else if (run.remoteVoicePressure > 0.45 && roll < 0.7) kind = 'radioPing';
+    else if (run.inSlickZone && roll < 0.72) kind = 'wetKnock';
+    else if (run.nearbyCrew > 0 && !run.flashlightOn && roll < 0.66) kind = 'crewShadow';
+    else if (hotSound && roll < 0.82) kind = 'mimic';
+    else if (roll > 0.72) kind = 'breath';
+
     run.scarePhase = 'peak';
-    run.scareTimer = kind === 'blackout' ? 0.85 : 0.56;
+    run.scareTimer = kind === 'blackout' ? 0.85 : kind === 'crewShadow' ? 0.7 : kind === 'radioPing' ? 0.62 : 0.56;
     run.lastScareAt = run.simTime;
     run.scareDebt = clamp(run.scareDebt + 0.28, 0, 1);
     run.nextScareAt = run.simTime + 10 + rng() * 8 + run.scareDebt * 7;
@@ -1318,6 +1364,27 @@ export async function createWalkScene(
         storyFlags.heardFirstMimic = true;
         radioSay('UNKNOWN: I can sound like your friend now.');
       }
+    } else if (kind === 'crewShadow') {
+      flashStatus('crew outline moved wrong', 1.5);
+      playCue('scare');
+      if (!storyFlags.heardCrewShadow) {
+        storyFlags.heardCrewShadow = true;
+        radioSay('VESTA: Suit outlines are proximity, not identity. Confirm before you follow.');
+      }
+    } else if (kind === 'wetKnock') {
+      flashStatus('wet deck answered your step', 1.4);
+      playCue('knock');
+      if (!storyFlags.heardWetDeckWarning) {
+        storyFlags.heardWetDeckWarning = true;
+        radioSay('VESTA: Wet floors carry sound faster than footsteps. Slow down.');
+      }
+    } else if (kind === 'radioPing') {
+      flashStatus('radio ping bounced back', 1.25);
+      playCue('ping');
+      radioSay('UNKNOWN: Four voices. One hull.', 3.4);
+    } else if (kind === 'breath') {
+      flashStatus('breath inside the helmet', 1.2);
+      playCue('breath');
     } else {
       flashStatus('wet scrape behind you', 1.3);
       playCue('monster');
@@ -1358,8 +1425,26 @@ export async function createWalkScene(
     playCue('step');
   };
 
+  const voiceMeterValue = (): number => clamp(Math.max(run.localVoicePressure, run.remoteVoicePressure, run.activeVoice ? run.soundPressure * 0.7 : 0), 0, 1);
+
+  const micStatusText = (): string => {
+    if (run.voiceSource === 'remote' && run.activeVoice) return `crew ${run.activeVoice}`;
+    if (run.activeVoice) return `${run.voiceSource ?? 'voice'} ${run.activeVoice}`;
+    if (micVoice.status === 'active') return 'listening';
+    if (micVoice.status === 'requesting') return 'requesting';
+    if (micVoice.status === 'denied') return 'denied';
+    if (micVoice.status === 'error') return 'error';
+    if (micVoice.status === 'unsupported') return 'unavailable';
+    return 'idle';
+  };
+
   const updateRunMeters = (): void => {
     if (tensionFillEl) tensionFillEl.style.width = `${Math.round(run.tension)}%`;
+    const voice = voiceMeterValue();
+    if (voiceFillEl) voiceFillEl.style.width = `${Math.round(voice * 100)}%`;
+    if (soundFillEl) soundFillEl.style.width = `${Math.round(run.soundPressure * 100)}%`;
+    if (lightFillEl) lightFillEl.style.width = `${Math.round(run.lightExposure * 100)}%`;
+    if (micStatusEl) micStatusEl.textContent = micStatusText();
     const charge = commsCharge(run);
     if (commsFillEl) commsFillEl.style.width = `${Math.round(charge * 100)}%`;
     if (commsMeterEl) commsMeterEl.style.opacity = run.stage === 'holdout' || charge > 0 ? '1' : '0.35';
@@ -1742,6 +1827,8 @@ export async function createWalkScene(
     activeVoice: run.activeVoice,
     voiceSource: run.voiceSource,
     micVoiceStatus: micVoice.status,
+    micStatusText: micStatusText(),
+    voiceMeter: voiceMeterValue(),
     remoteVoicePressure: run.remoteVoicePressure,
     inSlickZone: run.inSlickZone,
     nearestRemoteVisibility: Math.max(0, ...[...remoteVisuals.values()].map((visual) => visual.visibility)),

@@ -109,9 +109,27 @@
         background: #d44d42;
         box-shadow: 0 0 12px rgba(212, 77, 66, 0.5);
       }
+      #voiceFill {
+        background: #c1d8e5;
+        box-shadow: 0 0 10px rgba(193, 216, 229, 0.45);
+      }
+      #soundFill {
+        background: #e8a33d;
+        box-shadow: 0 0 10px rgba(232, 163, 61, 0.45);
+      }
+      #lightFill {
+        background: #9fd0ff;
+        box-shadow: 0 0 10px rgba(159, 208, 255, 0.45);
+      }
       #commsMeter {
         opacity: 0.35;
         transition: opacity 140ms ease-out;
+      }
+      #micStatus {
+        color: #5b7a93;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       #encounterFlash {
         position: fixed;
@@ -274,6 +292,22 @@
       <div class="meterRow">
         <span>Tension</span>
         <span class="meterTrack"><i id="tensionFill" class="meterFill"></i></span>
+      </div>
+      <div class="meterRow">
+        <span>Voice</span>
+        <span class="meterTrack"><i id="voiceFill" class="meterFill"></i></span>
+      </div>
+      <div class="meterRow">
+        <span>Sound</span>
+        <span class="meterTrack"><i id="soundFill" class="meterFill"></i></span>
+      </div>
+      <div class="meterRow">
+        <span>Light</span>
+        <span class="meterTrack"><i id="lightFill" class="meterFill"></i></span>
+      </div>
+      <div class="meterRow">
+        <span>Mic</span>
+        <span id="micStatus">idle</span>
       </div>
       <div id="commsMeter" class="meterRow">
         <span>Comms</span>
