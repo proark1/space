@@ -2,7 +2,8 @@
  * First-person input for the walkable slice. Pointer-lock mouse-look drives yaw/pitch; WASD drives a
  * raw move vector; Space is an edge-triggered jump. Yaw/pitch are reported in radians matching the
  * three.js camera convention (yaw 0 ⇒ facing -Z) so they drop straight into PlayerController.MoveInput
- * and the camera's YXZ euler.
+ * and the camera's YXZ euler. E interacts, F toggles the flashlight, left click fires a stun pulse
+ * once pointer lock is held, Shift sprints, and Ctrl/C crouches.
  *
  * Keys are read off a global key-set that works whether or not the pointer is locked, so a headless
  * harness can prove movement by dispatching synthetic `keydown`/`keyup` (pointer-lock can't engage
@@ -20,6 +21,15 @@ export interface FirstPersonControls {
   moveVector(): { x: number; z: number };
   /** True at most once per press: was jump (Space) pressed since the last call? */
   consumeJump(): boolean;
+  /** True at most once per press: was interact (E) pressed since the last call? */
+  consumeInteract(): boolean;
+  /** True at most once per press: was flashlight toggle (F) pressed since the last call? */
+  consumeFlashlightToggle(): boolean;
+  /** True at most once per press/click: was a stun pulse requested since the last call? */
+  consumeFire(): boolean;
+  /** Held movement modifiers. */
+  readonly sprinting: boolean;
+  readonly crouching: boolean;
   /** Set the heading directly (scripted cameras / headless tests). */
   setLook(yaw: number, pitch: number): void;
   /** Override movement for scripted/headless tests; pass undefined to return to keyboard input. */
@@ -44,17 +54,27 @@ export function createFirstPersonControls(
   let pitch = 0;
   let locked = false;
   let jumpLatched = false;
+  let interactLatched = false;
+  let flashlightLatched = false;
+  let fireLatched = false;
   let moveOverride: { x: number; z: number } | undefined;
 
   const onKeyDown = (e: KeyboardEvent): void => {
     pressed.add(e.code);
     if (e.code === 'Space') jumpLatched = true;
+    if (e.code === 'KeyE') interactLatched = true;
+    if (e.code === 'KeyF') flashlightLatched = true;
   };
   const onKeyUp = (e: KeyboardEvent): void => {
     pressed.delete(e.code);
   };
   const onClick = (): void => {
     if (!locked) void canvas.requestPointerLock?.();
+  };
+  const onMouseDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return;
+    if (locked) fireLatched = true;
+    else void canvas.requestPointerLock?.();
   };
   const onLockChange = (): void => {
     locked = document.pointerLockElement === canvas;
@@ -70,6 +90,7 @@ export function createFirstPersonControls(
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   canvas.addEventListener('click', onClick);
+  canvas.addEventListener('mousedown', onMouseDown);
   document.addEventListener('pointerlockchange', onLockChange);
   document.addEventListener('mousemove', onMouseMove);
 
@@ -83,6 +104,12 @@ export function createFirstPersonControls(
     get locked() {
       return locked;
     },
+    get sprinting() {
+      return pressed.has('ShiftLeft') || pressed.has('ShiftRight');
+    },
+    get crouching() {
+      return pressed.has('ControlLeft') || pressed.has('ControlRight') || pressed.has('KeyC');
+    },
     moveVector() {
       if (moveOverride) return moveOverride;
       const z = (pressed.has('KeyW') ? 1 : 0) - (pressed.has('KeyS') ? 1 : 0);
@@ -92,6 +119,21 @@ export function createFirstPersonControls(
     consumeJump() {
       if (!jumpLatched) return false;
       jumpLatched = false;
+      return true;
+    },
+    consumeInteract() {
+      if (!interactLatched) return false;
+      interactLatched = false;
+      return true;
+    },
+    consumeFlashlightToggle() {
+      if (!flashlightLatched) return false;
+      flashlightLatched = false;
+      return true;
+    },
+    consumeFire() {
+      if (!fireLatched) return false;
+      fireLatched = false;
       return true;
     },
     setLook(nextYaw: number, nextPitch: number) {
@@ -106,6 +148,7 @@ export function createFirstPersonControls(
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       canvas.removeEventListener('click', onClick);
+      canvas.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('pointerlockchange', onLockChange);
       document.removeEventListener('mousemove', onMouseMove);
       if (locked && document.pointerLockElement === canvas) document.exitPointerLock?.();

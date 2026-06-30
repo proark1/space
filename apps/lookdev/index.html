@@ -64,6 +64,9 @@
         min-width: 150px;
         color: #5b7a93;
       }
+      #netToggle {
+        display: none;
+      }
       @media (max-width: 680px) {
         #hud {
           right: 14px;
@@ -73,9 +76,29 @@
           top: auto;
           right: 8px;
           bottom: 8px;
-          left: 8px;
           flex-wrap: wrap;
           justify-content: flex-start;
+        }
+        #netToggle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 42px;
+        }
+        #net:not(.open) {
+          gap: 0;
+          padding: 0;
+          background: transparent;
+          border-color: transparent;
+        }
+        #net:not(.open) > :not(#netToggle) {
+          display: none;
+        }
+        #net.open {
+          left: 8px;
+          padding: 6px;
+          background: rgba(3, 6, 10, 0.72);
+          border-color: rgba(91, 122, 147, 0.35);
         }
         #netStatus {
           flex-basis: 100%;

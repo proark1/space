@@ -15,6 +15,8 @@ export interface MoveInput {
   readonly yaw: number;
   /** Jump requested this step (consumed only when grounded). */
   readonly jump?: boolean;
+  /** Optional local speed scalar for sprint/crouch style movement. */
+  readonly speedMultiplier?: number;
 }
 
 export interface PlayerControllerOptions {
@@ -96,10 +98,12 @@ export class PlayerController {
     if (input.jump && this.grounded) this.vy = this.jumpSpeed;
     if (this.vy < -this.maxFallSpeed) this.vy = -this.maxFallSpeed;
 
+    const speedMultiplier = Math.max(0.2, Math.min(1.7, input.speedMultiplier ?? 1));
+
     physics.moveCharacter(char, {
-      x: dx * this.speed * dt,
+      x: dx * this.speed * speedMultiplier * dt,
       y: this.vy * dt,
-      z: dz * this.speed * dt,
+      z: dz * this.speed * speedMultiplier * dt,
     });
 
     this.grounded = char.controller.computedGrounded();

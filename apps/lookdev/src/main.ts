@@ -2,7 +2,8 @@
 // Default scene is the WALKABLE slice: first-person WASD + mouse-look through the greybox corridor,
 // the player capsule driven by the Rapier KCC and the camera/flashlight riding its ECS Transform.
 // ?scene=corridor is the look-only auto-cam variant; ?scene=chaos is the Phase B perf probe (`n`
-// dynamic Rapier boxes, 300 by default). ?gl=2 forces the WebGL2 floor; ?tier=low|mid|high|ultra.
+// dynamic Rapier boxes, 300 by default). ?thirdPerson=1 shows the local astronaut unit. ?gl=2
+// forces the WebGL2 floor; ?tier=low|mid|high|ultra.
 import { BudgetMonitor, createRenderer, createPostStack, GpuTimer, type RenderBudgetView } from '@sl/render';
 import { createGameplaySession, GameLoop, type GameplayNetDriver } from '@sl/engine';
 import { buildIceServers, Buttons, fetchTurnIceEnv, generateRoomCode, isValidRoomCode, type NetStatsView } from '@sl/netcode';
@@ -70,12 +71,13 @@ async function main(): Promise<void> {
 
   const renderer = await createRenderer({ canvas, forceBackend, tier });
   const sceneParam = params.get('scene');
+  const thirdPerson = params.get('thirdPerson') === '1' || params.get('camera') === 'third' || params.get('avatar') === '1';
   const harness: HarnessScene =
     sceneParam === 'chaos'
       ? await createChaosScene(count)
       : sceneParam === 'corridor'
         ? createCorridorScene(renderer.profile)
-        : await createWalkScene(renderer.profile, canvas);
+        : await createWalkScene(renderer.profile, canvas, { thirdPerson });
   const post = createPostStack(renderer, harness.scene, harness.camera, renderer.profile);
   configureLookdevPost(post.uniforms);
   let netDriver: GameplayNetDriver | undefined;
@@ -119,7 +121,7 @@ async function main(): Promise<void> {
     const store = useHudStore.getState();
     const hint =
       harness.label === 'walk'
-        ? ` · hp ${store.health} · bat ${store.battery} · ammo ${store.ammoMag}/${store.ammoReserve} · ${store.status ?? 'idle'} · WASD move · click to look · Space jump`
+        ? ` · hp ${store.health} · bat ${store.battery} · stun ${store.ammoMag} · ${store.status ?? 'idle'} · WASD move · E use · F light · click stun · Shift sprint · Ctrl crouch`
         : '';
     const netStats = latestNetStats
       ? ` · ${latestNetStats.selectedPair} · rtt ${latestNetStats.rttMs}ms · snap ${latestNetStats.snapshotHz}/s ${latestNetStats.snapshotBytesAvg}B · in ${latestNetStats.inputHz}/s`
@@ -207,6 +209,7 @@ async function main(): Promise<void> {
     const paramsCode = params.get('code')?.trim().toUpperCase();
     const initialCode = paramsCode && isValidRoomCode(paramsCode) ? paramsCode : generateRoomCode();
     netPanel.innerHTML = `
+      <button id="netToggle" type="button" aria-expanded="false" aria-label="Network controls">NET</button>
       <button id="netHost" type="button">Host</button>
       <input id="netCode" value="${initialCode}" maxlength="6" spellcheck="false" />
       <button id="netJoin" type="button">Join</button>
@@ -214,6 +217,10 @@ async function main(): Promise<void> {
       <span id="netStatus">offline</span>
     `;
     const codeInput = document.getElementById('netCode') as HTMLInputElement | null;
+    document.getElementById('netToggle')?.addEventListener('click', () => {
+      const open = netPanel.classList.toggle('open');
+      document.getElementById('netToggle')?.setAttribute('aria-expanded', String(open));
+    });
     document.getElementById('netHost')?.addEventListener('click', () => {
       const code = generateRoomCode();
       if (codeInput) codeInput.value = code;

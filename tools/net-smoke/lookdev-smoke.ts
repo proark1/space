@@ -191,6 +191,7 @@ function startLookdev(signalingUrl: string): ChildProcessWithoutNullStreams {
     ['-F', '@sl/lookdev', 'exec', 'vite', '--host', '127.0.0.1', '--port', String(LOOKDEV_PORT), '--strictPort'],
     {
       cwd: process.cwd(),
+      detached: true,
       env: { ...process.env, VITE_SIGNALING_URL: signalingUrl, VITE_SMOKE_NO_WATCH: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -198,6 +199,19 @@ function startLookdev(signalingUrl: string): ChildProcessWithoutNullStreams {
   child.stdout.on('data', (chunk) => process.stdout.write(`[lookdev] ${chunk}`));
   child.stderr.on('data', (chunk) => process.stderr.write(`[lookdev] ${chunk}`));
   return child;
+}
+
+function stopLookdev(child: ChildProcessWithoutNullStreams | undefined): void {
+  if (!child || child.killed) return;
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+      return;
+    } catch {
+      // Fall back to the direct child if process-group termination is unavailable.
+    }
+  }
+  child.kill('SIGTERM');
 }
 
 async function waitForNet(page: Page, mode: 'host' | 'client', expectedPeers: number, label: string): Promise<NetInfo> {
@@ -494,7 +508,7 @@ async function main(): Promise<void> {
     );
   } finally {
     await browser?.close();
-    if (vite && !vite.killed) vite.kill('SIGTERM');
+    stopLookdev(vite);
     await signaling.close();
   }
 }
