@@ -142,6 +142,12 @@ const EXTRA_AUDIO_ASSETS: AudioAsset[] = [
   { id: 'vox-captain-log', name: 'Captain Final Log', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'Captain', prompt: '[weary] Captain log, final entry. [shaky breath] We restored the comms array like they asked. [whisper] God help me, we answered it. [trembling] It has our voices now. All of them.' },
   { id: 'vox-chorus-1', name: 'CHORUS The Lure', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'The Chorus', prompt: '[hollow] I am the rescue you called for. [whisper] Restore the signal. Open the channel. [mimicking] I sound like your friend because I am your friend now.' },
   { id: 'vox-chorus-2', name: 'CHORUS Come Closer', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'The Chorus', prompt: '[wet, distorted] Come closer. [echoing] Let me speak to the others. [softly] Do not be afraid of me.' },
+  { id: 'lobby-ambience', name: 'Departure Lobby Ambience', kind: 'sound', group: 'Lobby SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Capsule departure lobby ambience: fluorescent electrical hum, distant pressure doors, quiet crew movement, and a low uneasy sub-tone.' },
+  { id: 'lobby-screen-glitch', name: 'Lobby Mission Screen Glitch', kind: 'sound', group: 'Lobby SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Short CRT mission screen glitch with a digital stutter, tiny radio burst, and a wrong reversed voice fragment.' },
+  { id: 'vox-lobby-brief', name: 'Earth Control Lobby Brief', kind: 'voice', group: 'Spoken Text', status: 'missing', use: 'game', duration: 'line', voice: 'Earth Control', prompt: '[radio, restrained] Crew, final briefing. The derelict is quiet. You will dock, recover the logs, and bring her voice back.' },
+  { id: 'sfx-terminal-glitch', name: 'Terminal Glitch Burst', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: '0:02', prompt: 'Corrupted spaceship terminal burst: CRT crackle, relay click, corrupted modem chatter, and a tiny electrical pop.' },
+  { id: 'sfx-locker-breath', name: 'Locker Breathing Loop', kind: 'sound', group: 'Interior SFX', status: 'missing', use: 'game', duration: 'loop', prompt: 'Close anxious helmet breathing inside a metal locker, muffled fabric movement, very quiet and loopable.' },
+  { id: 'sfx-transmit-scream', name: 'Transmission Scream', kind: 'sound', group: 'Creature SFX', status: 'missing', use: 'game', duration: '0:04', prompt: 'Long-distance data transmission tearing open into a human-like scream, distorted by radio static and alien throat resonance.' },
 ];
 
 const IMAGE_ASSETS: ImageAsset[] = [
@@ -168,6 +174,14 @@ const IMAGE_ASSETS: ImageAsset[] = [
   { id: 'battery-icon', name: 'Battery Pack Icon', kind: 'item', group: 'Items', status: 'missing', use: 'game', ratio: '1:1', prompt: 'Oversized salvage battery pack icon, comedic heavy shape, hazard stripes, readable at HUD size.' },
   { id: 'room-code-thumb', name: 'Room Code Panel Thumbnail', kind: 'ui', group: 'Interface', status: 'missing', use: 'shared', ratio: '16:9', prompt: 'Diegetic capsule lobby room-code display, green CRT numerals, dark metal frame.' },
   { id: 'crew-portrait-set', name: 'Crew Portrait Set', kind: 'character', group: 'Characters', status: 'missing', use: 'game', ratio: '1:1', prompt: 'Four underpaid salvage contractors in low-poly suits, readable helmet colors, funny-scary tone.' },
+  { id: 'landing-evidence-lobby', name: 'Evidence - Departure Lobby', kind: 'landing', group: 'Landing Evidence', status: 'missing', use: 'landing', ratio: '16:9', prompt: 'Cinematic evidence still for a co-op space horror game: four salvage astronauts in a departure lobby, mission screen glowing behind them, one crew member looking at a room code panel, cold cyan and amber light, funny-scary dread, no text.' },
+  { id: 'landing-evidence-command', name: 'Evidence - Command Deck', kind: 'landing', group: 'Landing Evidence', status: 'missing', use: 'landing', ratio: '16:9', prompt: 'Cinematic evidence still: derelict command deck with broken transmitter array, CRT monitors, cables, wet floor reflections, a faint eyeless silhouette in the doorway, cold green-cyan horror lighting, no text.' },
+  { id: 'landing-evidence-chorus', name: 'Evidence - The Chorus', kind: 'landing', group: 'Landing Evidence', status: 'missing', use: 'landing', ratio: '16:9', prompt: 'Cinematic close evidence still of THE CHORUS: eyeless wet-chitin creature half hidden beyond a flashlight beam, bioluminescent throat, human voice recorder on the floor, space horror, no text.' },
+  { id: 'lobby-mission-poster', name: 'Lobby Mission Poster', kind: 'scene', group: 'Lobby Wall Art', status: 'missing', use: 'game', ratio: '3:4', prompt: 'Vertical diegetic mission poster hanging in a capsule departure lobby: salvage crew approaching a silent derelict hauler, worn printed paper, retro sci-fi emergency colors, readable composition, no small text.' },
+  { id: 'lobby-crew-photo', name: 'Lobby Crew Photo', kind: 'character', group: 'Lobby Wall Art', status: 'missing', use: 'game', ratio: '4:3', prompt: 'Diegetic framed crew photograph in a space departure lobby: four salvage astronauts posing awkwardly before launch, funny-scary tone, one faceplate reflecting something behind the camera, cinematic lighting, no text.' },
+  { id: 'game-wall-do-not-answer', name: 'Ship Wall Poster - Do Not Answer', kind: 'scene', group: 'Ship Wall Art', status: 'missing', use: 'game', ratio: '3:4', prompt: 'Vertical damaged warning poster on a derelict spaceship wall, scratched and water-stained, showing a radio waveform becoming teeth, oppressive horror mood, bold simple shapes, no readable text.' },
+  { id: 'game-final-log-photo', name: 'Ship Evidence Photo - Final Log', kind: 'scene', group: 'Ship Wall Art', status: 'missing', use: 'game', ratio: '4:3', prompt: 'Diegetic recovered evidence photo pinned inside a derelict ship archive: abandoned crew helmets near a sealed transmitter door, flash reflection, grime, unsettling but readable at small size, no text.' },
+  { id: 'game-command-mural', name: 'Command Room Signal Mural', kind: 'scene', group: 'Ship Wall Art', status: 'missing', use: 'game', ratio: '16:9', prompt: 'Wide command-room wall art for a derelict spaceship: a glowing transmitter schematic infected by branching organic signal veins, CRT green and emergency red, usable as an in-world screen, no text.' },
 ];
 
 const BASE_AUDIO_IDS = new Set(AUDIO_ASSETS.map((asset) => asset.id));
@@ -182,7 +196,7 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
 };
 
 const ADMIN_TABS: Array<{ id: AdminTab; label: string; title: string; copy: string; section: string }> = [
-  { id: 'threeD', label: '3D', title: '3D Scenes', copy: 'Choose a playable scene, view, unit bench, prop pass, or monster showcase and test it directly.', section: 'Scenes' },
+  { id: 'threeD', label: '3D', title: '3D Admin', copy: 'Review playable views, inspect model fallbacks and GLBs, and tune unit or scene metadata from one place.', section: 'Scenes' },
   { id: 'audio', label: 'Audio', title: 'Audio Assets', copy: 'Generate, preview, and approve music, sound effects, and scripted voice lines.', section: 'Assets' },
   { id: 'image', label: 'Images', title: 'Image Assets', copy: 'Create, upload, resize, and approve landing, UI, scene, item, and character art.', section: 'Assets' },
 ];
@@ -201,9 +215,9 @@ const STATUS_METRICS: Array<{
 ];
 
 const SCENE_STATUS_METRICS: Array<{ label: string; tone: string; value: (stats: PanelStats) => number }> = [
-  { label: 'routes', tone: 'total', value: (stats) => stats.total },
-  { label: 'playable', tone: 'approved', value: (stats) => stats.approved },
-  { label: 'blocking', tone: 'stale', value: (stats) => stats.missing + stats.stale },
+  { label: 'items', tone: 'total', value: (stats) => stats.total },
+  { label: 'ready', tone: 'approved', value: (stats) => stats.approved },
+  { label: 'needs work', tone: 'stale', value: (stats) => stats.missing + stats.stale },
 ];
 
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
@@ -713,7 +727,7 @@ export function AdminPage() {
   const [audioMessages, setAudioMessages] = useState<Record<string, string>>({});
   const [voicePreviewsById, setVoicePreviewsById] = useState<Record<string, VoicePreview[]>>({});
   const [panelStats, setPanelStats] = useState<Partial<Record<AdminTab, PanelStats>>>({});
-  const [toast, setToast] = useState('Choose a 3D scene on the left and play it on the right.');
+  const [toast, setToast] = useState('Choose a 3D view on the left and test the live route on the right.');
 
   const setAudioMessage = useCallback((assetId: string, message: string): void => {
     setAudioMessages((messages) => {

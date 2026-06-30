@@ -110,8 +110,8 @@ const ringLights=[], clampPivots=[], approachLad=[], shipBeacons=[];
 function tex(draw){const c=document.createElement('canvas');c.width=c.height=256;draw(c.getContext('2d'));const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.colorSpace=THREE.SRGBColorSpace;return t;}
 const grime=tex(x=>{ x.fillStyle='#6b727c'; x.fillRect(0,0,256,256); for(let i=0;i<2400;i++){ const v=(Math.random()*54-27)|0; x.fillStyle=`rgba(${120+v},${122+v},${128+v},${Math.random()*0.4})`; const s=Math.random()*3+1; x.fillRect(Math.random()*256,Math.random()*256,s,s);} for(let i=0;i<16;i++){ x.strokeStyle=`rgba(24,20,16,${Math.random()*0.4})`; x.beginPath(); x.moveTo(Math.random()*256,0); x.lineTo(Math.random()*256+30,256); x.stroke(); } }); grime.repeat.set(3,3);
 const M={
-  hull: new THREE.MeshStandardMaterial({color:0x828c9a,map:grime,roughness:0.8,metalness:0.4}),
-  hull2:new THREE.MeshStandardMaterial({color:0x59626d,map:grime,roughness:0.84,metalness:0.4}),
+  hull: new THREE.MeshStandardMaterial({color:0x6a727d,map:grime,roughness:0.82,metalness:0.34}),
+  hull2:new THREE.MeshStandardMaterial({color:0x4f5964,map:grime,roughness:0.86,metalness:0.38}),
   dark: new THREE.MeshStandardMaterial({color:0x39424c,map:grime,roughness:0.85,metalness:0.45}),
   metal:new THREE.MeshStandardMaterial({color:0x868f9e,roughness:0.34,metalness:0.8}),
   frame:new THREE.MeshStandardMaterial({color:0x12161c,roughness:0.7,metalness:0.4}),
@@ -233,19 +233,21 @@ function crewSay(html,hold=2.4){ crewline.innerHTML=html; crewline.style.opacity
 enter.onclick=e=>{ e.preventDefault(); board(); };   // step into the ship — in-page, no reload
 
 // ---- audio ----
-let A=null;
+let A=null, dockBeepAt=0;
 function startAudio(){ if(A)return; try{ const mix=new Mixer(0.9); mix.resume(); const ctx=mix.ctx,B=mix.master;
   noiseBed(ctx,B,{type:'lowpass',freq:120,q:1.0,gain:0.05}); tone(ctx,B,{type:'sine',freq:40,gain:0.03});
   const prox=tone(ctx,B,{type:'sine',freq:180,gain:0});
   const servo=noiseBed(ctx,B,{type:'bandpass',freq:540,q:2.4,gain:0});
+  let bank=null;
   A={
     approach(v,t){ const k=Math.max(0,Math.min(1,v)); prox.g.gain.value=k*0.022; prox.o.frequency.value=170+k*95+Math.sin(t*5)*3; servo.g.gain.value=k*0.018; },
-    thr(){ blip(ctx,B,{type:'square',freq:120,gain:0.04,dur:0.08}); },
-    clunk(){ burst(ctx,B,{type:'lowpass',freq:160,q:1,gain:0.5,decay:0.5}); },
-    seal(){ burst(ctx,B,{type:'lowpass',freq:72,q:0.7,gain:0.52,decay:1.0}); burst(ctx,B,{type:'bandpass',freq:620,q:1.2,gain:0.18,decay:0.45}); },
+    beep(v=0){ blip(ctx,B,{type:'sine',freq:520+v*680,gain:0.045+v*0.045,dur:0.055}); },
+    thr(){ blip(ctx,B,{type:'square',freq:120,gain:0.04,dur:0.08}); if(bank)bank.play('dock-thruster',{gain:0.16}); },
+    clunk(){ burst(ctx,B,{type:'lowpass',freq:160,q:1,gain:0.5,decay:0.5}); if(bank)bank.play('dock-clamp',{gain:0.78}); },
+    seal(){ burst(ctx,B,{type:'lowpass',freq:72,q:0.7,gain:0.52,decay:1.0}); burst(ctx,B,{type:'bandpass',freq:620,q:1.2,gain:0.18,decay:0.45}); if(bank)bank.play('dock-airlock',{gain:0.9}); },
     boom(){ burst(ctx,B,{type:'lowpass',freq:90,q:0.7,gain:0.8,decay:1.4}); burst(ctx,B,{type:'highpass',freq:2500,q:0.3,gain:0.3,decay:0.7}); }
   };
-  new ClipBank(mix).load().then(b=>{ b.play('space-drone',{loop:true,gain:0.4}); });
+  new ClipBank(mix).load().then(b=>{ bank=b; b.play('space-drone',{loop:true,gain:0.4}); b.play('beacon-blip',{loop:true,gain:0.18}); });
 }catch(e){} }
 
 // ---- input ----
@@ -267,7 +269,7 @@ canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLoc
 const TOL=0.72, SPEED_MAX=1.85, THR=3.4, CLOSE=3.0, DAMP=0.8;
 let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0,jumpY=0,jumpV=0; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
 const PROMPT_DOCK='<b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow';
-function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=4.2*sgn; apprY0=2.6; apprXt=2.0*sgn; apprYt=-0.9; offX=apprX0; offY=apprY0; voffX=voffY=0; dist=120; vdist=0; apprT=0; driftP=DOCK_AUTO?0:Math.random()*9; state='approach'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
+function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=2.8*sgn; apprY0=1.0; apprXt=0.9*sgn; apprYt=0.05; offX=apprX0; offY=apprY0; voffX=voffY=0; dist=92; vdist=0; apprT=0; driftP=DOCK_AUTO?0:Math.random()*9; state='approach'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
   softT=0; stationQueued=false; lastCrewHint=''; clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ; }); crewSay(crewLineFor(0,'visual on the collar. autopilot has us.'),2.8);
   transferCrew.forEach((c,i)=>{ c.root.visible=false; c.root.position.set(c.member.slot*0.62,0,-4.4-i*1.35); });
   frame.visible=true; ship.visible=false; world.visible=true; shipAmb.intensity=0; flash.intensity=0; camera.position.set(0,0,0); camera.rotation.set(0,0,0);
@@ -284,18 +286,26 @@ function setAssist(kind,text){
 }
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw,hidden:false});
-  if(A)A.approach(1-Math.min(1,Math.max(0,dist||0)/120),t);
+  if(A){
+    const prox=1-Math.min(1,Math.max(0,dist||0)/92);
+    A.approach(prox,t);
+    if((state==='approach'||state==='align')&&performance.now()>dockBeepAt){
+      const interval=THREE.MathUtils.lerp(720,115,prox);
+      dockBeepAt=performance.now()+interval;
+      A.beep(prox);
+    }
+  }
   if(state==='approach'){
     // autopilot cruises in and lines the port up — reads as "arriving, heading for the dock" before manual control
-    apprT+=dt; const k=Math.min(1,apprT/4.5), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
-    const pd=dist; dist=120+(38-120)*e; offX=apprX0+(apprXt-apprX0)*e; offY=apprY0+(apprYt-apprY0)*e;
+    apprT+=dt; const k=Math.min(1,apprT/3.8), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    const pd=dist; dist=92+(26-92)*e; offX=apprX0+(apprXt-apprX0)*e; offY=apprY0+(apprYt-apprY0)*e;
     vdist=Math.max(0,(pd-dist)/Math.max(dt,1e-4));
     sd.textContent=dist.toFixed(0)+'m'; sa.textContent='AUTO'; sa.className=''; ss.textContent='AUTO'; ss.className='';
     setAssist('warn','AUTOPILOT APPROACH · MANUAL CONTROL IMMINENT');
     ringLights.forEach((m,i)=>{ m.emissive.setHex(0xff5030); m.emissiveIntensity=1+1.6*Math.max(0,Math.sin(t*4-i*0.4)); });
     tgt.material.emissive.setHex(0xffcf50);
     const grab=(DOCK_AUTO&&apprT>0.9)||(apprT>0.7 && (keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight));
-    if(k>=1||grab){ if(k>=1){ dist=38; offX=apprXt; offY=apprYt; } if(DOCK_AUTO){ dist=10; offX=0.18; offY=-0.12; } state='align'; voffX=voffY=0; vdist=0; crewSay(crewLineFor(1,'manual control. keep the green dot inside the collar.'),3.2);
+    if(k>=1||grab){ if(k>=1){ dist=26; offX=apprXt; offY=apprYt; } if(DOCK_AUTO){ dist=8; offX=0.18; offY=-0.08; } state='align'; voffX=voffY=0; vdist=0; crewSay(crewLineFor(1,'manual control. keep the green dot inside the collar.'),3.2);
       document.getElementById('prompt').innerHTML=PROMPT_DOCK; }
   } else if(state==='align'){
     const dfx=Math.sin(t*0.7+driftP)*0.9+Math.sin(t*1.7)*0.4, dfy=Math.cos(t*0.5+driftP)*0.8;   // wandering drift
@@ -345,12 +355,12 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     debGeo.attributes.position.needsUpdate=true; debris.material.opacity=Math.max(0,1-boomT*0.5);
     renderer.toneMappingExposure=BASE_EXP*(1+Math.max(0,1.4-boomT*3));
   } else if(state==='soft'){ setAssist('good','SOFT CAPTURE · HARD DOCK IN PROGRESS'); softT+=dt; softPulse(t,Math.min(1,softT/1.45));
-    if(softT>=1.45){ state='docked'; if(A){ A.clunk(); A.seal(); } setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; MULTI.broadcastTask('objective',{text:'hard dock confirmed. pressure equalizing.'}); crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(FLOW) setTimeout(board,2100); } }
+    if(softT>=1.45){ state='docked'; if(A){ A.clunk(); A.seal(); } setAssist('good','HARD DOCK · PRESSURE EQUALIZING'); rtxt.textContent='✓ HARD DOCK'; rtxt.className='good'; enter.style.display='inline-block'; MULTI.broadcastTask('objective',{text:'hard dock confirmed. pressure equalizing.'}); crewSay(crewLineFor(0,'hard dock confirmed. pressure equalizing.'),3.0); if(DOCK_AUTO) setTimeout(board,2100); } }
   else if(state==='docked'){ setAssist('good','HARD DOCK · READY TO BOARD'); collarPulse(t); }
   else if(state==='board'){ setAssist('good','TRANSFER TUNNEL · CREW MOVING'); collarPulse(t); boardT+=dt; const k=Math.min(1,boardT/2.4), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
     camera.position.set(0,1.6*e,-1-e*4.4); flash.intensity=120*e; flash.position.copy(camera.position); flashT.position.set(0,1.4,camera.position.z-3);
     if(k>=1){ state='inside'; world.visible=false; pos.set(0,0,camera.position.z); document.getElementById('prompt').innerHTML='<b>WASD</b> walk · <b>mouse</b> look · <b>SPACE</b> jump · reach the bulkhead · <b>E</b> enter station'; if(!DOCK_AUTO&&canvas.requestPointerLock) canvas.requestPointerLock();
-      if(FLOW&&!stationQueued){ stationQueued=true; crewSay(crewLineFor(1,'inner hatch is cycling. station side in three...'),2.2); setTimeout(()=>goNext('/game?flow=1'),1900); } } }
+      if(DOCK_AUTO&&!stationQueued){ stationQueued=true; crewSay(crewLineFor(1,'inner hatch is cycling. station side in three...'),2.2); setTimeout(()=>goNext('/game?flow=1'),1900); } } }
   else if(state==='inside'){
     const s=Math.sin(yaw),cc=Math.cos(yaw),fx=-s,fz=-cc,rxx=cc,rzz=-s; let mx=0,mz=0;
     if(keys.KeyW||keys.ArrowUp){mx+=fx;mz+=fz;} if(keys.KeyS||keys.ArrowDown){mx-=fx;mz-=fz;}

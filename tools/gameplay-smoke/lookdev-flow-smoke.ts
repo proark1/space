@@ -107,7 +107,7 @@ function startLookdev(): ChildProcessWithoutNullStreams {
 
 function stopLookdev(child: ChildProcessWithoutNullStreams | undefined): void {
   if (!child || child.killed) return;
-  if (child.pid) {
+  if (child.pid && process.platform !== 'win32') {
     try {
       process.kill(-child.pid, 'SIGTERM');
       return;
@@ -328,8 +328,17 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
   }, null, { timeout: TIMEOUT_MS });
   const liveCrew = await client.evaluate(() => (window as any).__chorus.state.liveCrew);
   assert(liveCrew.some((member: { remote: boolean; name: string }) => member.remote && member.name === 'HOST'), `expected HOST to replace an NPC slot, got ${JSON.stringify(liveCrew)}`);
-  await host.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -52.7));
-  await host.evaluate(() => (window as any).__chorus.smoke.interact());
+  await host.evaluate(() => {
+    const api = (window as any).__chorus;
+    api.camera.position.set(-1.35, 1.6, -16);
+    api.smoke.interact();
+    api.camera.position.set(-1.25, 1.6, -33);
+    api.smoke.interact();
+    api.camera.position.set(6.22, 1.6, -61.1);
+    api.smoke.interact();
+    api.camera.position.set(0, 1.6, -76.7);
+    api.smoke.interact();
+  });
   try {
     await client.waitForFunction(() => (window as any).__chorus.state.restored === true, null, { timeout: TIMEOUT_MS });
   } catch (err) {
@@ -340,7 +349,7 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
     throw new Error(`timed out waiting for restored sync: ${JSON.stringify(context)}\n${String(err)}`);
   }
   await client.waitForFunction(() => (window as any).__chorus.state.needValve === true, null, { timeout: TIMEOUT_MS });
-  await client.evaluate(() => (window as any).__chorus.camera.position.set(1.28, 1.6, -36.5));
+  await client.evaluate(() => (window as any).__chorus.camera.position.set(5.72, 1.6, -35.9));
   await client.evaluate(() => (window as any).__chorus.smoke.interact());
   await host.waitForFunction(() => (window as any).__chorus.state.valveFixing === true || (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
   await client.waitForFunction(() => (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
@@ -357,13 +366,19 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
   await page.waitForFunction(() => Boolean((window as any).__chorus?.camera), null, { timeout: TIMEOUT_MS });
   await page.waitForTimeout(1_500);
 
-  await page.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -52.7));
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(-1.35, 1.6, -16));
+  await page.keyboard.press('KeyE');
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(-1.25, 1.6, -33));
+  await page.keyboard.press('KeyE');
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(6.22, 1.6, -61.1));
+  await page.keyboard.press('KeyE');
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -76.7));
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(6_800);
   const afterLogs = await page.locator('#obj').textContent();
   assert(afterLogs?.includes('COOLANT'), `expected coolant objective after logs, got ${afterLogs}`);
 
-  await page.evaluate(() => (window as any).__chorus.camera.position.set(1.28, 1.6, -36.5));
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(5.72, 1.6, -35.9));
   await page.waitForTimeout(200);
   const valvePrompt = await page.locator('#prompt').textContent();
   assert(valvePrompt === '[E] SEAL COOLANT LEAK', `expected coolant prompt, got ${valvePrompt}`);
@@ -372,7 +387,7 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
   const afterValve = await page.locator('#obj').textContent();
   assert(afterValve?.includes('BREAKER'), `expected breaker objective after valve, got ${afterValve}`);
 
-  await page.evaluate(() => (window as any).__chorus.camera.position.set(-1.35, 1.6, -19));
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(6.32, 1.6, -12.8));
   await page.waitForTimeout(200);
   const breakerPrompt = await page.locator('#prompt').textContent();
   assert(breakerPrompt === '[E] REROUTE POWER', `expected breaker prompt, got ${breakerPrompt}`);
@@ -381,7 +396,7 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
   const afterBreaker = await page.locator('#obj').textContent();
   assert(afterBreaker?.includes('COMMAND'), `expected command return objective after breaker, got ${afterBreaker}`);
 
-  await page.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -52.7));
+  await page.evaluate(() => (window as any).__chorus.camera.position.set(0, 1.6, -76.7));
   await page.waitForTimeout(400);
   const sendPrompt = await page.locator('#prompt').textContent();
   assert(sendPrompt === '[E] SEND MESSAGE TO EARTH', `expected send prompt, got ${sendPrompt}`);

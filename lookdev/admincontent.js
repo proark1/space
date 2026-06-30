@@ -36,6 +36,56 @@ export function applyMaterialTuning(materials, settings, fallbackBase, fallbackE
   }
 }
 
+let manifestPromise = null;
+
+export function assetUrl(file) {
+  if (typeof file !== 'string' || !file) return '';
+  return /^(https?:|data:|blob:|\/)/.test(file) ? file : '/' + file;
+}
+
+export async function loadAssetManifest() {
+  if (!manifestPromise) {
+    manifestPromise = fetch('/api/manifest', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : { items: [] })
+      .then((payload) => {
+        const items = Array.isArray(payload && payload.items) ? payload.items : [];
+        const newest = new Map();
+        for (const item of items) {
+          if (!item || typeof item.id !== 'string' || typeof item.file !== 'string') continue;
+          const at = typeof item.createdAt === 'string' ? item.createdAt : '';
+          const current = newest.get(item.id);
+          if (!current || at >= current.createdAt) newest.set(item.id, { file: assetUrl(item.file), createdAt: at });
+        }
+        return newest;
+      })
+      .catch(() => new Map());
+  }
+  return manifestPromise;
+}
+
+export async function manifestAssetUrl(id) {
+  const manifest = await loadAssetManifest();
+  return manifest.get(id)?.file || '';
+}
+
+export async function loadManifestTexture(THREE, id, options = {}) {
+  const url = await manifestAssetUrl(id);
+  if (!url) return null;
+  try {
+    const texture = await new THREE.TextureLoader().loadAsync(url);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = options.anisotropy || 8;
+    if (options.repeat) {
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(options.repeat[0], options.repeat[1]);
+    }
+    return texture;
+  } catch (error) {
+    console.warn('[sl/admincontent] Could not load manifest texture', id, url, error);
+    return null;
+  }
+}
+
 export async function attachAdminModel(THREE, GLTFLoader, parent, settings, options = {}) {
   const url = settings && typeof settings.modelUrl === 'string' ? settings.modelUrl.trim() : '';
   if (!url || !parent) return null;

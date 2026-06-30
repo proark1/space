@@ -35,11 +35,23 @@ interface Feature {
   copy: string;
 }
 
+interface EvidenceCard {
+  id: string;
+  label: string;
+  title: string;
+}
+
 const FEATURES: Feature[] = [
   { id: 'landing-system-sound', title: 'Sound Is The Monster', copy: 'Talk to survive, whisper to hide, scream to become the dinner bell.' },
   { id: 'landing-system-light', title: 'Light Is Bait', copy: 'Your flashlight saves your crew until it paints a runway for The Chorus.' },
   { id: 'landing-system-coop', title: 'Co-op Goes Sideways', copy: 'Every plan becomes slapstick when doors jam, batteries roll, and friends panic.' },
   { id: 'landing-system-signal', title: 'One Signal Lies', copy: 'The distress call never stopped. That does not mean anyone human is alive.' },
+];
+
+const EVIDENCE_CARDS: EvidenceCard[] = [
+  { id: 'landing-evidence-lobby', label: 'pre-launch', title: 'The room code is not the only thing being shared.' },
+  { id: 'landing-evidence-command', label: 'command deck', title: 'The last crew restored the transmitter once.' },
+  { id: 'landing-evidence-chorus', label: 'the chorus', title: 'It keeps the voices it learns.' },
 ];
 
 const TICKER_ITEMS = [
@@ -57,8 +69,8 @@ function resolvePlayUrl(): string {
   const override = import.meta.env.VITE_LOOKDEV_DEMO_URL;
   if (typeof override === 'string' && override.length > 0) return override;
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
-  if (host === 'localhost' || host === '127.0.0.1') return 'http://127.0.0.1:8173/lobby?flow=1&auto=1';
-  return '/lobby?flow=1&auto=1';
+  if (host === 'localhost' || host === '127.0.0.1') return 'http://127.0.0.1:8173/lobby?flow=1';
+  return '/lobby?flow=1';
 }
 const PLAY_URL = resolvePlayUrl();
 
@@ -204,6 +216,21 @@ export function LandingPage() {
       <section className="panic-strip" aria-label="Ship status ticker">
         <div className="panic-strip__track">
           {[...TICKER_ITEMS, ...TICKER_ITEMS].map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}
+        </div>
+      </section>
+
+      <section className="section section--evidence" aria-label="Recovered evidence">
+        <div className="evidence-strip">
+          {EVIDENCE_CARDS.map((card) => (
+            <article
+              className="evidence-card"
+              key={card.id}
+              style={coverStyle(art[card.id], 'linear-gradient(180deg, rgba(5, 6, 7, 0.14), rgba(5, 6, 7, 0.88))')}
+            >
+              <span>{card.label}</span>
+              <strong>{card.title}</strong>
+            </article>
+          ))}
         </div>
       </section>
 

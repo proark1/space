@@ -57,10 +57,11 @@ import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
-import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
+import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene, loadManifestTexture } from './admincontent.js';
+import { Mixer, tone, noiseBed, burst, blip, ClipBank } from './audio.js';
 
 const QUERY=new URLSearchParams(location.search);
-const AUTO_START = QUERY.has('auto');
+const AUTO_START = QUERY.get('auto') === '1';
 const ADMIN_UNIT = QUERY.get('adminUnit') || '';
 const CREW_SLOTS = buildCrewSlots({search: location.search});
 const PLAYER_CREW = CREW_SLOTS[0];
@@ -141,6 +142,30 @@ const M={
   glass:new THREE.MeshStandardMaterial({color:0x0a1622,transparent:true,opacity:0.12,roughness:0.1,metalness:0.5,side:THREE.DoubleSide,depthWrite:false}),
   crate:new THREE.MeshStandardMaterial({color:0x4a505a,roughness:0.7,metalness:0.3}),
 };
+function posterFallback(label,color='#9fd0ff'){
+  const c=document.createElement('canvas'); c.width=768; c.height=1024; const x=c.getContext('2d');
+  x.fillStyle='#060b10'; x.fillRect(0,0,c.width,c.height);
+  x.strokeStyle=color; x.lineWidth=18; x.strokeRect(38,38,c.width-76,c.height-76);
+  x.fillStyle='rgba(255,255,255,.05)'; for(let i=0;i<42;i++){ x.fillRect(Math.random()*c.width,Math.random()*c.height,Math.random()*120+20,2); }
+  x.fillStyle=color; x.font='bold 74px monospace'; x.textAlign='center'; x.textBaseline='middle';
+  label.split(' ').forEach((word,i,arr)=>x.fillText(word,c.width/2,c.height/2+(i-(arr.length-1)/2)*88));
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=8; return t;
+}
+function framePoster(w,h,x,y,z,ry){
+  const side=Math.abs(Math.sin(ry))>0.7;
+  const fx=side ? x+(x<0?-0.08:0.08) : x;
+  const fz=side ? z : z+(z<0?-0.08:0.08);
+  return side ? part(BOX(0.1,h+0.18,w+0.18),M.trim,scene,fx,y,fz) : part(BOX(w+0.18,h+0.18,0.1),M.trim,scene,fx,y,fz);
+}
+function generatedWallArt(id,label,w,h,x,y,z,ry=0,color='#9fd0ff',glow=0.44){
+  framePoster(w,h,x,y,z,ry);
+  const fallback=posterFallback(label,color);
+  const mat=new THREE.MeshStandardMaterial({map:fallback,emissive:0xffffff,emissiveMap:fallback,emissiveIntensity:glow,color:0x000000,roughness:1});
+  const plane=new THREE.Mesh(new THREE.PlaneGeometry(w,h),mat);
+  plane.position.set(x,y,z); plane.rotation.y=ry; scene.add(plane);
+  loadManifestTexture(THREE,id).then(tex=>{ if(!tex)return; mat.map=tex; mat.emissiveMap=tex; mat.needsUpdate=true; });
+  return plane;
+}
 part(BOX(16,0.3,16),M.floor,scene,0,-0.15,0);
 for(let x=-7;x<=7;x+=2) part(BOX(0.06,0.04,16),M.trim,scene,x,0.02,0);
 part(BOX(16,0.3,16),M.wall2,scene,0,4.5,0);                              // ceiling
@@ -238,6 +263,10 @@ placard.position.set(HPX,0.68,-7.73); scene.add(placard);
 const heroLight=new THREE.SpotLight(0xffd9a0,3.2,9,0.66,0.5,1.2); heroLight.position.set(HPX,4.3,HPZ+2.2); heroLight.target.position.set(HPX,HPY,HPZ); scene.add(heroLight); scene.add(heroLight.target);
 const heroGlow=new THREE.PointLight(0xffcaa0,0.5,5,2); heroGlow.position.set(HPX,HPY+0.3,HPZ+1.1); scene.add(heroGlow);
 const placLight=new THREE.PointLight(0xffe6b8,0.95,3.4,2); placLight.position.set(HPX,1.25,-6.95); scene.add(placLight);   // light the nameplate so it reads
+
+generatedWallArt('lobby-mission-poster','MISSION',1.05,1.42,-7.78,2.48,-2.7,Math.PI/2,'#E8A33D',0.38);
+generatedWallArt('lobby-crew-photo','CREW PHOTO',1.34,0.96,-7.78,1.35,3.05,Math.PI/2,'#9fd0ff',0.5);
+generatedWallArt('room-code-thumb','ROOM CODE',1.58,0.88,7.58,1.22,5.35,-Math.PI/2,'#7dffb0',0.72);
 
 // YOU (controllable) + up to 3 AI crew waiting
 const player=makeAstronaut({accent:PLAYER_CREW.accent,tone:PLAYER_CREW.tone}); scene.add(player);
@@ -399,7 +428,7 @@ function updateRoomStatus(){
     startBtn.textContent=st.isHost?(allHumansReady?'▶ START LAUNCH SEQUENCE':'WAITING FOR CREW READY'):(localReady?'✓ READY · WAITING FOR HOST':'READY UP');
     startBtn.disabled=phase!=='wait'||(st.isHost&&!allHumansReady);
   } else {
-    statusEl.textContent='● 4 CREW READY · NPC CREW STANDING BY';
+    statusEl.textContent='● YOU ARE HOST · NPC CREW STANDING BY · START WHEN READY';
     startBtn.textContent='▶ START LAUNCH SEQUENCE';
     startBtn.disabled=phase!=='wait';
   }
@@ -426,11 +455,32 @@ startBtn.onclick=()=>startSeq();
 if(AUTO_START) setTimeout(startSeq,900);
 updateRoomStatus();
 
+let lobbyAudio=null;
+function startLobbyAudio(){
+  if(lobbyAudio)return;
+  try{
+    const mix=new Mixer(0.72); mix.resume(); const ctx=mix.ctx, B=mix.master;
+    tone(ctx,B,{type:'sine',freq:58,gain:0.026});
+    tone(ctx,B,{type:'triangle',freq:116,gain:0.008});
+    noiseBed(ctx,B,{type:'bandpass',freq:920,q:0.6,gain:0.014});
+    lobbyAudio={
+      glitch(){ if(Math.random()<0.55) blip(ctx,B,{type:'square',freq:360+Math.random()*260,gain:0.045,dur:0.08}); burst(ctx,B,{type:'bandpass',freq:1200+Math.random()*900,q:0.8,gain:0.04,decay:0.16}); }
+    };
+    new ClipBank(mix).load().then(b=>{
+      b.play('lobby-ambience',{loop:true,gain:0.36});
+      b.play('lobby-screen-glitch',{gain:0.45});
+      setTimeout(()=>b.play('vox-lobby-brief',{gain:0.92}),900);
+    });
+  }catch(e){}
+}
+addEventListener('pointerdown',startLobbyAudio);
+addEventListener('keydown',startLobbyAudio);
+
 const clock=new THREE.Clock(); const _f=new THREE.Vector3();
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   for(const L of lights) L.m.material.emissiveIntensity=L.b*(0.88+0.12*Math.sin(t*4+L.s));
   earth.rotation.y+=dt*0.01;
-  briefT-=dt; if(briefT<=0){ briefBlink=!briefBlink; drawBig(briefBlink); briefT=0.55; }   // briefing cursor blink
+  briefT-=dt; if(briefT<=0){ briefBlink=!briefBlink; drawBig(briefBlink); if(lobbyAudio&&Math.random()<0.18)lobbyAudio.glitch(); briefT=0.55; }   // briefing cursor blink
   // --- move the player ---
   const s=Math.sin(yaw), c=Math.cos(yaw); const fx=-s, fz=-c, rx=c, rz=-s;   // forward & right on the floor
   let mx=0,mz=0;

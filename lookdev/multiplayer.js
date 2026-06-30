@@ -155,7 +155,10 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
     get selfId() { return selfId; },
     get hostId() { return hostId; },
     isHost() { return Boolean(code && selfId && hostId === selfId) || !code; },
-    state() { return { status, code, selfId, hostId, isHost: Boolean(selfId && hostId === selfId), name, peers: peers.size, scene }; },
+    state() {
+      const host = Boolean(code && selfId && hostId === selfId) || !code;
+      return { status, code, selfId, hostId: hostId || (host ? selfId : ''), isHost: host, name, peers: peers.size, scene };
+    },
     peers: snapshot,
     remoteNames() { return snapshot().map(peer => peer.name); },
     remotePose(id) { return peers.get(id)?.pose || null; },

@@ -220,7 +220,7 @@ const clock=new THREE.Clock();
 const _c=new THREE.Color();
 // event-driven launch: ignition fires at `launchAt`; before it she holds on the pad and counts down.
 const FLOW_FAST=FLOW && new URLSearchParams(location.search).get('fast')==='1';
-const IGN=0.6, CLIMB=FLOW_FAST?4.2:14, FLIGHT=FLOW_FAST?5.4:15.5, HOLD0=FLOW_FAST?0.6:7.0, RELOOP=7.0;     // seconds
+const IGN=0.6, CLIMB=FLOW_FAST?4.2:12, FLIGHT=FLOW_FAST?5.4:13.5, HOLD0=FLOW_FAST?0.6:7.0, RELOOP=7.0;     // seconds
 let T=0, launchAt=null, holdDur=HOLD0, prevSince=-1, lightning=0, lastBeep=99, voCountdown=false;
 function armLaunch(d){ launchAt=T+d; holdDur=d; lastBeep=99; }   // (re)arm — ignition in d seconds
 function setPhase(s){ if(phaseEl.textContent!==s) phaseEl.textContent=s; }
