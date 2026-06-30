@@ -418,6 +418,40 @@ function unitPreviewUrl(unit: UnitItem | undefined): string {
   return `/units?adminUnit=${adminUnit}`;
 }
 
+interface PlayableScene {
+  id: string;
+  name: string;
+  group: string;
+  path: string;
+  description: string;
+}
+
+const PLAYABLE_SCENES: PlayableScene[] = [
+  { id: 'full-loop', name: 'Full loop', group: 'Run', path: '/lobby?flow=1&auto=1', description: 'Lobby into launch, docking, and ship entry.' },
+  { id: 'lobby', name: 'Lobby', group: 'Run', path: '/lobby', description: 'Departure room, crew lineup, props, and mission start.' },
+  { id: 'launch', name: 'Capsule', group: 'Run', path: '/launch', description: 'Capsule launch and transit sequence.' },
+  { id: 'pad', name: 'Launch pad', group: 'Run', path: '/pad', description: 'Exterior rocket, pad lighting, storm, and liftoff framing.' },
+  { id: 'dock', name: 'Docking', group: 'Run', path: '/dock', description: 'Manual docking approach and collar feedback.' },
+  { id: 'ship', name: 'Space ship', group: 'Scenes', path: '/exterior', description: 'Derelict exterior read, silhouette, and lighting.' },
+  { id: 'crew', name: 'Crew', group: 'Views', path: '/units', description: 'Crew bench and readable player silhouettes.' },
+  { id: 'props', name: 'Props', group: 'Views', path: '/lobby?adminUnit=unit-crate', description: 'Prop pass inside the lobby context.' },
+  { id: 'monsters', name: 'Monsters', group: 'Views', path: '/game?showcase=monster&adminUnit=unit-chorus', description: 'THE CHORUS and enemy showcase in playable context.' },
+];
+
+function playableSceneUrl(path: string): string {
+  const override = import.meta.env.VITE_LOOKDEV_DEMO_URL;
+  if (override) {
+    try {
+      return new URL(path, override).toString();
+    } catch {
+      // Fall back to the standard local/prod route below.
+    }
+  }
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (host === 'localhost' || host === '127.0.0.1') return `http://127.0.0.1:8173${path}`;
+  return path;
+}
+
 function LivePreviewFrame(props: {
   src: string;
   title: string;
@@ -597,80 +631,93 @@ function UnitOverviewCard({ unit, onOpen }: { unit: UnitItem; onOpen?: (tab: Mod
   );
 }
 
-export function Admin3DOverviewPanel(props: Admin3DProps & { onOpenTab?: (tab: ModelAdminTab) => void }) {
-  const { onStats, onToast, onOpenTab, onDirtyChange } = props;
-  const [units, setUnits] = useState<UnitItem[]>([]);
-  const [spaceship, setSpaceship] = useState<SceneSettings>(() => SCENE_DEFAULTS.spaceship);
-  const [lobby, setLobby] = useState<SceneSettings>(() => SCENE_DEFAULTS.lobby);
-  const [busy, setBusy] = useState(false);
-
-  const refresh = useCallback(async (): Promise<void> => {
-    setBusy(true);
-    try {
-      const [unitsResponse, spaceshipResponse, lobbyResponse] = await Promise.all([
-        fetch('/api/units', { cache: 'no-store' }),
-        fetch('/api/admin/scene/spaceship', { cache: 'no-store' }),
-        fetch('/api/admin/scene/lobby', { cache: 'no-store' }),
-      ]);
-      const [unitsPayload, spaceshipPayload, lobbyPayload]: unknown[] = await Promise.all([
-        unitsResponse.json(),
-        spaceshipResponse.json(),
-        lobbyResponse.json(),
-      ]);
-      const merged = mergeUnits(isRecord(unitsPayload) && Array.isArray(unitsPayload.items) ? unitsPayload.items : []);
-      const shipScene = normalizeScene('spaceship', isRecord(spaceshipPayload) ? spaceshipPayload.scene : undefined);
-      const lobbyScene = normalizeScene('lobby', isRecord(lobbyPayload) ? lobbyPayload.scene : undefined);
-      setUnits(merged);
-      setSpaceship(shipScene);
-      setLobby(lobbyScene);
-      const unitStats = previewStats(merged);
-      onStats({
-        total: unitStats.total + 2,
-        approved: unitStats.approved + (shipScene.updatedAt ? 1 : 0) + (lobbyScene.updatedAt ? 1 : 0),
-        generated: unitStats.generated + (shipScene.modelUrl ? 1 : 0) + (lobbyScene.modelUrl ? 1 : 0),
-        missing: unitStats.missing,
-        stale: unitStats.stale,
-      });
-    } catch (error) {
-      onToast(`3D overview unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
-      onStats({ total: 0, approved: 0, generated: 0, missing: 0, stale: 1 });
-    } finally {
-      setBusy(false);
-    }
-  }, [onStats, onToast]);
+export function Admin3DOverviewPanel(props: Admin3DProps) {
+  const { onStats, onDirtyChange } = props;
+  const [selectedSceneId, setSelectedSceneId] = useState(PLAYABLE_SCENES[0]?.id ?? '');
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const sceneGroups = useMemo(() => {
+    const map = new Map<string, PlayableScene[]>();
+    for (const scene of PLAYABLE_SCENES) map.set(scene.group, [...(map.get(scene.group) ?? []), scene]);
+    return [...map.entries()];
+  }, []);
+  const selectedScene = PLAYABLE_SCENES.find((scene) => scene.id === selectedSceneId) ?? PLAYABLE_SCENES[0];
+  const selectedUrl = selectedScene ? playableSceneUrl(selectedScene.path) : '/';
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    onStats({ total: PLAYABLE_SCENES.length, approved: PLAYABLE_SCENES.length, generated: 0, missing: 0, stale: 0 });
+  }, [onStats]);
 
   useEffect(() => {
     onDirtyChange?.(false);
   }, [onDirtyChange]);
 
-  const missingUnits = units.filter((unit) => !readyUnit(unit));
-
   return (
-    <section className="model-admin model-overview">
-      <div className="model-overview__head">
-        <div>
-          <p className="eyebrow">3D overview</p>
-          <h2>Models and scenes</h2>
+    <section className="model-admin model-scene-browser">
+      <aside className="model-scene-menu" aria-label="Playable scenes">
+        <div className="model-scene-menu__head">
+          <p className="eyebrow">3D</p>
+          <h2>Scene menu</h2>
+          <p>Pick a scene or view. The preview on the right is the actual playable route.</p>
         </div>
-        <button onClick={() => void refresh()} disabled={busy}>{busy ? 'Refreshing...' : 'Refresh'}</button>
-      </div>
 
-      <div className="model-overview__summary">
-        <span><strong>{units.length}</strong> units</span>
-        <span><strong>{units.length - missingUnits.length}</strong> unit GLBs</span>
-        <span><strong>{missingUnits.length}</strong> missing GLBs</span>
-        <span><strong>{[spaceship, lobby].filter((scene) => scene.updatedAt).length}</strong> saved scenes</span>
-      </div>
+        <div className="model-scene-menu__stats">
+          <span><strong>{PLAYABLE_SCENES.length}</strong> playable routes</span>
+        </div>
 
-      <div className="model-overview__grid">
-        <SceneOverviewCard scene={spaceship} liveUrl="/exterior" usedIn="/exterior" onOpen={onOpenTab} />
-        <SceneOverviewCard scene={lobby} liveUrl="/lobby" usedIn="/lobby and crate props" onOpen={onOpenTab} />
-        {units.map((unit) => <UnitOverviewCard key={unit.id} unit={unit} onOpen={onOpenTab} />)}
-      </div>
+        <div className="model-scene-nav">
+          {sceneGroups.map(([group, scenes]) => (
+            <div className="model-scene-nav__group" key={group}>
+              <span>{group}</span>
+              {scenes.map((scene) => (
+                <button
+                  className={scene.id === selectedScene?.id ? 'active' : ''}
+                  key={scene.id}
+                  onClick={() => {
+                    setSelectedSceneId(scene.id);
+                    setPreviewNonce((current) => current + 1);
+                  }}
+                  type="button"
+                >
+                  <strong>{scene.name}</strong>
+                  <small>{scene.description}</small>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      {selectedScene ? (
+        <section className="model-scene-player">
+          <div className="model-scene-player__head">
+            <div>
+              <p className="eyebrow">{selectedScene.group}</p>
+              <h2>{selectedScene.name}</h2>
+              <p>{selectedScene.description}</p>
+            </div>
+            <div className="model-editor__actions">
+              <button onClick={() => setPreviewNonce((current) => current + 1)}>Reload</button>
+              <a href={selectedUrl} target="_blank" rel="noreferrer">Open full</a>
+            </div>
+          </div>
+
+          <div className="model-scene-player__meta">
+            <span>Playable route</span>
+            <span>{selectedScene.path}</span>
+          </div>
+
+          <div className="model-scene-frame">
+            <iframe
+              key={`${selectedScene.id}-${previewNonce}`}
+              title={`${selectedScene.name} playable preview`}
+              src={selectedUrl}
+              allow="autoplay; fullscreen"
+            />
+          </div>
+        </section>
+      ) : (
+        <section className="admin-empty">No 3D scenes are configured.</section>
+      )}
     </section>
   );
 }

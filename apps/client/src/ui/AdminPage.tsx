@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import heroImage from '../assets/signal-lost-hero.png';
-import { Admin3DOverviewPanel, SceneAdminPanel, UnitsAdminPanel, type ModelAdminTab, type PanelStats } from './Admin3D';
+import { Admin3DOverviewPanel, type PanelStats } from './Admin3D';
 
-type AdminTab = 'audio' | 'image' | 'overview' | 'units' | 'spaceship' | 'lobby';
+type AdminTab = 'audio' | 'image' | 'threeD';
 type AssetStatus = 'approved' | 'generated' | 'missing' | 'stale';
 type StatusFilter = AssetStatus | 'all';
 type AssetUse = 'landing' | 'game' | 'shared' | 'admin';
@@ -182,12 +182,9 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
 };
 
 const ADMIN_TABS: Array<{ id: AdminTab; label: string; title: string; copy: string; section: string }> = [
-  { id: 'overview', label: 'Overview', title: 'Production Overview', copy: 'Scan the model pipeline, scene readiness, and the next areas that need attention.', section: 'Command' },
+  { id: 'threeD', label: '3D', title: '3D Scenes', copy: 'Choose a playable scene, view, unit bench, prop pass, or monster showcase and test it directly.', section: 'Scenes' },
   { id: 'audio', label: 'Audio', title: 'Audio Assets', copy: 'Generate, preview, and approve music, sound effects, and scripted voice lines.', section: 'Assets' },
   { id: 'image', label: 'Images', title: 'Image Assets', copy: 'Create, upload, resize, and approve landing, UI, scene, item, and character art.', section: 'Assets' },
-  { id: 'units', label: 'Units', title: 'Unit Models', copy: 'Tune playable units, props, and enemy metadata against live scene previews.', section: '3D' },
-  { id: 'spaceship', label: 'Space ship', title: 'Space Ship Scene', copy: 'Adjust the derelict exterior model, lighting, fog, and material mood.', section: '3D' },
-  { id: 'lobby', label: 'Lobby', title: 'Lobby Scene', copy: 'Tune the departure lobby preview, screen glow, room lighting, and scene model.', section: '3D' },
 ];
 
 const STATUS_METRICS: Array<{
@@ -201,6 +198,12 @@ const STATUS_METRICS: Array<{
   { status: 'generated', label: 'generated', tone: 'generated', value: (stats) => stats.generated },
   { status: 'missing', label: 'missing', tone: 'missing', value: (stats) => stats.missing },
   { status: 'stale', label: 'stale', tone: 'stale', value: (stats) => stats.stale },
+];
+
+const SCENE_STATUS_METRICS: Array<{ label: string; tone: string; value: (stats: PanelStats) => number }> = [
+  { label: 'routes', tone: 'total', value: (stats) => stats.total },
+  { label: 'playable', tone: 'approved', value: (stats) => stats.approved },
+  { label: 'blocking', tone: 'stale', value: (stats) => stats.missing + stats.stale },
 ];
 
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
@@ -696,7 +699,7 @@ function useFilteredAssets<T extends BaseAsset>(items: T[], query: string, statu
 }
 
 export function AdminPage() {
-  const [tab, setTab] = useState<AdminTab>('overview');
+  const [tab, setTab] = useState<AdminTab>('threeD');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [apiKey, setApiKey] = useState(() => readStorage('sl-eleven-key'));
@@ -710,9 +713,7 @@ export function AdminPage() {
   const [audioMessages, setAudioMessages] = useState<Record<string, string>>({});
   const [voicePreviewsById, setVoicePreviewsById] = useState<Record<string, VoicePreview[]>>({});
   const [panelStats, setPanelStats] = useState<Partial<Record<AdminTab, PanelStats>>>({});
-  const [dirtyTab, setDirtyTab] = useState<ModelAdminTab | null>(null);
-  const [pendingTab, setPendingTab] = useState<AdminTab | null>(null);
-  const [toast, setToast] = useState('Checking for existing asset files...');
+  const [toast, setToast] = useState('Choose a 3D scene on the left and play it on the right.');
 
   const setAudioMessage = useCallback((assetId: string, message: string): void => {
     setAudioMessages((messages) => {
@@ -724,19 +725,22 @@ export function AdminPage() {
   }, []);
 
   const refreshManifest = useCallback(async (): Promise<void> => {
+    const shouldReport = tab === 'audio' || tab === 'image';
     try {
       const response = await fetch('/api/manifest', { cache: 'no-store' });
       if (!response.ok) throw new Error(`manifest ${response.status}`);
       const items = normalizeManifestItems(await response.json());
       setManifest(items);
-      setToast(items.length
-        ? `Detected ${items.length} existing file${items.length === 1 ? '' : 's'} from the asset server.`
-        : 'Asset manifest connected. No generated files found yet.');
+      if (shouldReport) {
+        setToast(items.length
+          ? `Detected ${items.length} existing file${items.length === 1 ? '' : 's'} from the asset server.`
+          : 'Asset manifest connected. No generated files found yet.');
+      }
     } catch {
       setManifest([]);
-      setToast('No asset manifest endpoint responded. Showing the bundled catalog only.');
+      if (shouldReport) setToast('No asset manifest endpoint responded. Showing the bundled catalog only.');
     }
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
     void refreshManifest();
@@ -764,48 +768,11 @@ export function AdminPage() {
   const updatePanelStats = useCallback((nextTab: AdminTab, stats: PanelStats): void => {
     setPanelStats((current) => ({ ...current, [nextTab]: stats }));
   }, []);
-  const updateOverviewStats = useCallback((stats: PanelStats): void => updatePanelStats('overview', stats), [updatePanelStats]);
-  const updateUnitsStats = useCallback((stats: PanelStats): void => updatePanelStats('units', stats), [updatePanelStats]);
-  const updateSpaceshipStats = useCallback((stats: PanelStats): void => updatePanelStats('spaceship', stats), [updatePanelStats]);
-  const updateLobbyStats = useCallback((stats: PanelStats): void => updatePanelStats('lobby', stats), [updatePanelStats]);
-
-  const setDirtyFor = useCallback((nextTab: ModelAdminTab, dirty: boolean): void => {
-    setDirtyTab((current) => dirty ? nextTab : (current === nextTab ? null : current));
-  }, []);
+  const update3DStats = useCallback((stats: PanelStats): void => updatePanelStats('threeD', stats), [updatePanelStats]);
 
   const requestTab = useCallback((nextTab: AdminTab): void => {
-    if (nextTab === tab) return;
-    if (dirtyTab) {
-      setPendingTab(nextTab);
-      setToast('Save or discard the current 3D editor changes before switching tabs.');
-      return;
-    }
-    setDirtyTab(null);
-    setPendingTab(null);
-    setTab(nextTab);
-  }, [dirtyTab, tab]);
-
-  const discardAndSwitch = useCallback((): void => {
-    if (!pendingTab) return;
-    setDirtyTab(null);
-    setPendingTab(null);
-    setTab(pendingTab);
-    setToast('Discarded unsaved 3D editor changes.');
-  }, [pendingTab]);
-
-  const openModelTab = useCallback((nextTab: ModelAdminTab): void => {
-    requestTab(nextTab);
-  }, [requestTab]);
-
-  useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent): void => {
-      if (!dirtyTab) return;
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', beforeUnload);
-    return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [dirtyTab]);
+    if (nextTab !== tab) setTab(nextTab);
+  }, [tab]);
 
   const connectVoices = useCallback(async (): Promise<void> => {
     setToast('Connecting to ElevenLabs...');
@@ -1164,11 +1131,10 @@ export function AdminPage() {
         </div>
 
         <nav className="admin-tabs" aria-label="Admin sections">
-          {['Command', 'Assets', '3D'].map((section) => (
+          {['Scenes', 'Assets'].map((section) => (
             <div className="admin-tabs__group" key={section}>
               <span className="admin-tabs__label">{section}</span>
               {ADMIN_TABS.filter((item) => item.section === section).map((item) => {
-                const dirty = dirtyTab === item.id;
                 return (
                   <button
                     className={tab === item.id ? 'active' : ''}
@@ -1177,7 +1143,6 @@ export function AdminPage() {
                     type="button"
                   >
                     <span>{item.label}</span>
-                    {dirty ? <span className="admin-tab-dot" aria-label="unsaved changes">*</span> : null}
                   </button>
                 );
               })}
@@ -1208,11 +1173,12 @@ export function AdminPage() {
           stats={visibleStats}
           activeStatus={assetTab ? status : undefined}
           onStatusSelect={assetTab ? setStatus : undefined}
+          variant={assetTab ? 'assets' : 'scenes'}
         />
       </header>
 
-      <section className="admin-controlbar" aria-label="Admin controls">
-        {assetTab ? (
+      {assetTab ? (
+        <section className="admin-controlbar" aria-label="Admin controls">
           <div className="admin-filters">
             <label className="admin-filter">
               <span>Search</span>
@@ -1234,18 +1200,6 @@ export function AdminPage() {
             </div>
             <span className="admin-result">{filtered.length} of {assets.length} {tab} assets</span>
           </div>
-        ) : (
-          <div className="admin-toolbar__hint">
-            {dirtyTab ? 'Unsaved 3D editor changes are active.' : '3D changes save to the admin content store and are read by the live scenes on reload.'}
-          </div>
-        )}
-      </section>
-
-      {pendingTab && dirtyTab ? (
-        <section className="admin-unsaved" aria-live="polite">
-          <span>Unsaved 3D changes in {dirtyTab}. Save before leaving, or discard them to continue.</span>
-          <button onClick={discardAndSwitch}>Discard and switch</button>
-          <button onClick={() => setPendingTab(null)}>Stay</button>
         </section>
       ) : null}
 
@@ -1329,40 +1283,11 @@ export function AdminPage() {
             onApprove={approveAsset}
           />
         )} />
-      ) : tab === 'overview' ? (
-        <Admin3DOverviewPanel
-          onStats={updateOverviewStats}
-          onToast={setToast}
-          onOpenTab={openModelTab}
-          onDirtyChange={(dirty) => {
-            if (!dirty) setDirtyTab(null);
-          }}
-        />
-      ) : tab === 'units' ? (
-        <UnitsAdminPanel
-          onStats={updateUnitsStats}
-          onToast={setToast}
-          onDirtyChange={(dirty) => setDirtyFor('units', dirty)}
-        />
-      ) : tab === 'spaceship' ? (
-        <SceneAdminPanel
-          sceneId="spaceship"
-          title="Space Ship"
-          copy="Tune the derelict exterior, optional replacement GLB, lighting, fog, and model transform."
-          liveUrl="/exterior"
-          onStats={updateSpaceshipStats}
-          onToast={setToast}
-          onDirtyChange={(dirty) => setDirtyFor('spaceship', dirty)}
-        />
       ) : (
-        <SceneAdminPanel
-          sceneId="lobby"
-          title="Lobby"
-          copy="Tune the departure lobby preview, optional replacement GLB, room lighting, screen glow, and fog."
-          liveUrl="/lobby"
-          onStats={updateLobbyStats}
+        <Admin3DOverviewPanel
+          onStats={update3DStats}
           onToast={setToast}
-          onDirtyChange={(dirty) => setDirtyFor('lobby', dirty)}
+          onDirtyChange={() => undefined}
         />
       )}
       </section>
@@ -1374,7 +1299,21 @@ function AdminStatusSummary(props: {
   stats: PanelStats;
   activeStatus?: StatusFilter;
   onStatusSelect?: (status: StatusFilter) => void;
+  variant?: 'assets' | 'scenes';
 }) {
+  if (props.variant === 'scenes') {
+    return (
+      <div className="admin-status admin-status--scene" aria-label="3D scene status">
+        {SCENE_STATUS_METRICS.map((metric) => (
+          <span className={`admin-status__item admin-status__item--${metric.tone}`} key={metric.label}>
+            <strong>{metric.value(props.stats)}</strong>
+            <span>{metric.label}</span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="admin-status" aria-label="Status counts">
       {STATUS_METRICS.map((metric) => {
