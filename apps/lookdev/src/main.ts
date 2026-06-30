@@ -331,6 +331,12 @@ async function main(): Promise<void> {
     setMonsterPoseForSmoke: (pose: { x: number; y?: number; z: number; yaw?: number }) => {
       if (isWalkScene(harness)) harness.setMonsterPoseForSmoke(pose);
     },
+    setRemotePoseForSmoke: (pose: { x: number; y?: number; z: number; yaw?: number; netId?: number }) => {
+      if (isWalkScene(harness)) harness.setRemotePoseForSmoke(pose);
+    },
+    setFlashlightForSmoke: (on: boolean) => {
+      if (isWalkScene(harness)) harness.setFlashlightForSmoke(on);
+    },
     interactForSmoke: () => (isWalkScene(harness) ? harness.interactForSmoke() : 0),
     fireForSmoke: () => (isWalkScene(harness) ? harness.fireForSmoke() : 0),
     remotePlayerPositions: () => {

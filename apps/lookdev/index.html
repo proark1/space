@@ -50,6 +50,26 @@
         opacity: 0;
         transition: opacity 120ms ease-out;
       }
+      #radioLine {
+        position: fixed;
+        left: 50%;
+        bottom: 150px;
+        z-index: 2;
+        transform: translateX(-50%);
+        max-width: min(720px, calc(100vw - 36px));
+        padding: 8px 12px;
+        border-left: 2px solid rgba(127, 210, 255, 0.55);
+        background: rgba(2, 7, 10, 0.62);
+        color: #9fd0ff;
+        font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0;
+        text-align: center;
+        text-transform: uppercase;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 140ms ease-out;
+      }
       #runMeters {
         position: fixed;
         left: 14px;
@@ -248,6 +268,7 @@
   <body>
     <canvas id="scene"></canvas>
     <div id="hud">SIGNAL LOST — booting renderer…</div>
+    <div id="radioLine" aria-live="polite"></div>
     <div id="prompt"></div>
     <div id="runMeters">
       <div class="meterRow">

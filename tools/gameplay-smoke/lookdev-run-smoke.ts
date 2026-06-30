@@ -43,6 +43,13 @@ interface RunStateView {
   readonly simTime: number;
   readonly status: string;
   readonly inSafeRoom: boolean;
+  readonly lightExposure: number;
+  readonly soundPressure: number;
+  readonly voiceLevel: 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
+  readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
+  readonly scareDebt: number;
+  readonly inSlickZone: boolean;
+  readonly nearbyCrew: number;
   readonly activeFuse: { readonly id: string; readonly pos: Vec3 };
   readonly collectedPickupIds: readonly string[];
   readonly doors: readonly DoorView[];
@@ -70,6 +77,14 @@ interface UiFeedbackView {
   readonly endDetail: string;
   readonly stunBeamVisible: boolean;
   readonly monsterHitFlash: number;
+  readonly radioText: string;
+  readonly radioVisible: boolean;
+  readonly lightExposure: number;
+  readonly soundPressure: number;
+  readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
+  readonly inSlickZone: boolean;
+  readonly nearestRemoteVisibility: number;
+  readonly remoteVisibleCount: number;
 }
 
 const LOOKDEV_PORT = Number(process.env.LOOKDEV_RUN_SMOKE_PORT ?? 4179);
@@ -163,6 +178,17 @@ async function setMonster(page: Page, pos: Vec3, yaw = 0): Promise<void> {
   );
 }
 
+async function setRemote(page: Page, pos: Vec3, yaw = 0): Promise<void> {
+  await page.evaluate(
+    ({ x, y, z, lookYaw }) => (window as any).__sl.setRemotePoseForSmoke({ x, y, z, yaw: lookYaw }),
+    { x: pos.x, y: pos.y, z: pos.z, lookYaw: yaw },
+  );
+}
+
+async function setFlashlight(page: Page, on: boolean): Promise<void> {
+  await page.evaluate((next) => (window as any).__sl.setFlashlightForSmoke(next), on);
+}
+
 async function interact(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__sl.interactForSmoke());
 }
@@ -235,11 +261,47 @@ async function main(): Promise<void> {
     assert(!door(state, 'comms-door').unlocked, 'comms door should start locked');
     assert(!door(state, 'escape-lock').unlocked, 'escape should start locked');
 
+    await setPlayer(page, { x: 0, y: 1, z: 0 }, 0);
+    await setMonster(page, { x: 0, y: 1, z: -12 });
+    await setFlashlight(page, false);
+    await stepFrames(page, 8);
+    let monster = await monsterState(page);
+    state = await capture('flashlight-off-stealth');
+    assert(!state.flashlightOn, 'flashlight smoke hook should switch the light off');
+    assert(monster.mode !== 'chase' && monster.mode !== 'attack', `monster should not hard-chase a dark player at range, got ${monster.mode}`);
+
+    await setFlashlight(page, true);
+    await stepFrames(page, 8);
+    monster = await monsterState(page);
+    state = await capture('flashlight-on-bait');
+    assert(state.flashlightOn, 'flashlight smoke hook should switch the light on');
+    assert(monster.mode === 'chase' || monster.mode === 'attack', `flashlight should bait a ranged chase, got ${monster.mode}`);
+    assert(state.lightExposure > 0, 'flashlight use should raise light exposure');
+
+    await setMonster(page, { x: 12, y: 1, z: -12 });
+    await setFlashlight(page, false);
+    await setRemote(page, { x: 1.5, y: 1, z: 0 });
+    await stepFrames(page, 2);
+    let ui = await uiFeedback(page);
+    state = await capture('near-crew-dark-visible');
+    assert(state.nearbyCrew > 0, 'near crew should count as nearby in darkness');
+    assert(ui.remoteVisibleCount >= 1, 'near crew should have a visible dark silhouette');
+    assert(ui.nearestRemoteVisibility > 0.4, `near crew visibility should be readable, got ${ui.nearestRemoteVisibility}`);
+
+    await setRemote(page, { x: 0, y: 1, z: -8 });
+    await stepFrames(page, 2);
+    ui = await uiFeedback(page);
+    state = await capture('far-crew-dark-hidden');
+    assert(state.nearbyCrew === 0, 'far crew should not count as nearby in darkness');
+    assert(ui.nearestRemoteVisibility < 0.08, `far crew should fade into darkness, got ${ui.nearestRemoteVisibility}`);
+    await setRemote(page, { x: 12, y: 1, z: 12 });
+    await setFlashlight(page, true);
+
     const combatStartHealth = state.health;
     await setPlayer(page, { x: 0, y: 1, z: 0 }, 0);
     await setMonster(page, { x: 0, y: 1, z: -0.95 });
     await stepFrames(page, 2);
-    let monster = await monsterState(page);
+    monster = await monsterState(page);
     assert(monster.mode === 'attack', `expected attack windup mode, got ${monster.mode}`);
     assert(monster.attackWindup > 0, 'monster attack should telegraph with windup before damage');
     await stepFrames(page, 35);

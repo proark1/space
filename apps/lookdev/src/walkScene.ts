@@ -28,6 +28,7 @@ import {
   type ShipStation,
 } from './corridor';
 import { createFirstPersonControls, type FirstPersonControls } from './input';
+import { loadMonsterUnitFactory, type MonsterUnitInstance } from './monsterUnit';
 import { loadPlayerUnitFactory, type PlayerUnitFactory, type PlayerUnitInstance } from './playerUnit';
 
 /** Eye height above the capsule centre. Capsule rest centre ≈1.0 (radius .4 + halfHeight .6) ⇒ eye ≈1.62. */
@@ -41,6 +42,16 @@ const SAFE_ROOM_ZONE = 'med';
 const SAFE_ROOM_GUARD = new Vector3(0, 1, -4);
 const FIRST_ENCOUNTER_START = new Vector3(1.65, 1, -12);
 const FIRST_ENCOUNTER_END = new Vector3(-1.65, 1, -12);
+const LIGHT_EXPOSURE_DECAY = 0.34;
+const LIGHT_EXPOSURE_GAIN = 0.42;
+const LIGHT_TOGGLE_EXPOSURE = 0.28;
+const DARK_CREW_FULL_RANGE = 2.5;
+const DARK_CREW_OUTLINE_RANGE = 5.2;
+const SMOKE_REMOTE_NET_ID = 0x51_05;
+const SLICK_ZONES = [
+  { x: 8.7, z: -13.2, radius: 4.7, label: 'slick engineering deck' },
+  { x: -0.9, z: -36.8, radius: 3.6, label: 'wet comms deck' },
+] as const;
 
 export interface WalkSceneOptions {
   readonly thirdPerson?: boolean;
@@ -49,12 +60,18 @@ export interface WalkSceneOptions {
 type RunStage = 'restorePower' | 'findFuse' | 'installFuse' | 'holdout' | 'extract' | 'won' | 'dead';
 type MonsterMode = 'patrol' | 'investigate' | 'chase' | 'attack' | 'stunned';
 type EncounterPhase = 'idle' | 'telegraph' | 'cross' | 'recover' | 'done';
+type ScarePhase = 'lull' | 'build' | 'peak' | 'relax';
+type VoiceLevel = 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
 
 export interface SmokePose {
   readonly x: number;
   readonly y?: number;
   readonly z: number;
   readonly yaw?: number;
+}
+
+export interface SmokeRemotePose extends SmokePose {
+  readonly netId?: number;
 }
 
 export interface WalkRunStateView {
@@ -73,6 +90,13 @@ export interface WalkRunStateView {
   readonly inSafeRoom: boolean;
   readonly tension: number;
   readonly commsCharge: number;
+  readonly lightExposure: number;
+  readonly soundPressure: number;
+  readonly voiceLevel: VoiceLevel;
+  readonly scarePhase: ScarePhase;
+  readonly scareDebt: number;
+  readonly inSlickZone: boolean;
+  readonly nearbyCrew: number;
   readonly encounterPhase: EncounterPhase;
   readonly encounterTimer: number;
   readonly activeFuse: {
@@ -119,14 +143,26 @@ export interface WalkUiFeedbackView {
   readonly endDetail: string;
   readonly stunBeamVisible: boolean;
   readonly monsterHitFlash: number;
+  readonly radioText: string;
+  readonly radioVisible: boolean;
+  readonly lightExposure: number;
+  readonly soundPressure: number;
+  readonly scarePhase: ScarePhase;
+  readonly inSlickZone: boolean;
+  readonly nearestRemoteVisibility: number;
+  readonly remoteVisibleCount: number;
 }
 
 interface RemotePlayerVisual {
   readonly root: Object3D;
   readonly unit: PlayerUnitInstance | null;
   readonly capsule: Mesh | null;
+  readonly capsuleMat: MeshStandardMaterial | null;
+  readonly silhouette: Mesh;
+  readonly silhouetteMat: MeshBasicMaterial;
   lastX: number;
   lastZ: number;
+  visibility: number;
 }
 
 interface RunState {
@@ -142,6 +178,17 @@ interface RunState {
   holdoutSeconds: number;
   simTime: number;
   tension: number;
+  lightExposure: number;
+  soundPressure: number;
+  voiceLevel: VoiceLevel;
+  scarePhase: ScarePhase;
+  scareTimer: number;
+  nextScareAt: number;
+  lastScareAt: number;
+  scareDebt: number;
+  darkSeconds: number;
+  nearbyCrew: number;
+  inSlickZone: boolean;
   encounterPhase: EncounterPhase;
   encounterTimer: number;
   statusMessage: string;
@@ -175,6 +222,8 @@ export interface WalkSceneHandle extends HarnessScene {
   uiFeedback(): WalkUiFeedbackView;
   setPlayerPoseForSmoke(pose: SmokePose): void;
   setMonsterPoseForSmoke(pose: SmokePose): void;
+  setRemotePoseForSmoke(pose: SmokeRemotePose): void;
+  setFlashlightForSmoke(on: boolean): void;
   interactForSmoke(): number;
   fireForSmoke(): number;
   readonly grounded: boolean;
@@ -186,6 +235,33 @@ function clamp(v: number, min: number, max: number): number {
 
 function dist2d(a: { readonly x: number; readonly z: number }, b: { readonly x: number; readonly z: number }): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function forwardFromYaw(yaw: number): Vector3 {
+  return new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+}
+
+function slicknessAt(pos: { readonly x: number; readonly z: number }): { amount: number; label: string | null } {
+  let best = 0;
+  let label: string | null = null;
+  for (const zone of SLICK_ZONES) {
+    const d = dist2d(pos, zone);
+    const amount = clamp(1 - d / zone.radius, 0, 1);
+    if (amount > best) {
+      best = amount;
+      label = zone.label;
+    }
+  }
+  return { amount: best, label };
+}
+
+function voiceLevelFromNoise(noise: number, soundPressure: number): VoiceLevel {
+  const n = Math.max(noise, soundPressure);
+  if (n >= 0.86) return 'scream';
+  if (n >= 0.58) return 'shout';
+  if (n >= 0.26) return 'talk';
+  if (n >= 0.06) return 'whisper';
+  return 'silent';
 }
 
 function cellKey(ix: number, iz: number): string {
@@ -353,7 +429,8 @@ function objectiveText(run: RunState, activeFuse: ShipPickup): string {
 
 function statusText(run: RunState, monster: MonsterState, grounded: boolean): string {
   if (run.statusUntil > run.simTime) return run.statusMessage;
-  return `${grounded ? 'grounded' : 'airborne'} · ${run.flashlightOn ? 'light' : 'dark'} · monster ${monster.mode}`;
+  const footing = run.inSlickZone ? 'slick' : 'dry';
+  return `${grounded ? 'grounded' : 'airborne'} · ${run.flashlightOn ? 'light' : 'dark'} · sound ${run.voiceLevel} · ${footing} · monster ${monster.mode}`;
 }
 
 function isSafeRoom(level: CorridorLevel, pos: { readonly x: number; readonly z: number }): boolean {
@@ -383,6 +460,7 @@ export async function createWalkScene(
   const scene = new Scene();
   const corridor = buildCorridor(scene);
   const { colliders, level } = corridor;
+  const monsterUnitFactory = await loadMonsterUnitFactory();
   const playerUnitFactory = await loadPlayerUnitFactory();
   const seed = createRunSeed();
   const rng = mulberry32(seed);
@@ -421,6 +499,17 @@ export async function createWalkScene(
     holdoutSeconds: HOLDOUT_SECONDS,
     simTime: 0,
     tension: 0,
+    lightExposure: 0,
+    soundPressure: 0,
+    voiceLevel: 'silent',
+    scarePhase: 'lull',
+    scareTimer: 0,
+    nextScareAt: 9,
+    lastScareAt: -Infinity,
+    scareDebt: 0,
+    darkSeconds: 0,
+    nearbyCrew: 0,
+    inSlickZone: false,
     encounterPhase: 'idle',
     encounterTimer: 0,
     statusMessage: `seed ${seed}`,
@@ -447,16 +536,31 @@ export async function createWalkScene(
   const commsMeterEl = document.getElementById('commsMeter');
   const encounterFlashEl = document.getElementById('encounterFlash');
   const damageFlashEl = document.getElementById('damageFlash');
+  const radioLineEl = document.getElementById('radioLine');
   const endScreenEl = document.getElementById('endScreen');
   const endTitleEl = document.getElementById('endTitle');
   const endDetailEl = document.getElementById('endDetail');
   document.getElementById('restartRun')?.addEventListener('click', () => location.reload());
   let damageFlash = 0;
   let encounterFlash = 0;
+  let blackoutTimer = 0;
+  let radioText = '';
+  let radioUntil = 0;
   let lastEndStage: RunStage | null = null;
   let lastDoorCueAt = -Infinity;
   let nextTensionPulseAt = 0;
   let monsterLungeTimer = 0;
+  let lastLightAttractionAt = -Infinity;
+  let lastSlickStatusAt = -Infinity;
+  let slickMoveX = 0;
+  let slickMoveZ = 0;
+  const storyFlags = {
+    heardLightWarning: false,
+    heardDarkCrewHint: false,
+    heardSoundWarning: false,
+    heardCommsTrapHint: false,
+    heardFirstMimic: false,
+  };
   let audioContext: AudioContext | null = null;
   const ensureAudio = (): AudioContext | null => {
     if (typeof AudioContext === 'undefined') return null;
@@ -483,7 +587,7 @@ export async function createWalkScene(
     osc.start(start);
     osc.stop(start + duration + 0.02);
   };
-  const playCue = (cue: 'pickup' | 'door' | 'power' | 'comms' | 'stun' | 'hit' | 'monster' | 'step' | 'scare' | 'tension' | 'win' | 'dead'): void => {
+  const playCue = (cue: 'pickup' | 'door' | 'power' | 'comms' | 'stun' | 'hit' | 'monster' | 'step' | 'scare' | 'tension' | 'radio' | 'blackout' | 'win' | 'dead'): void => {
     if (cue === 'pickup') playTone(880, 0.12, 0.04, 'triangle');
     else if (cue === 'door') playTone(82, 0.18, 0.08, 'sawtooth');
     else if (cue === 'power') {
@@ -509,6 +613,12 @@ export async function createWalkScene(
       playTone(880, 0.08, 0.035, 'triangle', 0.22);
     } else if (cue === 'tension') {
       playTone(52 + run.tension * 0.45, 0.22, 0.026 + run.tension / 4000, 'sawtooth');
+    } else if (cue === 'radio') {
+      playTone(610, 0.045, 0.026, 'square');
+      playTone(405, 0.06, 0.018, 'sine', 0.05);
+    } else if (cue === 'blackout') {
+      playTone(38, 0.42, 0.09, 'sawtooth');
+      playTone(910, 0.05, 0.04, 'square', 0.16);
     } else if (cue === 'win') {
       playTone(330, 0.18, 0.045, 'triangle');
       playTone(495, 0.18, 0.045, 'triangle', 0.15);
@@ -571,6 +681,7 @@ export async function createWalkScene(
   });
 
   const monsterRoot = new Object3D();
+  let monsterUnit: MonsterUnitInstance | null = null;
   const monsterBody = new Mesh(new CapsuleGeometry(0.46, 1.15, 6, 10), monsterMat);
   monsterBody.position.y = 0.35;
   monsterBody.castShadow = true;
@@ -581,7 +692,9 @@ export async function createWalkScene(
     eye.position.set(x, 0.85, -0.42);
     monsterRoot.add(eye);
   }
-  scene.add(monsterRoot);
+  monsterUnit = monsterUnitFactory?.createInstance() ?? null;
+  if (monsterUnit) scene.add(monsterUnit.root);
+  else scene.add(monsterRoot);
   const monster: MonsterState = {
     pos: new Vector3(level.monsterSpawn.x, level.monsterSpawn.y, level.monsterSpawn.z),
     mode: 'patrol',
@@ -597,7 +710,7 @@ export async function createWalkScene(
     yaw: 0,
   };
 
-  const remoteMat = new MeshStandardMaterial({ color: 0x4db7ff, emissive: 0x0b2435, roughness: 0.75 });
+  const remoteMat = new MeshStandardMaterial({ color: 0x4db7ff, emissive: 0x0b2435, roughness: 0.75, transparent: true, opacity: 0.88 });
   const remoteGeo = new CapsuleGeometry(0.33, 0.9, 5, 8);
   const remoteVisuals = new Map<number, RemotePlayerVisual>();
   let remoteWorld: GameWorld | undefined;
@@ -611,6 +724,62 @@ export async function createWalkScene(
   };
 
   const playerPos = (): Vector3 => new Vector3(Transform.x[playerEid]!, Transform.y[playerEid]!, Transform.z[playerEid]!);
+
+  const radioSay = (message: string, seconds = 4.2): void => {
+    radioText = message;
+    radioUntil = run.simTime + seconds;
+    playCue('radio');
+  };
+
+  const updateRadioLine = (): void => {
+    if (!radioLineEl) return;
+    const visible = run.simTime < radioUntil && radioText.length > 0;
+    radioLineEl.textContent = visible ? radioText : '';
+    radioLineEl.style.opacity = visible ? '1' : '0';
+  };
+
+  const setFlashlightOn = (on: boolean, status = true): void => {
+    const next = on && run.battery > 0;
+    if (run.flashlightOn === next) return;
+    run.flashlightOn = next;
+    flashlight.setOn(next);
+    run.lightExposure = clamp(run.lightExposure + LIGHT_TOGGLE_EXPOSURE, 0, 1);
+    if (status) flashStatus(next ? 'flashlight on - light is bait' : 'flashlight off - moving dark', 1.8);
+    playTone(next ? 520 : 180, 0.07, 0.035, 'square');
+    if (run.powered && !storyFlags.heardLightWarning) {
+      storyFlags.heardLightWarning = true;
+      radioSay('VESTA: Keep the beam short. It sees what you see.');
+    }
+  };
+
+  const flashlightBeamHitsMonster = (pos: Vector3): boolean => {
+    if (!run.flashlightOn) return false;
+    const toMonster = monster.pos.clone().sub(pos);
+    const range = Math.hypot(toMonster.x, toMonster.z);
+    if (range > 17 || range < 0.001) return false;
+    const forward = forwardFromYaw(controls.yaw);
+    toMonster.y = 0;
+    toMonster.normalize();
+    return forward.dot(toMonster) > 0.72 && hasGridLineOfSight(level, run, pos, monster.pos);
+  };
+
+  const playerVisibilityToMonster = (pos: Vector3, distance: number): { score: number; range: number; beamHit: boolean; canSee: boolean } => {
+    const beamHit = flashlightBeamHitsMonster(pos);
+    let score = 0.08;
+    if (run.flashlightOn) score += 0.64;
+    if (beamHit) score += 0.22;
+    if (!run.flashlightOn && controls.crouching) score -= 0.05;
+    score += run.lightExposure * 0.16;
+    score = clamp(score, 0.02, 1);
+    const closeRange = !run.flashlightOn && controls.crouching ? 3.1 : 4.5;
+    const range = clamp(Math.max(closeRange, 2.8 + score * 21), 2.8, 19.5);
+    return {
+      score,
+      range,
+      beamHit,
+      canSee: hasGridLineOfSight(level, run, monster.pos, pos) && distance < range,
+    };
+  };
 
   const euler = new Euler(0, 0, 0, 'YXZ');
   const cameraTarget = new Vector3();
@@ -646,32 +815,82 @@ export async function createWalkScene(
     return Math.atan2(2 * (w * y + x * z), 1 - 2 * (y * y + z * z));
   };
   const createRemoteVisual = (factory: PlayerUnitFactory | null, x: number, y: number, z: number): RemotePlayerVisual => {
+    const silhouetteMat = new MeshBasicMaterial({
+      color: 0x9fdfff,
+      transparent: true,
+      opacity: 0,
+      blending: AdditiveBlending,
+      depthWrite: false,
+    });
+    const silhouette = new Mesh(remoteGeo, silhouetteMat);
+    silhouette.position.set(x, y + 0.15, z);
+    silhouette.visible = false;
+    silhouette.renderOrder = 5;
+    scene.add(silhouette);
+
     const unit = factory?.createInstance() ?? null;
     if (unit) {
       unit.update({ x, y, z, yaw: 0, moving: false }, 0);
       scene.add(unit.root);
-      return { root: unit.root, unit, capsule: null, lastX: x, lastZ: z };
+      return { root: unit.root, unit, capsule: null, capsuleMat: null, silhouette, silhouetteMat, lastX: x, lastZ: z, visibility: 0 };
     }
 
-    const capsule = new Mesh(remoteGeo, remoteMat);
+    const capsuleMat = remoteMat.clone();
+    const capsule = new Mesh(remoteGeo, capsuleMat);
     capsule.castShadow = true;
     capsule.receiveShadow = true;
     capsule.position.set(x, y + 0.15, z);
     scene.add(capsule);
-    return { root: capsule, unit: null, capsule, lastX: x, lastZ: z };
+    return { root: capsule, unit: null, capsule, capsuleMat, silhouette, silhouetteMat, lastX: x, lastZ: z, visibility: 0 };
   };
   const removeRemoteVisual = (visual: RemotePlayerVisual): void => {
     visual.unit?.dispose();
     scene.remove(visual.root);
+    scene.remove(visual.silhouette);
+    visual.capsuleMat?.dispose();
+    visual.silhouetteMat.dispose();
+  };
+  const applyRemoteVisibility = (visual: RemotePlayerVisual, x: number, y: number, z: number): number => {
+    const local = playerPos();
+    const remote = new Vector3(x, y, z);
+    const distance = dist2d(local, remote);
+    const toRemote = remote.clone().sub(local);
+    toRemote.y = 0;
+    if (toRemote.lengthSq() > 0.0001) toRemote.normalize();
+    const litByBeam = run.flashlightOn
+      && distance < 12
+      && forwardFromYaw(controls.yaw).dot(toRemote) > 0.68
+      && hasGridLineOfSight(level, run, local, remote);
+
+    let visibility = 0;
+    if (distance <= DARK_CREW_FULL_RANGE) visibility = 0.68;
+    else if (distance <= DARK_CREW_OUTLINE_RANGE) visibility = 0.14 + (1 - (distance - DARK_CREW_FULL_RANGE) / (DARK_CREW_OUTLINE_RANGE - DARK_CREW_FULL_RANGE)) * 0.36;
+    if (litByBeam) visibility = Math.max(visibility, 0.88);
+    if (isSafeRoom(level, local)) visibility = Math.max(visibility, distance < 7 ? 0.58 : visibility);
+    visibility = clamp(visibility, 0, 1);
+
+    visual.visibility = visibility;
+    visual.root.visible = visibility > 0.42;
+    if (visual.capsuleMat) {
+      visual.capsuleMat.opacity = clamp(visibility, 0.1, 0.9);
+      visual.capsuleMat.emissiveIntensity = 0.1 + visibility * 0.95;
+    }
+    visual.silhouette.position.set(x, y + 0.15, z);
+    visual.silhouette.visible = visibility > 0.05;
+    visual.silhouette.scale.setScalar(0.9 + visibility * 0.2);
+    visual.silhouetteMat.opacity = clamp(visibility * 0.45, 0, 0.38);
+    return distance <= DARK_CREW_OUTLINE_RANGE ? 1 : 0;
   };
   const syncRemoteMarkers = (dt = 0): void => {
     if (!remoteWorld) {
       for (const visual of remoteVisuals.values()) removeRemoteVisual(visual);
       remoteVisuals.clear();
+      run.nearbyCrew = 0;
       return;
     }
 
     const seen = new Set<number>();
+    let nearbyCrew = 0;
     for (const eid of queryRemotePlayers(remoteWorld)) {
       seen.add(eid);
       const x = Transform.x[eid] ?? 0;
@@ -691,6 +910,12 @@ export async function createWalkScene(
       } else if (visual.capsule) {
         visual.capsule.position.set(x, y + 0.15, z);
       }
+      nearbyCrew += applyRemoteVisibility(visual, x, y, z);
+    }
+    run.nearbyCrew = nearbyCrew;
+    if (nearbyCrew > 0 && !run.flashlightOn && !storyFlags.heardDarkCrewHint) {
+      storyFlags.heardDarkCrewHint = true;
+      radioSay('VESTA: Suit outline active. Stay close. Keep lights down.');
     }
     for (const [eid, visual] of remoteVisuals) {
       if (seen.has(eid)) continue;
@@ -883,6 +1108,69 @@ export async function createWalkScene(
     }
   };
 
+  const triggerScarePeak = (pos: Vector3): void => {
+    const hotSound = run.soundPressure > 0.5;
+    const hotLight = run.lightExposure > 0.42 || flashlightBeamHitsMonster(pos);
+    const roll = rng();
+    const kind = hotLight && roll < 0.44 ? 'blackout' : hotSound && roll < 0.78 ? 'mimic' : 'scrape';
+    run.scarePhase = 'peak';
+    run.scareTimer = kind === 'blackout' ? 0.85 : 0.56;
+    run.lastScareAt = run.simTime;
+    run.scareDebt = clamp(run.scareDebt + 0.28, 0, 1);
+    run.nextScareAt = run.simTime + 10 + rng() * 8 + run.scareDebt * 7;
+    encounterFlash = Math.max(encounterFlash, kind === 'blackout' ? 0.95 : 0.62);
+
+    if (kind === 'blackout') {
+      blackoutTimer = 1.65;
+      flashStatus('panel blackout - light is bait', 1.5);
+      playCue('blackout');
+    } else if (kind === 'mimic') {
+      flashStatus('a voice answered from the vent', 1.8);
+      playCue('scare');
+      if (!storyFlags.heardFirstMimic) {
+        storyFlags.heardFirstMimic = true;
+        radioSay('UNKNOWN: I can sound like your friend now.');
+      }
+    } else {
+      flashStatus('wet scrape behind you', 1.3);
+      playCue('monster');
+    }
+  };
+
+  const updateScareDirector = (dt: number, pos: Vector3, playerNoise: number): void => {
+    if (run.stage === 'won' || run.stage === 'dead') return;
+    run.scareDebt = clamp(run.scareDebt - dt * 0.035, 0, 1);
+
+    if (run.scarePhase === 'build') {
+      run.scareTimer -= dt;
+      if (run.scareTimer <= 0) triggerScarePeak(pos);
+      return;
+    }
+    if (run.scarePhase === 'peak') {
+      run.scareTimer -= dt;
+      if (run.scareTimer <= 0) {
+        run.scarePhase = 'relax';
+        run.scareTimer = 2.4;
+      }
+      return;
+    }
+    if (run.scarePhase === 'relax') {
+      run.scareTimer -= dt;
+      if (run.scareTimer <= 0) run.scarePhase = 'lull';
+      return;
+    }
+
+    if (!run.powered || encounterActive(run) || isSafeRoom(level, pos) || run.simTime < run.nextScareAt) return;
+    const threat = run.tension / 100 + run.lightExposure * 0.36 + run.soundPressure * 0.32 + (playerNoise > 0.55 ? 0.18 : 0);
+    if (threat < 0.48) return;
+
+    run.scarePhase = 'build';
+    run.scareTimer = 0.72 + rng() * 0.45;
+    run.nextScareAt = run.simTime + 7;
+    flashStatus(run.soundPressure > 0.5 ? 'the chorus is listening' : 'something shifts ahead', 1.0);
+    playCue('step');
+  };
+
   const updateRunMeters = (): void => {
     if (tensionFillEl) tensionFillEl.style.width = `${Math.round(run.tension)}%`;
     const charge = commsCharge(run);
@@ -940,6 +1228,7 @@ export async function createWalkScene(
       monster.investigateTarget = pos.clone();
       monster.repathIn = 0;
       startFirstEncounter();
+      radioSay('VESTA: Auxiliary power is live. The ship can hear us again.');
       playCue('power');
       return 0.7;
     }
@@ -949,6 +1238,10 @@ export async function createWalkScene(
       monster.mode = 'chase';
       monster.repathIn = 0;
       flashStatus('transmitter charging - survive', 3);
+      if (!storyFlags.heardCommsTrapHint) {
+        storyFlags.heardCommsTrapHint = true;
+        radioSay('VESTA: Your signal is live. Something else is answering.');
+      }
       playCue('comms');
       return 1;
     }
@@ -972,7 +1265,7 @@ export async function createWalkScene(
     playCue('stun');
     const toMonster = monster.pos.clone().sub(pos);
     const range = Math.hypot(toMonster.x, toMonster.z);
-    const forward = new Vector3(-Math.sin(controls.yaw), 0, -Math.cos(controls.yaw));
+    const forward = forwardFromYaw(controls.yaw);
     toMonster.y = 0;
     if (range > 0.001) toMonster.normalize();
     const hit = range < 8.5 && forward.dot(toMonster) > 0.68 && hasGridLineOfSight(level, run, pos, monster.pos);
@@ -1059,9 +1352,14 @@ export async function createWalkScene(
     monsterMat.emissiveIntensity = monster.mode === 'chase' || monster.mode === 'attack' ? 1.35 : 0.75;
 
     const distance = dist2d(monster.pos, pos);
-    const canSeePlayer = hasGridLineOfSight(level, run, monster.pos, pos) && distance < (run.flashlightOn ? 16 : 5.2);
-    const heardPlayer = playerNoise > 0 && distance < 7 + playerNoise * 15;
+    const visibility = playerVisibilityToMonster(pos, distance);
+    const heardPlayer = playerNoise > 0 && distance < 7 + (playerNoise + run.soundPressure * 0.5) * 15;
+    const lightAttracted = run.lightExposure > 0.18
+      && distance < 18.5
+      && run.simTime - lastLightAttractionAt > 0.7
+      && hasGridLineOfSight(level, run, monster.pos, pos);
     const playerSafe = isSafeRoom(level, pos);
+    if (visibility.beamHit) run.lightExposure = clamp(run.lightExposure + dt * 0.5, 0, 1);
 
     if (playerSafe) {
       monster.mode = 'investigate';
@@ -1074,9 +1372,19 @@ export async function createWalkScene(
     if (run.stage === 'holdout') {
       monster.mode = distance < 1.35 ? 'attack' : 'chase';
       monster.investigateTarget = pos.clone();
-    } else if (canSeePlayer) {
+    } else if (visibility.canSee) {
       monster.mode = distance < 1.35 ? 'attack' : 'chase';
       monster.lostSightSeconds = 0;
+    } else if (lightAttracted) {
+      monster.mode = 'investigate';
+      monster.investigateTarget = pos.clone();
+      monster.repathIn = 0;
+      lastLightAttractionAt = run.simTime;
+      flashStatus('the chorus saw the beam', 1.4);
+      if (!storyFlags.heardLightWarning) {
+        storyFlags.heardLightWarning = true;
+        radioSay('VESTA: Your flashlight paints a runway. Use it in bursts.');
+      }
     } else if (monster.mode === 'chase' || monster.mode === 'attack') {
       monster.lostSightSeconds += dt;
       if (monster.lostSightSeconds > 4) {
@@ -1088,6 +1396,10 @@ export async function createWalkScene(
       monster.mode = 'investigate';
       monster.investigateTarget = pos.clone();
       monster.repathIn = 0;
+      if (run.soundPressure > 0.5 && !storyFlags.heardSoundWarning) {
+        storyFlags.heardSoundWarning = true;
+        radioSay('VESTA: Talk to survive. Whisper to hide. Scream and it comes hungry.');
+      }
     }
 
     if ((monster.mode === 'chase' || monster.mode === 'attack') && previousMode !== 'chase' && previousMode !== 'attack') {
@@ -1153,6 +1465,7 @@ export async function createWalkScene(
     updatePrompt(playerPos());
     updateEndScreen();
     updateRunMeters();
+    updateRadioLine();
     hudSync({
       health: Math.round(run.health),
       battery: Math.round(run.battery),
@@ -1179,6 +1492,13 @@ export async function createWalkScene(
     inSafeRoom: isSafeRoom(level, playerPos()),
     tension: run.tension,
     commsCharge: commsCharge(run),
+    lightExposure: run.lightExposure,
+    soundPressure: run.soundPressure,
+    voiceLevel: run.voiceLevel,
+    scarePhase: run.scarePhase,
+    scareDebt: run.scareDebt,
+    inSlickZone: run.inSlickZone,
+    nearbyCrew: run.nearbyCrew,
     encounterPhase: run.encounterPhase,
     encounterTimer: run.encounterTimer,
     activeFuse: {
@@ -1223,6 +1543,14 @@ export async function createWalkScene(
     endDetail: endDetailEl?.textContent ?? '',
     stunBeamVisible: stunBeam.visible,
     monsterHitFlash,
+    radioText: radioLineEl?.textContent ?? '',
+    radioVisible: radioLineEl?.style.opacity === '1',
+    lightExposure: run.lightExposure,
+    soundPressure: run.soundPressure,
+    scarePhase: run.scarePhase,
+    inSlickZone: run.inSlickZone,
+    nearestRemoteVisibility: Math.max(0, ...[...remoteVisuals.values()].map((visual) => visual.visibility)),
+    remoteVisibleCount: [...remoteVisuals.values()].filter((visual) => visual.visibility > 0.05).length,
   });
   const setPlayerPoseForSmoke = (pose: SmokePose): void => {
     game.setControlledPlayerPose(playerEid, {
@@ -1245,6 +1573,24 @@ export async function createWalkScene(
     monster.stunTimer = 0;
     monster.mode = 'patrol';
     if (pose.yaw !== undefined) monster.yaw = pose.yaw;
+  };
+  const setRemotePoseForSmoke = (pose: SmokeRemotePose): void => {
+    const netId = pose.netId ?? SMOKE_REMOTE_NET_ID;
+    const player = game.addNetworkPlayer(netId, { x: pose.x, y: pose.y ?? 1, z: pose.z }, 1);
+    game.setControlledPlayerPose(player.eid, {
+      x: pose.x,
+      y: pose.y ?? Transform.y[player.eid] ?? 1,
+      z: pose.z,
+      yaw: pose.yaw ?? yawFromTransform(player.eid),
+    });
+    remoteWorld = game.world;
+    syncRemoteMarkers();
+    syncHudState();
+  };
+  const setFlashlightForSmoke = (on: boolean): void => {
+    setFlashlightOn(on, false);
+    syncRunToEcs();
+    syncHudState();
   };
   const interactForSmoke = (): number => {
     const noise = handleInteract(playerPos());
@@ -1282,27 +1628,49 @@ export async function createWalkScene(
     uiFeedback: uiFeedbackView,
     setPlayerPoseForSmoke,
     setMonsterPoseForSmoke,
+    setRemotePoseForSmoke,
+    setFlashlightForSmoke,
     interactForSmoke,
     fireForSmoke,
     fixedStep(dt) {
       run.simTime += dt;
       let playerNoise = 0;
       const before = playerPos();
+      const active = run.stage !== 'dead' && run.stage !== 'won';
 
       if (controls.consumeFlashlightToggle()) {
-        run.flashlightOn = run.battery > 0 ? !run.flashlightOn : false;
-        flashlight.setOn(run.flashlightOn);
-        flashStatus(run.flashlightOn ? 'flashlight on' : 'flashlight off', 1.4);
-        playTone(run.flashlightOn ? 520 : 180, 0.07, 0.035, 'square');
+        setFlashlightOn(!run.flashlightOn);
         playerNoise += 0.2;
       }
 
-      const active = run.stage !== 'dead' && run.stage !== 'won';
       const mv = active ? controls.moveVector() : { x: 0, z: 0 };
-      const speedMultiplier = controls.crouching ? 0.55 : controls.sprinting ? 1.45 : 1;
+      const movingInput = Math.hypot(mv.x, mv.z) > 0.01;
+      const slick = slicknessAt(before);
+      run.inSlickZone = slick.amount > 0.16;
+      if (run.inSlickZone) {
+        const steerRate = controls.sprinting ? 1.9 : 1.15;
+        slickMoveX += (mv.x - slickMoveX) * Math.min(1, dt * steerRate);
+        slickMoveZ += (mv.z - slickMoveZ) * Math.min(1, dt * steerRate);
+        if (!movingInput) {
+          slickMoveX *= Math.max(0, 1 - dt * 0.72);
+          slickMoveZ *= Math.max(0, 1 - dt * 0.72);
+        }
+        if (slick.label && run.simTime - lastSlickStatusAt > 8) {
+          lastSlickStatusAt = run.simTime;
+          flashStatus(`${slick.label} - physics wins`, 2.0);
+        }
+      } else {
+        slickMoveX *= Math.max(0, 1 - dt * 5);
+        slickMoveZ *= Math.max(0, 1 - dt * 5);
+      }
+
+      const slideMix = run.inSlickZone ? slick.amount * (controls.sprinting ? 0.52 : 0.34) : 0;
+      const moveX = mv.x * (1 - slideMix * 0.45) + slickMoveX * slideMix;
+      const moveZ = mv.z * (1 - slideMix * 0.45) + slickMoveZ * slideMix;
+      const speedMultiplier = (controls.crouching ? 0.55 : controls.sprinting ? 1.45 : 1) * (run.inSlickZone && !controls.crouching ? 0.93 : 1);
       game.setInput({
-        moveX: mv.x,
-        moveZ: mv.z,
+        moveX,
+        moveZ,
         yaw: controls.yaw,
         jump: active ? controls.consumeJump() : false,
         speedMultiplier,
@@ -1327,21 +1695,27 @@ export async function createWalkScene(
       lastLocalZ = Transform.z[playerEid]!;
 
       if (localMoving) playerNoise += controls.crouching ? 0.1 : controls.sprinting ? 0.75 : 0.32;
+      if (run.inSlickZone && (localMoving || movingInput)) playerNoise += slick.amount * (controls.sprinting ? 0.34 : 0.15);
       if (run.flashlightOn) {
+        run.lightExposure = clamp(run.lightExposure + dt * LIGHT_EXPOSURE_GAIN, 0, 1);
+        run.darkSeconds = 0;
         run.battery = clamp(run.battery - dt * (controls.sprinting ? 2.9 : 1.8), 0, 100);
         if (run.battery <= 0) {
-          run.flashlightOn = false;
-          flashlight.setOn(false);
+          setFlashlightOn(false);
           flashStatus('battery empty', 2);
           playCue('door');
         }
+      } else {
+        run.lightExposure = clamp(run.lightExposure - dt * LIGHT_EXPOSURE_DECAY, 0, 1);
+        run.darkSeconds += dt;
       }
 
       const monsterDistance = dist2d(monster.pos, pos);
       const safeRoom = isSafeRoom(level, pos);
       run.resolve = clamp(
         run.resolve
-          + (safeRoom ? 4.2 : run.flashlightOn ? 0.55 : -0.4) * dt
+          + (safeRoom ? 4.2 : run.flashlightOn ? 0.55 : run.nearbyCrew > 0 ? 0.22 : -0.4) * dt
+          + (run.nearbyCrew > 0 && !run.flashlightOn ? 0.58 * dt : 0)
           - (monsterDistance < 8 ? (8 - monsterDistance) * 0.7 * dt : 0)
           - (monster.mode === 'chase' || monster.mode === 'attack' ? 2.2 * dt : 0),
         0,
@@ -1351,6 +1725,12 @@ export async function createWalkScene(
       collectPickups(pos);
       if (active && controls.consumeInteract()) playerNoise += handleInteract(pos);
       if (active && controls.consumeFire()) playerNoise += handleFire(pos);
+      run.soundPressure = clamp(run.soundPressure + playerNoise * 0.58 - dt * 0.42, 0, 1);
+      run.voiceLevel = voiceLevelFromNoise(playerNoise, run.soundPressure);
+      if (run.voiceLevel === 'scream' && !storyFlags.heardSoundWarning) {
+        storyFlags.heardSoundWarning = true;
+        radioSay('VESTA: Talk to survive. Whisper to hide. Scream and it comes hungry.');
+      }
 
       if (run.stage === 'holdout') {
         run.holdoutSeconds = Math.max(0, run.holdoutSeconds - dt);
@@ -1363,6 +1743,7 @@ export async function createWalkScene(
 
       updateMonster(dt, pos, playerNoise);
       updateTension(dt, pos);
+      updateScareDirector(dt, pos, playerNoise);
       syncRunToEcs();
       syncHudState();
     },
@@ -1373,6 +1754,7 @@ export async function createWalkScene(
       if (damageFlashEl) damageFlashEl.style.opacity = String(damageFlash * 0.82);
       encounterFlash = Math.max(0, encounterFlash - dt * 1.65);
       if (encounterFlashEl) encounterFlashEl.style.opacity = String(encounterFlash * (0.35 + run.tension / 180));
+      blackoutTimer = Math.max(0, blackoutTimer - dt);
       stunBeamTimer = Math.max(0, stunBeamTimer - dt);
       stunBeam.visible = stunBeamTimer > 0;
       stunBeamMat.opacity = Math.min(0.78, stunBeamTimer * 5.8);
@@ -1380,7 +1762,8 @@ export async function createWalkScene(
       monsterHitFlash = Math.max(0, monsterHitFlash - dt);
       monsterLungeTimer = Math.max(0, monsterLungeTimer - dt);
       const charge = commsCharge(run);
-      stationMat.emissiveIntensity = 0.85 + charge * 1.8 + (run.stage === 'holdout' ? Math.max(0, Math.sin(t * (7 + charge * 9))) * 0.65 : 0);
+      const blackoutDim = blackoutTimer > 0 ? 0.22 : 1;
+      stationMat.emissiveIntensity = (0.85 + charge * 1.8 + (run.stage === 'holdout' ? Math.max(0, Math.sin(t * (7 + charge * 9))) * 0.65 : 0)) * blackoutDim;
       for (const { door, mesh } of doorMeshes) {
         const open = isDoorUnlocked(door, run);
         mesh.position.y += (((open ? door.pos[1] + 2.5 : door.pos[1]) - mesh.position.y) * Math.min(1, dt * 8));
@@ -1396,8 +1779,6 @@ export async function createWalkScene(
         mesh.rotation.y += dt * 1.8;
         mesh.position.y = pickup.pos[1] + Math.sin(t * 3 + pickup.pos[0]) * 0.08;
       }
-      monsterRoot.position.copy(monster.pos);
-      monsterRoot.rotation.y = monster.yaw;
       const windupPulse = monster.attackWindup > 0 ? 1.1 + Math.sin(t * 28) * 0.045 : 1;
       const lungePulse = monsterLungeTimer > 0 ? 1.18 + monsterLungeTimer * 0.7 : 1;
       const monsterScale = monster.mode === 'stunned'
@@ -1405,7 +1786,25 @@ export async function createWalkScene(
         : monster.mode === 'chase'
           ? 1.04
           : windupPulse * lungePulse;
-      monsterRoot.scale.setScalar(monsterScale);
+      if (monsterUnit) {
+        monsterUnit.update(
+          {
+            x: monster.pos.x,
+            y: monster.pos.y,
+            z: monster.pos.z,
+            yaw: monster.yaw,
+            moving: monster.mode === 'chase' || monster.mode === 'investigate' || monster.mode === 'patrol',
+            attacking: monster.mode === 'attack' || monsterLungeTimer > 0,
+            stunned: monster.mode === 'stunned',
+            hitFlash: monsterHitFlash,
+          },
+          dt,
+        );
+      } else {
+        monsterRoot.position.copy(monster.pos);
+        monsterRoot.rotation.y = monster.yaw;
+        monsterRoot.scale.setScalar(monsterScale);
+      }
       monsterEyeMat.emissiveIntensity = monster.mode === 'attack'
         ? 3.3
         : monsterHitFlash > 0
@@ -1434,8 +1833,10 @@ export async function createWalkScene(
     dispose() {
       controls.dispose();
       localUnit?.dispose();
+      monsterUnit?.dispose();
       if (localUnit) scene.remove(localUnit.root);
       if (localUnitFill) scene.remove(localUnitFill);
+      if (monsterUnit) scene.remove(monsterUnit.root);
       for (const visual of remoteVisuals.values()) removeRemoteVisual(visual);
       for (const { mesh } of doorMeshes) {
         scene.remove(mesh);
@@ -1449,7 +1850,7 @@ export async function createWalkScene(
         scene.remove(mesh);
         mesh.geometry.dispose();
       }
-      scene.remove(monsterRoot);
+      if (!monsterUnit) scene.remove(monsterRoot);
       scene.remove(stunBeam);
       scene.remove(stunLight);
       monsterBody.geometry.dispose();
