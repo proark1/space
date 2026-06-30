@@ -54,7 +54,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
-import { FLOW, fadeIn, goNext } from './flow.js';
+import { FLOW, fadeIn, goNext, preloadNext } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene, loadManifestTexture } from './admincontent.js';
@@ -386,7 +386,9 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
 const roomNameEl=document.getElementById('roomName'), roomCodeEl=document.getElementById('roomCode'), roomSignalEl=document.getElementById('roomSignal');
 const createRoomBtn=document.getElementById('createRoom'), joinRoomBtn=document.getElementById('joinRoom'), copyInviteBtn=document.getElementById('copyInvite');
-boardLink.onclick=e=>{ e.preventDefault(); goNext('/pad?flow=1'); };   // board -> the launch sequence
+const PAD_FLOW_URL='/pad?flow=1&fast=1';
+preloadNext(PAD_FLOW_URL);
+boardLink.onclick=e=>{ e.preventDefault(); goNext(PAD_FLOW_URL); };   // board -> the launch sequence
 let phase='wait', doorOpen=0, seqT=0, flowBoarded=false;
 const DOOR_CLOSED_X=0.91, DOOR_SLIDE_X=1.68, DOOR_PASS_X=1.75;
 let localReady=false; const readyPeers=new Set();
@@ -449,7 +451,7 @@ function startSeq(fromRemote=false){
   if(!fromRemote && MULTI.code && !readinessInfo().allHumansReady){ statusEl.textContent='● WAITING FOR CONNECTED CREW TO READY UP'; updateRoomStatus(); return; }
   if(!fromRemote && MULTI.code) MULTI.broadcastTask('lobby-start',{});
   phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY';
-  if(FLOW&&AUTO_START){ setTimeout(()=>{ if(flowBoarded)return; flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); },7600); }
+  if(FLOW&&AUTO_START){ setTimeout(()=>{ if(flowBoarded)return; flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext(PAD_FLOW_URL); },7600); }
 }
 startBtn.onclick=()=>startSeq();
 if(AUTO_START) setTimeout(startSeq,900);
@@ -500,7 +502,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   else { camera.position.set(pos.x - fx*BACK, EYE+0.9, pos.z - fz*BACK); player.visible=true; }
   camera.rotation.set(pitch,yaw,0);
   // walk through the open door → board
-  if(pos.z<-7.6){ goNext('/pad?flow=1'); }   // walked through the hatch -> launch sequence
+  if(pos.z<-7.6){ goNext(PAD_FLOW_URL); }   // walked through the hatch -> launch sequence
   // --- host-start: doors open, AI crew run aboard ---
   if(phase==='open'){ doorOpen=Math.min(1,doorOpen+dt*(FLOW&&AUTO_START?1.8:0.7)); doorL.position.x=-DOOR_CLOSED_X-doorOpen*DOOR_SLIDE_X; doorR.position.x=DOOR_CLOSED_X+doorOpen*DOOR_SLIDE_X;
     if(doorOpen>=1){ phase='walk'; seqT=0; statusEl.textContent='● DOORS OPEN — WALK TO THE HATCH TO BOARD'; boardLink.style.display='inline-block'; } }
@@ -508,7 +510,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     for(const a of aiCrew){ const lt=Math.max(0,seqT-a.delay), k=Math.min(1,lt/2.4);
       const p=a.from.clone().lerp(a.to,k*k*(3-2*k)); a.a.position.set(p.x,Math.abs(Math.sin(lt*7))*0.06*(k<1?1:0),p.z);
       if(k>0.01){ const d=a.to.clone().sub(a.from); a.a.rotation.y=Math.atan2(d.x,d.z); } a.a.visible=k<0.99; }
-    if(FLOW&&AUTO_START&&!flowBoarded&&seqT>2.2){ flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); }
+    if(FLOW&&AUTO_START&&!flowBoarded&&seqT>2.2){ flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext(PAD_FLOW_URL); }
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }

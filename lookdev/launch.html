@@ -40,7 +40,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
-import { FLOW, fadeIn, goNext } from './flow.js';
+import { FLOW, fadeIn, goNext, preloadNext } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { buildApproachDockFaceZ } from './station_parts.js';
@@ -55,7 +55,9 @@ const scene=new THREE.Scene(); scene.background=new THREE.Color(0x03050b);
 scene.fog=new THREE.FogExp2(0x05080f,0.0010);
 const camera=new THREE.PerspectiveCamera(62,1,0.04,8000);
 camera.rotation.order='YXZ'; camera.position.set(0,0.02,0.85);   // YOU sit in the back seat of the ring
-const FLOW_FAST=new URLSearchParams(location.search).get('fast')==='1';
+const FLOW_FAST=FLOW || new URLSearchParams(location.search).get('fast')==='1';
+const NEXT_SCENE='/dock?flow=1&auto=1';
+preloadNext(NEXT_SCENE);
 const CREW_SLOTS=buildCrewSlots({search: location.search});
 const ACTIVE_CREW=CREW_SLOTS.slice(1);
 const CREW_SUMMARY=crewSummary(CREW_SLOTS);
@@ -292,7 +294,7 @@ freeFloatingCrewmate(ACTIVE_CREW[1].accent,ACTIVE_CREW[1].tone);         // engi
 const statEl=document.getElementById('stat');
 const lerp=(a,b,k)=>a+(b-a)*k;
 const ease=k=>k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
-const clock=new THREE.Clock(); const LOOP=FLOW_FAST?22:46;
+const clock=new THREE.Clock(); const LOOP=FLOW_FAST?20:46;
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   if(standing){
     const s=Math.sin(yaw), c=Math.cos(yaw), fx=-s, fz=-c, rx=c, rz=-s;
@@ -310,7 +312,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   camera.rotation.y=yaw; camera.rotation.x=pitch;
   MULTI.publishPose({x:0,y:0,z:0,yaw,hidden:false});
   const tt=(t%LOOP)/LOOP, e=ease(tt);
-  if(FLOW && tt>0.96){ goNext('/dock?flow=1'); }   // flow: final approach -> manual docking
+  if(FLOW && tt>0.94){ goNext(NEXT_SCENE); }   // flow: final approach -> auto-dock and board
   // Earth recedes, shrinks, drifts to the window's edge
   earth.position.set(lerp(-26,-78,e), lerp(-12,-22,e), lerp(-92,-320,e));
   earth.scale.setScalar(lerp(1.0,0.42,e)); earthBall.rotation.y+=dt*0.012;

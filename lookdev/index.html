@@ -216,6 +216,15 @@ function framedArt(id,label,w,h,x,y,z,rx=0,ry=0,color='#9FD0FF',glow=0.34){
 // ---------- corridor ----------
 const LEN=70, W=3.6, H=3.2, COMMAND_W=6.4;
 const BASE_MIN_X=-W/2+0.4, BASE_MAX_X=W/2-0.4, WALK_MIN_Z=-LEN-6, WALK_MAX_Z=-0.6;
+const DECK_GAP=4.45;
+const DECKS={
+  '-1':{name:'DECK 00 CARGO / REACTOR',short:'DECK 00'},
+  '0':{name:'DECK 01 COMMAND SPINE',short:'DECK 01'},
+  '1':{name:'DECK 02 LAB / OBSERVATION',short:'DECK 02'}
+};
+let activeDeck=0;
+const deckY=()=>activeDeck*DECK_GAP;
+const deckName=level=>(DECKS[String(level)]||DECKS['0']).name;
 const SIDE_ROUTES=[
   {id:'engineering loop',label:'ENG LOOP',color:'cyan',side:1,xMin:W/2-0.18,xMax:W/2+5.2,zMin:-23.2,zMax:-8.2,doors:[{zMin:-14.8,zMax:-9.2},{zMin:-23.0,zMax:-18.4}]},
   {id:'medical bay',label:'MED BAY',color:'amber',side:-1,xMin:-W/2-4.8,xMax:-W/2+0.18,zMin:-21.2,zMax:-9.4,doors:[{zMin:-16.4,zMax:-10.6}]},
@@ -257,6 +266,7 @@ function makeLocker(side,z,label){
   decal(sign('HIDE','#9FD0FF'),0.42,0.2,doorX-side*0.05,2.15,z,0,side>0?-Math.PI/2:Math.PI/2);
   hideSpots.push({
     label,
+    deck:0,
     side,
     pos:new THREE.Vector3(side*(W/2-0.72),1.32,z),
     exit:new THREE.Vector3(side*(W/2-1.05),1.6,z+0.45),
@@ -286,14 +296,112 @@ function makeSideRoute(route,label,color){
   for(const d of route.doors){
     const dz=(d.zMin+d.zMax)/2;
     const doorX=route.side*W/2;
+    const span=d.zMax-d.zMin;
+    const insetX=doorX-route.side*0.24;
     box(0.2,2.82,d.zMax-d.zMin,C.pipe,doorX,H/2,dz);
+    box(0.18,0.34,span+0.42,C.wall2,insetX,2.78,dz);
+    box(0.18,0.16,span+0.36,C.pipe,insetX,0.1,dz);
+    box(0.2,2.34,0.58,C.wall2,insetX,1.32,d.zMin+0.32);
+    box(0.2,2.34,0.58,C.wall2,insetX,1.32,d.zMax-0.32);
+    box(0.08,2.12,0.08,lightMat,doorX-route.side*0.18,1.36,d.zMin+0.72);
+    box(0.08,2.12,0.08,lightMat,doorX-route.side*0.18,1.36,d.zMax-0.72);
+    box(0.06,0.7,0.38,C.red,doorX-route.side*0.4,1.28,dz);
     box(0.14,0.08,d.zMax-d.zMin,lightMat,doorX-route.side*0.35,0.2,dz);
     box(0.12,0.95,0.18,lightMat,doorX-route.side*0.12,1.55,d.zMax-0.12);
     box(0.12,0.95,0.18,lightMat,doorX-route.side*0.12,1.55,d.zMin+0.12);
+    decal(sign('OPEN',signColor),0.44,0.2,doorX-route.side*0.42,1.82,dz,0,route.side>0?-Math.PI/2:Math.PI/2);
     decal(sign(label,signColor),0.8,0.34,doorX-route.side*0.12,2.42,dz,0,route.side>0?-Math.PI/2:Math.PI/2);
   }
 }
 SIDE_ROUTES.forEach(route=>makeSideRoute(route,route.label,route.color));
+function deckBox(deck,w,h,d,m,x,y,z,rx=0,ry=0,rz=0){ return box(w,h,d,m,x,y+deck*DECK_GAP,z,rx,ry,rz); }
+function deckDecal(deck,t,w,h,x,y,z,rx=0,ry=0){ return decal(t,w,h,x,y+deck*DECK_GAP,z,rx,ry); }
+function deckWallSegment(deck,side,zA,zB){
+  const len=Math.abs(zA-zB);
+  if(len<0.2)return;
+  deckBox(deck,0.18,H,len,C.wall,side*W/2,H/2,(zA+zB)/2);
+}
+function deckSideWall(deck,side,openings){
+  let cursor=0;
+  const ordered=[...openings].sort((a,b)=>b.zMax-a.zMax);
+  for(const o of ordered){
+    deckWallSegment(deck,side,cursor,o.zMax);
+    cursor=o.zMin;
+  }
+  deckWallSegment(deck,side,cursor,-LEN);
+}
+function makeDeckRoute(deck,route,label,color){
+  const cx=(route.xMin+route.xMax)/2, cz=(route.zMin+route.zMax)/2;
+  const rw=route.xMax-route.xMin, rz=route.zMax-route.zMin;
+  const lightMat=color==='amber'?C.amber:C.cyan;
+  const signColor=color==='amber'?'#E8A33D':'#9FD0FF';
+  deckBox(deck,rw,0.16,rz,C.floor,cx,0,cz);
+  deckBox(deck,rw,0.16,rz,C.ceil,cx,H,cz);
+  deckBox(deck,0.16,H,rz,C.wall,route.side>0?route.xMax:route.xMin,H/2,cz);
+  deckBox(deck,rw,H,0.16,C.wall2,cx,H/2,route.zMin);
+  deckBox(deck,rw,H,0.16,C.wall2,cx,H/2,route.zMax);
+  for(let z=route.zMax-1.8;z>route.zMin+1.1;z-=3.4){
+    deckBox(deck,0.72,0.06,0.42,lightMat,cx,H-0.42,z);
+    const pl=new THREE.PointLight(color==='amber'?0xE8A33D:0x9FD0FF,color==='amber'?1.9:1.2,5.2,1.5);
+    pl.position.set(cx,deck*DECK_GAP+H-0.66,z); world.add(pl); lamps.push(pl);
+  }
+  for(const d of route.doors){
+    const dz=(d.zMin+d.zMax)/2, doorX=route.side*W/2, span=d.zMax-d.zMin;
+    deckBox(deck,0.2,2.72,span,C.pipe,doorX,H/2,dz);
+    deckBox(deck,0.18,0.3,span+0.36,C.wall2,doorX-route.side*0.22,2.74,dz);
+    deckBox(deck,0.18,2.16,0.54,C.wall2,doorX-route.side*0.22,1.28,d.zMin+0.3);
+    deckBox(deck,0.18,2.16,0.54,C.wall2,doorX-route.side*0.22,1.28,d.zMax-0.3);
+    deckBox(deck,0.1,1.52,0.12,lightMat,doorX-route.side*0.14,1.45,d.zMin+0.72);
+    deckBox(deck,0.1,1.52,0.12,lightMat,doorX-route.side*0.14,1.45,d.zMax-0.72);
+    deckDecal(deck,sign(label,signColor),0.74,0.32,doorX-route.side*0.12,2.36,dz,0,route.side>0?-Math.PI/2:Math.PI/2);
+  }
+}
+function buildDeck(deck,label,color){
+  const lightMat=color==='amber'?C.amber:C.cyan;
+  const signColor=color==='amber'?'#E8A33D':'#9FD0FF';
+  deckBox(deck,W,0.18,LEN,C.floor,0,0,-LEN/2);
+  deckBox(deck,W,0.18,LEN,C.ceil,0,H,-LEN/2);
+  deckSideWall(deck,-1,SIDE_ROUTES.filter(r=>r.side<0).flatMap(r=>r.doors));
+  deckSideWall(deck,1,SIDE_ROUTES.filter(r=>r.side>0).flatMap(r=>r.doors));
+  deckBox(deck,W,H,0.24,C.wall2,0,H/2,0.08);
+  deckBox(deck,W,H,0.24,C.wall2,0,H/2,-LEN-0.08);
+  deckDecal(deck,sign(label,signColor),1.1,0.42,0,2.48,-1.2,0,Math.PI);
+  SIDE_ROUTES.forEach(route=>makeDeckRoute(deck,route,deck>0?(route.side>0?'LAB RUN':'OBSERV'):(route.side>0?'CARGO':'REACTOR'),color));
+  for(let i=0;i<Math.ceil(LEN/5);i++){
+    const z=-3-i*5;
+    deckBox(deck,0.22,H,0.46,C.wall2,-W/2+0.12,H/2,z);
+    deckBox(deck,0.22,H,0.46,C.wall2,W/2-0.12,H/2,z);
+    deckBox(deck,0.9,0.06,0.45,lightMat,0,H-0.38,z+1.6);
+  }
+}
+buildDeck(1,'DECK 02 LABS','cyan');
+buildDeck(-1,'DECK 00 CARGO','amber');
+function makeLift(deck,x,z,label,color='cyan'){
+  const lightMat=color==='amber'?C.amber:C.cyan;
+  deckBox(deck,1.28,0.18,1.28,C.pipe,x,0.16,z);
+  deckBox(deck,1.35,2.6,0.18,C.wall2,x,1.3,z+0.68);
+  deckBox(deck,0.18,2.6,1.35,C.wall2,x-0.66,1.3,z);
+  deckBox(deck,0.18,2.6,1.35,C.wall2,x+0.66,1.3,z);
+  deckBox(deck,1.0,0.08,1.0,lightMat,x,2.48,z);
+  deckBox(deck,0.62,0.46,0.08,lightMat,x,1.45,z+0.58);
+  deckDecal(deck,sign(label,color==='amber'?'#E8A33D':'#9FD0FF'),0.82,0.3,x,2.82,z+0.59,0,Math.PI);
+}
+makeLift(0,-W/2-3.35,-18.4,'LIFT 02','cyan');
+makeLift(1,-W/2-3.35,-18.4,'LIFT 01','cyan');
+makeLift(0,W/2+3.45,-40.2,'LIFT 00','amber');
+makeLift(-1,W/2+3.45,-40.2,'LIFT 01','amber');
+deckBox(1,1.2,0.5,1.2,C.crate,-W/2-3.35,0.48,-13.4,0,0.2,0);
+deckBox(1,0.82,0.6,0.12,C.cyan,-W/2-3.65,1.38,-13.3,0,0.12,0);
+deckDecal(1,sign('SPECIMEN','#9FD0FF'),0.74,0.28,-W/2-3.85,1.8,-13.25,0,0.12);
+deckBox(1,1.45,0.28,2.2,C.pipe,W/2+3.58,0.74,-55.2,0,0.18,0);
+deckBox(1,0.9,0.64,0.1,C.cyan,W/2+4.26,1.48,-55.7,0,-0.25,0);
+deckDecal(1,sign('ORBITAL MAP','#9FD0FF'),0.82,0.28,W/2+4.62,1.76,-55.6,0,-0.25);
+deckBox(-1,1.5,0.72,1.1,C.crate,W/2+3.4,0.5,-34.4,0,0.45,0);
+deckBox(-1,0.86,0.58,0.12,C.amber,W/2+4.05,1.35,-34.1,0,-0.35,0);
+deckDecal(-1,sign('CARGO TAG','#E8A33D'),0.72,0.28,W/2+4.38,1.68,-34.0,0,-0.35);
+deckBox(-1,1.2,1.2,1.2,C.rust,-W/2-3.0,0.7,-60.4,0,0.2,0);
+deckBox(-1,0.74,0.48,0.1,C.red,-W/2-3.62,1.36,-60.1,0,0.24,0);
+deckDecal(-1,sign('REACTOR NEST','#ff6a5a'),0.82,0.3,-W/2-3.98,1.72,-60.0,0,0.24);
 // Branch-room dressing: these are not just holes in the spine; each route has readable purpose.
 box(1.45,0.9,1.1,C.crate,W/2+3.75,0.55,-12.5,0,0.25,0);
 box(1.0,0.18,1.5,C.pipe,W/2+4.25,1.08,-15.4,0,0.12,0);
@@ -543,7 +651,7 @@ buildLeg(-1); buildLeg(1);
 mp(new THREE.ConeGeometry(0.055,0.27,6), mClaw, 0,0.48,-0.68, 1.18);  // tail blade
 
 const MOB_SCALE=1.28;
-mob.position.set(0.5,0,-LEN-4.6); mob.scale.setScalar(MOB_SCALE); scene.add(mob);
+mob.position.set(0.5,deckY(),-LEN-4.6); mob.scale.setScalar(MOB_SCALE); scene.add(mob);
 const echoThreats=[];
 function makeEchoThreat(x,z){
   const g=new THREE.Group(); g.position.set(x,0,z); g.visible=false; scene.add(g);
@@ -555,6 +663,26 @@ function makeEchoThreat(x,z){
 }
 makeEchoThreat(-W/2-3.7,-49.2);
 makeEchoThreat(W/2+3.9,-62.4);
+const minorThreats=[];
+function makeMinorThreat(deck,type,x,z){
+  const g=new THREE.Group(); g.position.set(x,deck*DECK_GAP,z); g.visible=false; scene.add(g);
+  const glow=type==='warden'?throatMat:mFlesh;
+  if(type==='skitter'){
+    mp(new THREE.CapsuleGeometry(0.12,0.55,6,10),mMat,0,0.45,0,Math.PI/2,0,0,[1.2,0.72,0.72],g);
+    mp(new THREE.SphereGeometry(0.13,10,8),mFlesh,0,0.56,0.34,0,0,0,[1.1,0.7,1.35],g);
+    for(const side of [-1,1]) for(let i=0;i<3;i++) mp(new THREE.CapsuleGeometry(0.026,0.42,4,8),mMat,0.15*side,0.34,0.05+i*0.16,0.9,0,side*(0.65+i*0.25),1,g);
+    mp(new THREE.SphereGeometry(0.03,8,8),throatMat,-0.05,0.62,0.52,0,0,0,1,g);
+    mp(new THREE.SphereGeometry(0.03,8,8),throatMat,0.05,0.62,0.52,0,0,0,1,g);
+  } else {
+    mp(new THREE.CapsuleGeometry(0.16,0.72,8,12),mMat,0,1.05,0,0.2,0,0,[0.72,1.35,0.72],g);
+    mp(new THREE.SphereGeometry(0.18,12,10),mMat,0,1.64,0.12,0.25,0,0,[0.72,0.62,1.55],g);
+    mp(new THREE.TorusGeometry(0.34,0.018,6,24),glow,0,1.52,0.16,Math.PI/2,0,0,1,g);
+    for(let i=0;i<5;i++) mtube([new THREE.Vector3(0,0.86,0),new THREE.Vector3((i-2)*0.09,0.38,-0.12),new THREE.Vector3((i-2)*0.16,0.08,0.06)],0.014,g,mMat);
+  }
+  minorThreats.push({deck,type,root:g,baseX:x,baseZ:z,phase:Math.random()*9,lastScare:0});
+}
+makeMinorThreat(1,'warden',W/2+3.8,-55.8);
+makeMinorThreat(-1,'skitter',-W/2-3.5,-60.4);
 const adminColliderViz=new THREE.Mesh(
   new THREE.CylinderGeometry(1,1,1,32,1,true),
   new THREE.MeshBasicMaterial({color:0x36e0d0,transparent:true,opacity:0.22,wireframe:true,depthWrite:false})
@@ -688,7 +816,7 @@ const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
 const setObj=t=>{ objEl.textContent=t; };
 setObj('READ MOTION TRACE · FIND COMMAND ROUTE');
 let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, crewHideIssuedAt=0, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0,jumpQueued=false,jumpY=0,jumpV=0;
-const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,quarters:false,relay:false,bridge:false,command:false};
+const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,quarters:false,relay:false,bridge:false,command:false,lab:false,cargo:false};
 const sideDone=new Set();
 const REQUIRED_INTEL=['motion','badge','comms-uplink'];
 const INTEL_LABELS={
@@ -747,10 +875,41 @@ if(SHOWCASE==='monster'){
 function nearestHide(max=1.35){
   let best=null, bd=max;
   for(const h of hideSpots){
+    if((h.deck||0)!==activeDeck)continue;
     const d=Math.hypot(camera.position.x-h.exit.x,camera.position.z-h.exit.z);
     if(d<bd){ best=h; bd=d; }
   }
   return best;
+}
+const DECK_LIFTS=[
+  {id:'lift-lab-up',deck:0,target:1,pos:new THREE.Vector3(-W/2-3.35,1.45,-18.4),exit:{x:-W/2-3.1,z:-18.4},prompt:'[E] TAKE LIFT TO DECK 02 LABS',line:'lift is taking us above the command spine.'},
+  {id:'lift-lab-down',deck:1,target:0,pos:new THREE.Vector3(-W/2-3.35,1.45,-18.4),exit:{x:-W/2-3.1,z:-18.4},prompt:'[E] RETURN TO DECK 01',line:'back to the command spine.'},
+  {id:'lift-cargo-down',deck:0,target:-1,pos:new THREE.Vector3(W/2+3.45,1.45,-40.2),exit:{x:W/2+3.08,z:-40.2},prompt:'[E] TAKE LIFT TO DECK 00 CARGO',line:'cargo deck below us. keep your light up.'},
+  {id:'lift-cargo-up',deck:-1,target:0,pos:new THREE.Vector3(W/2+3.45,1.45,-40.2),exit:{x:W/2+3.08,z:-40.2},prompt:'[E] RETURN TO DECK 01',line:'back up to deck one.'}
+];
+function nearestDeckLift(max=1.55){
+  let best=null, bd=max;
+  for(const lift of DECK_LIFTS){
+    if(lift.deck!==activeDeck)continue;
+    const d=Math.hypot(camera.position.x-lift.pos.x,camera.position.z-lift.pos.z);
+    if(d<bd){best=lift; bd=d;}
+  }
+  return best;
+}
+function useDeckLift(lift){
+  activeDeck=lift.target;
+  camera.position.set(lift.exit.x,deckY()+1.6,lift.exit.z);
+  mob.position.y=deckY();
+  lightStun=Math.max(lightStun,0.18);
+  shake=Math.max(shake,0.22);
+  if(!playClip('sfx-door',0.72)) click();
+  setObj(deckName(activeDeck)+' · '+preCommandObjective());
+  if(activeDeck!==0){
+    director.hear(new THREE.Vector3(camera.position.x,deckY(),camera.position.z),24,'deck-lift');
+    showEchoThreat(activeDeck>0?0:1,new THREE.Vector3(camera.position.x,deckY(),camera.position.z-2.4),1.7);
+  }
+  say(crewSayLine(activeDeck>0?1:2,lift.line),2.6);
+  broadcastRoomState(true);
 }
 const SIDE_INTERACTS=[
   {id:'motion',pos:new THREE.Vector3(-W/2+0.45,1.55,-16),r:1.55,prompt:'[E] READ MOTION TRACE',noise:38,line:'motion trace says five people are moving. I hate the math.',scr:['> MOTION TRACE','> crew: 4','> moving: 5','> one is above you']},
@@ -761,11 +920,16 @@ const SIDE_INTERACTS=[
   {id:'bypass-map',pos:new THREE.Vector3(W/2+3.0,1.35,-39.2),r:1.45,prompt:'[E] DOWNLOAD BYPASS MAP',noise:24,line:'maintenance map shows a bypass around the main corridor. it also marks something moving in it.',scr:['> MAINTENANCE BYPASS','> route: command side','> pressure doors: manual','> motion trace: inside route']},
   {id:'archive',pos:new THREE.Vector3(-W/2-2.78,1.1,-33.2),r:1.45,prompt:'[E] SEARCH CREW ARCHIVE',noise:32,line:'crew archive says the final order was to weld the transmitter room shut.',scr:['> CREW ARCHIVE','> final order: silence','> transmitter locked','> command deck sealed']},
   {id:'quarters-log',pos:new THREE.Vector3(-W/2-4.52,1.45,-48.9),r:1.55,prompt:'[E] OPEN BUNK LOG',noise:30,line:'bunk log says command sealed itself after hearing a rescue call from inside the ship.',scr:['> CREW QUARTERS','> bunks occupied: 0','> last note: do not answer','> command sealed']},
-  {id:'comms-uplink',pos:new THREE.Vector3(W/2+4.42,1.48,-61.1),r:1.65,prompt:'[E] ALIGN COMMS UPLINK',noise:40,line:'comms uplink aligned. command center should accept the recovered badge and trace.',scr:['> COMMS UPLINK','> dish: aligned','> captain badge: accepted','> motion trace: bound','> command lock: ready']}
+  {id:'comms-uplink',pos:new THREE.Vector3(W/2+4.42,1.48,-61.1),r:1.65,prompt:'[E] ALIGN COMMS UPLINK',noise:40,line:'comms uplink aligned. command center should accept the recovered badge and trace.',scr:['> COMMS UPLINK','> dish: aligned','> captain badge: accepted','> motion trace: bound','> command lock: ready']},
+  {id:'lab-specimen',deck:1,pos:new THREE.Vector3(-W/2-3.65,1.38,-13.3),r:1.55,prompt:'[E] SCAN LAB SPECIMEN',noise:34,line:'lab scan says the chorus learned to grow limbs from radio noise.',scr:['> BIO LAB SPECIMEN','> tissue: synthetic','> audio-reactive: yes','> containment: failed']},
+  {id:'orbital-map',deck:1,pos:new THREE.Vector3(W/2+4.26,1.48,-55.7),r:1.65,prompt:'[E] COPY ORBITAL MAP',noise:28,line:'orbital map shows three decks and one blind service shaft under command.',scr:['> ORBITAL MAP','> deck 02: lab / glass','> deck 01: command','> deck 00: cargo / reactor']},
+  {id:'cargo-tag',deck:-1,pos:new THREE.Vector3(W/2+4.05,1.35,-34.1),r:1.55,prompt:'[E] PULL CARGO TAG',noise:30,line:'cargo tag says the first distress beacon was loaded here, not found here.',scr:['> CARGO TAG','> payload: distress beacon','> origin: unknown','> destination: command']},
+  {id:'reactor-nest',deck:-1,pos:new THREE.Vector3(-W/2-3.62,1.36,-60.1),r:1.65,prompt:'[E] SAMPLE REACTOR NEST',noise:48,line:'reactor nest is warm. something has been sleeping in the coolant shadow.',scr:['> REACTOR NEST','> heat: fresh','> teeth: not engineering','> movement: below floor']}
 ];
 function nearestSideInteract(max=1.55){
   let best=null, bd=max;
   for(const item of SIDE_INTERACTS){
+    if((item.deck||0)!==activeDeck)continue;
     if(sideDone.has(item.id))continue;
     const d=Math.hypot(camera.position.x-item.pos.x,camera.position.z-item.pos.z);
     if(d<bd){best=item; bd=d;}
@@ -774,7 +938,7 @@ function nearestSideInteract(max=1.55){
 }
 function clampToStation(p,margin=0.4){
   let minX=-W/2+margin, maxX=W/2-margin, minZ=WALK_MIN_Z, maxZ=WALK_MAX_Z;
-  if(p.z<=-LEN+0.2){
+  if(activeDeck===0 && p.z<=-LEN+0.2){
     minX=-COMMAND_W/2+margin;
     maxX=COMMAND_W/2-margin;
   }
@@ -811,7 +975,8 @@ function useSideInteract(item){
   if(item.id==='motion'||(item.id==='badge'&&RUN_VARIANT===2)) scareBeat(item.id==='motion'?'vent':'voice');
   if(item.id==='quarters-log') showEchoThreat(0,item.pos,2.2);
   if(item.id==='comms-uplink') showEchoThreat(1,item.pos,2.6);
-  updatePreCommandObjective();
+  if(item.id==='badge'&&!restored) setObj('CAPTAIN BADGE RECOVERED · BRING IT TO COMMAND');
+  else updatePreCommandObjective();
   broadcastRoomState(true);
   say(crewSayLine(item.id==='badge'?0:item.id==='relay'?1:2,item.line),3.0);
 }
@@ -855,7 +1020,7 @@ function finishBreaker(){
 function startValve(){
   valveFixing=true; valveT=0; noisyUntil=performance.now()+5200; mActive=true; shake=0.32; lightStun=0.35; spendSilence(0.35);
   if(!playClip('sfx-steam',0.9)) burst(0.5,1800,0.5,0.3,'highpass');
-  mob.position.set(camera.position.x,0,camera.position.z-8.5);
+  mob.position.set(camera.position.x,deckY(),camera.position.z-8.5);
   SCRL=['> COOLANT LEAK','> MANUAL VALVE','> steam: toxic','> noise: extremely yes']; scrScroll=0; drawScreen();
   setObj('SEALING COOLANT LEAK · HOLD THE VALVE');
   director.hear(VALVE,55,'coolant');
@@ -882,6 +1047,8 @@ function tryInteract(){
   if(hidden){ exitHide(); return; }
   const h=nearestHide();
   if(h && (mActive||enraged||transmitting)){ enterHide(h); return; }
+  const lift=nearestDeckLift();
+  if(lift){ if(!isRoomHost()){ sendIntent('lift',{id:lift.id}); return; } useDeckLift(lift); return; }
   const side=nearestSideInteract();
   if(side){ if(!isRoomHost()){ sendIntent('side',{id:side.id}); return; } useSideInteract(side); return; }
   if(needValve && !valveDone && camera.position.distanceTo(VALVE)<2.0){ if(!isRoomHost()){ sendIntent('valve'); return; } startValve(); return; }
@@ -910,7 +1077,7 @@ function recoverRecordings(){ restored=true; restoredAt=performance.now(); ready
   setTimeout(()=>{ if(!restored||caught||won)return; say('<b>STATION LOG</b>: day 42. if it says it is rescue, do not open the door.',4.0); },2200);
   setTimeout(()=>{ if(!restored||caught||won)return; setObj('LISTEN TO FINAL RECORDINGS · HOLD POSITION'); say(crewSayLine(1,'tiny note, the console is begging us not to press send.'),3.3); },4300);
   setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; needValve=true; flashOn=true; lightStun=0.18; setObj('SEAL COOLANT LEAK IN AFT SERVICE'); SCRL=['> COOLANT LEAK DETECTED','> PAYLOAD: FINAL LOGS','> AUX POWER LOCKED','> AFT SERVICE VALVE','> station says no','> mission says yes']; scrScroll=0; drawScreen(); broadcastRoomState(true); },6200);
-  setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; enraged=true; shake=0.75; director.hear(camera.position,70,'recordings'); if(!playClip('vox-chorus-1',1.0)&&!playClip('vox-chorus-2',1.0)) sting(); setObj(breakerDone||readyToSend?'RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH':valveDone?'IT HEARD THE RECORDINGS · REROUTE POWER':'IT HEARD THE RECORDINGS · SEAL COOLANT LEAK'); mob.position.set(camera.position.x,0,camera.position.z-11.0); say(crewSayLine(2,'that was behind us. that was absolutely behind us.'),3.2); broadcastRoomState(true); },7600);
+  setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; enraged=true; shake=0.75; director.hear(camera.position,70,'recordings'); if(!playClip('vox-chorus-1',1.0)&&!playClip('vox-chorus-2',1.0)) sting(); setObj(breakerDone||readyToSend?'RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH':valveDone?'IT HEARD THE RECORDINGS · REROUTE POWER':'IT HEARD THE RECORDINGS · SEAL COOLANT LEAK'); mob.position.set(camera.position.x,deckY(),camera.position.z-11.0); say(crewSayLine(2,'that was behind us. that was absolutely behind us.'),3.2); broadcastRoomState(true); },7600);
 }
 function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=false; enraged=true; transmitStart=performance.now(); lightFactor=0.12; shake=0.5; flashOn=true; spendSilence(0.4); if(!playClip('sfx-transmit-scream',0.8)&&!playClip('crt-call',0.9)) click(); playClip('vox-control-brief',0.72);
   SCRL=['> TRANSMITTING TO EARTH','> 00%','> do not listen','> hold channel','> hold channel','> hold channel']; scrScroll=0; drawScreen();
@@ -922,14 +1089,14 @@ function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=fal
   say(crewSayLine(0,'I am holding the hatch. please make that button worth it.'),3.4);
 }
 function die(){ if(caught||won) return; caught=true; if(lockerBreathNode){ try{ lockerBreathNode.stop(); }catch(e){} lockerBreathNode=null; } sting(); shake=1.3; lightStun=0.5; if(!playClip3D('crt-lunge',mob.position,1.0)) playClip3D('crt-shriek',mob.position,1.0);
-  mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
+  mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=deckY()+0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); broadcastRoomState(true); }
-function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; hiddenAt=0; activeHide=null; crewHideIssuedAt=0; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0;
+function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; hiddenAt=0; activeHide=null; crewHideIssuedAt=0; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; activeDeck=0; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0;
   Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
   sideDone.clear();
   overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; crewTalkEl.style.opacity='0'; setObj(preCommandObjective());
   if(SHOWCASE!=='monster'){ ui.style.display='flex'; cross.style.display='none'; }
-  camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.setScalar(MOB_SCALE); mThroat.material.emissiveIntensity=1; mGlow.intensity=0;
+  camera.position.set(0,deckY()+1.6,-1.5); mob.position.set(0.5,deckY(),-LEN-4.6); mob.visible=true; mob.scale.setScalar(MOB_SCALE); mThroat.material.emissiveIntensity=1; mGlow.intensity=0;
   valveStatus.material.emissive.setHex(0xff2b18); valveStatus.material.emissiveIntensity=2.3;
   director.reset();
   crewMates.forEach((c,i)=>{ c.hideTarget=null; c.hideTucked=false; c.root.position.set(c.slot*0.55,0,-0.3+i*0.58); c.root.rotation.y=Math.PI; c.root.visible=SHOWCASE!=='monster'; });
@@ -1010,7 +1177,7 @@ function roomSnapshot(){
   const transmitProgress=transmitting?Math.min(1,(performance.now()-transmitStart)/4300):0;
   return {
     rev:++roomStateRev,
-    restored,needValve,valveDone,valveFixing,valveT,needBreaker,breakerDone,breakerFixing,breakerT,
+    restored,needValve,valveDone,valveFixing,valveT,needBreaker,breakerDone,breakerFixing,breakerT,activeDeck,
     readyToSend,transmitting,transmitProgress,transmitWarned,enraged,mActive,caught,won,lightFactor,flashOn,
     sideDone:[...sideDone],
     objective:objEl.textContent,
@@ -1034,6 +1201,13 @@ function applyRoomState(state){
   roomStateRev=Number(state.rev)||roomStateRev;
   restored=!!state.restored; needValve=!!state.needValve; valveDone=!!state.valveDone; valveFixing=!!state.valveFixing; valveT=Number(state.valveT)||0;
   needBreaker=!!state.needBreaker; breakerDone=!!state.breakerDone; breakerFixing=!!state.breakerFixing; breakerT=Number(state.breakerT)||0;
+  if(Number.isFinite(Number(state.activeDeck))){
+    const nextDeck=Math.max(-1,Math.min(1,Math.round(Number(state.activeDeck))));
+    if(nextDeck!==activeDeck){
+      activeDeck=nextDeck;
+      camera.position.y=deckY()+1.6;
+    }
+  }
   readyToSend=!!state.readyToSend; transmitting=!!state.transmitting; transmitWarned=!!state.transmitWarned; enraged=!!state.enraged; mActive=!!state.mActive;
   lightFactor=Number.isFinite(Number(state.lightFactor))?Number(state.lightFactor):lightFactor; flashOn=!!state.flashOn;
   sideDone.clear(); for(const id of (Array.isArray(state.sideDone)?state.sideDone:[])) sideDone.add(id);
@@ -1060,6 +1234,9 @@ function applyHostIntent(payload,peerId=''){
   if(action==='side'){
     const item=SIDE_INTERACTS.find(s=>s.id===payload.id&&!sideDone.has(s.id));
     if(item) useSideInteract(item);
+  } else if(action==='lift'){
+    const lift=DECK_LIFTS.find(l=>l.id===payload.id&&l.deck===activeDeck);
+    if(lift) useDeckLift(lift);
   } else if(action==='valve' && needValve&&!valveDone&&!valveFixing) startValve();
   else if(action==='breaker' && needBreaker&&!breakerDone&&!breakerFixing) startBreaker();
   else if(action==='recordings' && !restored) recoverRecordings();
@@ -1078,10 +1255,11 @@ function showEchoThreat(index,pos,seconds=2.2){
   const e=echoThreats[index%echoThreats.length];
   if(!e)return;
   e.root.position.x=pos.x+(index%2?-0.8:0.8);
+  e.root.position.y=deckY();
   e.root.position.z=pos.z-1.6;
   e.root.visible=true;
   e.until=performance.now()+seconds*1000;
-  director.hear(new THREE.Vector3(e.root.position.x,0,e.root.position.z),32,'echo-threat');
+  director.hear(new THREE.Vector3(e.root.position.x,deckY(),e.root.position.z),32,'echo-threat');
   if(!playClip('sfx-whisper',0.75)) sting();
   scarePulseT=Math.max(scarePulseT,0.42);
   shake=Math.max(shake,0.42);
@@ -1089,18 +1267,49 @@ function showEchoThreat(index,pos,seconds=2.2){
 function updateEchoThreats(dt,t){
   for(const e of echoThreats){
     if(!e.root.visible)continue;
-    e.root.position.y=Math.sin(t*2.4+e.phase)*0.04;
+    e.root.position.y=deckY()+Math.sin(t*2.4+e.phase)*0.04;
     e.root.rotation.y=Math.sin(t*1.7+e.phase)*0.35;
     if(camera.position.distanceTo(e.root.position)<1.35) shake=Math.max(shake,0.65);
     if(performance.now()>e.until)e.root.visible=false;
   }
 }
+function updateMinorThreats(dt,t){
+  for(const threat of minorThreats){
+    const active=threat.deck===activeDeck && controls.isLocked && !caught && !won;
+    threat.root.visible=active;
+    if(!active)continue;
+    const y=threat.deck*DECK_GAP;
+    if(threat.type==='skitter'){
+      threat.root.position.x=threat.baseX+Math.sin(t*0.9+threat.phase)*0.45;
+      threat.root.position.y=y+Math.abs(Math.sin(t*5.6+threat.phase))*0.04;
+      threat.root.position.z=threat.baseZ+Math.cos(t*0.55+threat.phase)*1.2;
+      threat.root.rotation.y=Math.sin(t*1.2+threat.phase)*0.45;
+    } else {
+      threat.root.position.x=threat.baseX+Math.sin(t*0.38+threat.phase)*0.28;
+      threat.root.position.y=y+0.32+Math.sin(t*1.4+threat.phase)*0.1;
+      threat.root.position.z=threat.baseZ+Math.sin(t*0.6+threat.phase)*0.72;
+      threat.root.rotation.y=t*0.22+threat.phase;
+    }
+    const d=Math.hypot(camera.position.x-threat.root.position.x,camera.position.z-threat.root.position.z);
+    if(d<4.4 && performance.now()-threat.lastScare>5200){
+      threat.lastScare=performance.now();
+      scarePulseT=Math.max(scarePulseT,0.42);
+      shake=Math.max(shake,threat.type==='skitter'?0.36:0.5);
+      director.hear(new THREE.Vector3(threat.root.position.x,y,threat.root.position.z),threat.type==='skitter'?34:42,threat.type);
+      if(threat.type==='skitter') playClip3D('sfx-locker-breath',threat.root.position,0.42);
+      else if(!playClip3D('crt-mimic',threat.root.position,0.55)) playClip3D('sfx-whisper',threat.root.position,0.5);
+      say(crewSayLine(threat.type==='skitter'?2:1,threat.type==='skitter'?'something small just ran under the deck plates.':'lab deck has a floating one. absolutely not standard equipment.'),2.8);
+    }
+  }
+}
 function storyBeatCheck(){
   const z=camera.position.z;
+  if(activeDeck===1&&!storyBeats.lab){ storyBeats.lab=true; say('<b>VESTA</b>: Deck two lab telemetry is awake. It should not be awake.',3.2); }
+  if(activeDeck===-1&&!storyBeats.cargo){ storyBeats.cargo=true; say(crewSayLine(2,'cargo deck is below the coolant loop. I can hear it walking in the pipes.'),3.2); }
   if(!storyBeats.wet && z<-8){ storyBeats.wet=true; say(crewSayLine(2,'why is the floor wet in space?'),3.0); }
   if(!storyBeats.scratches && z<-18){ storyBeats.scratches=true; say(crewSayLine(1,'those scratches are on the inside of the panels.'),3.2); }
   if(!storyBeats.vent && z<-23){ storyBeats.vent=true; scareBeat('vent'); }
-  if(!storyBeats.voice && z<-27){ storyBeats.voice=true; director.hear(camera.position,45,'mimic'); noisyUntil=performance.now()+1800; mob.position.set(0,0,camera.position.z-8); scareBeat('voice'); }
+  if(!storyBeats.voice && z<-27){ storyBeats.voice=true; director.hear(camera.position,45,'mimic'); noisyUntil=performance.now()+1800; mob.position.set(0,deckY(),camera.position.z-8); scareBeat('voice'); }
   if(!storyBeats.body && z<-31){ storyBeats.body=true; say(crewSayLine(0,'nobody say "it left." that is how people die in briefings.'),3.8); }
   if(!storyBeats.quarters && z<-45){ storyBeats.quarters=true; showEchoThreat(0,new THREE.Vector3(-W/2-3.6,0,-49.2),2.4); say(crewSayLine(2,'something just crossed the bunks. nobody gets a top bunk anymore.'),3.0); }
   if(!storyBeats.relay && z<-56){ storyBeats.relay=true; playClip('sfx-klaxon',0.55); noisyUntil=performance.now()+2200; director.hear(camera.position,40,'relay-spine'); say('<b>VESTA</b>: Motion signatures are multiplying. That is not a sensor fault.',3.4); }
@@ -1117,7 +1326,7 @@ function updateCrew(dt,t,moving){
       root.position.x += (remotePose.x-root.position.x)*0.22;
       root.position.z += (remotePose.z-root.position.z)*0.22;
       root.rotation.y += (remotePose.yaw-root.rotation.y)*0.18;
-      root.position.y=Math.abs(Math.sin(t*7+c.phase))*0.025;
+      root.position.y=deckY()+Math.abs(Math.sin(t*7+c.phase))*0.025;
       animateAstronaut(root,Math.hypot(remotePose.x-root.position.x,remotePose.z-root.position.z)>0.035?'walk':'idle',t+c.phase,1);
       continue;
     }
@@ -1127,6 +1336,7 @@ function updateCrew(dt,t,moving){
       if(c.hideTucked){
         root.visible=false;
         root.position.x=h.pos.x;
+        root.position.y=deckY();
         root.position.z=h.pos.z;
         continue;
       }
@@ -1144,7 +1354,7 @@ function updateCrew(dt,t,moving){
         c.hideTucked=true;
         root.visible=false;
       }
-      root.position.y=Math.abs(Math.sin(t*9+c.phase))*0.025;
+      root.position.y=deckY()+Math.abs(Math.sin(t*9+c.phase))*0.025;
       animateAstronaut(root,d>0.08?'run':'idle',t+c.phase,1);
       continue;
     }
@@ -1161,7 +1371,7 @@ function updateCrew(dt,t,moving){
       root.position.z+=dz/d*Math.min(d,sp);
       root.rotation.y=Math.atan2(dx,dz);
     }
-    root.position.y=Math.abs(Math.sin(t*(panic?9:5)+c.phase))*0.035*(d>0.08?1:0.35);
+    root.position.y=deckY()+Math.abs(Math.sin(t*(panic?9:5)+c.phase))*0.035*(d>0.08?1:0.35);
     animateAstronaut(root, d>0.08?(panic?'run':'walk'):'idle', t+c.phase, 1);
   }
 }
@@ -1188,13 +1398,14 @@ function animate(){ requestAnimationFrame(animate);
   } else if(!canJump) {
     jumpY=0; jumpV=0;
   }
-  camera.position.y = hidden ? 1.32 : 1.6 + jumpY + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
+  camera.position.y = deckY() + (hidden ? 1.32 : 1.6 + jumpY + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012));
   stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip(running?'sfx-step-run':'sfx-step',running?0.42:0.35); }
   if(controls.isLocked && !caught && !won) storyBeatCheck();
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:camera.rotation.y,hidden});
   broadcastRoomState();
   updateCrew(dt,t,moving);
   updateEchoThreats(dt,t);
+  updateMinorThreats(dt,t);
   if(performance.now()>talkHideAt) crewTalkEl.style.opacity='0';
   if(breakerFixing){
     breakerT+=dt; shake=Math.max(shake,0.2+Math.sin(t*28)*0.08);
@@ -1229,7 +1440,7 @@ function animate(){ requestAnimationFrame(animate);
   scrLight.intensity = 1.5*(0.8+0.2*Math.sin(t*30));
 
   // dust + steam
-  dust.position.set(camera.position.x,0,camera.position.z);
+  dust.position.set(camera.position.x,deckY(),camera.position.z);
   const da=dgeo.attributes.position; for(let i=0;i<DN;i++){ let y=da.array[i*3+1]-dt*0.06; if(y<0)y+=H; da.array[i*3+1]=y; } da.needsUpdate=true;
   const sa=steam.o.geometry.attributes.position; for(let i=0;i<steam.n;i++){ let y=sa.array[i*3+1]+dt*0.25; if(y>H)y=1.6; sa.array[i*3+1]=y; } sa.needsUpdate=true;
 
@@ -1272,7 +1483,7 @@ function animate(){ requestAnimationFrame(animate);
     mob.position.x += (-ox/ol)*spd*dt; mob.position.z += (-oz/ol)*spd*dt;
     clampMonster(mob.position);
     mob.rotation.y += (Math.atan2(-ox,-oz)-mob.rotation.y)*0.12;
-    mob.position.y=Math.sin(t*1.4)*0.03;
+    mob.position.y=deckY()+Math.sin(t*1.4)*0.03;
     const pulse=frozen?0.12:(0.8+0.9*(Math.sin(t*5)*0.5+0.5));
     mThroat.material.emissiveIntensity = pulse;
     for(let i=0;i<bioStrips.length;i++) bioStrips[i].material.emissiveIntensity = pulse*(0.55+0.1*Math.sin(t*7+i));
@@ -1297,17 +1508,19 @@ function animate(){ requestAnimationFrame(animate);
   const nearValve=needValve&&!valveDone&&camera.position.distanceTo(VALVE)<2.0;
   const nearBreaker=needBreaker&&!breakerDone&&camera.position.distanceTo(BREAKER)<2.0;
   const hideSpot=nearestHide();
+  const liftSpot=nearestDeckLift();
   const sideSpot=nearestSideInteract();
   if(hidden) promptEl.textContent='[E] LEAVE LOCKER';
   else if(hideSpot&&(mActive||enraged||transmitting)) promptEl.textContent='[E] HIDE';
   else if(valveFixing) promptEl.textContent='SEALING COOLANT...';
   else if(breakerFixing) promptEl.textContent='REROUTING POWER...';
+  else if(liftSpot) promptEl.textContent=liftSpot.prompt;
   else if(sideSpot) promptEl.textContent=sideSpot.prompt;
   else if(nearValve) promptEl.textContent='[E] SEAL COOLANT LEAK';
   else if(nearBreaker) promptEl.textContent='[E] REROUTE POWER';
   else if(nearConsole&&!restored&&missingIntel().length) promptEl.textContent='[E] COMMAND LOCKED';
   else promptEl.textContent=!restored?'[E] RECOVER FINAL RECORDINGS':readyToSend?'[E] SEND MESSAGE TO EARTH':transmitting?'TRANSMITTING...':'';
-  promptEl.style.display=(!caught&&!won&&(hidden||valveFixing||breakerFixing||sideSpot||nearValve||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
+  promptEl.style.display=(!caught&&!won&&(hidden||valveFixing||breakerFixing||liftSpot||sideSpot||nearValve||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
 
   // render with shake / sway offset (no drift)
   updateListener();
@@ -1316,13 +1529,14 @@ function animate(){ requestAnimationFrame(animate);
   camera.position.x+=ox; camera.position.y+=oy; composer.render(); camera.position.x-=ox; camera.position.y-=oy;
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, get crewCount(){return crewMates.length;},
-  get state(){return {hidden,mActive,restored,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewHidden:crewMates.filter(c=>c.hideTucked).length,crewSummary:CREW_SUMMARY,sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],missingIntel:missingIntel(),liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+  get state(){return {hidden,mActive,restored,enraged,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,activeDeck,deckName:deckName(activeDeck),minorThreats:minorThreats.map(t=>({type:t.type,deck:t.deck,visible:t.root.visible})),scarePulse:scarePulseT,crewCount:crewMates.length,crewHidden:crewMates.filter(c=>c.hideTucked).length,crewSummary:CREW_SUMMARY,sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],missingIntel:missingIntel(),liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
-    forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
+    forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,deckY(),camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; enterHide(h); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},
     makeNoise(x,z,amount=70){director.hear(new THREE.Vector3(x,0,z),amount,'smoke-noise');},
     interact(){tryInteract();},
-    moveTo(x,z){camera.position.set(x,1.6,z);}
+    setDeck(level){activeDeck=Math.max(-1,Math.min(1,Math.round(Number(level)||0))); camera.position.y=deckY()+1.6;},
+    moveTo(x,z){camera.position.set(x,deckY()+1.6,z);}
   }:null
 };   // inspect the forged CHORUS model
 addEventListener('resize',resize); resize(); fadeIn(); animate();

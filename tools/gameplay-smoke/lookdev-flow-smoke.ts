@@ -226,7 +226,7 @@ async function checkPadAscentHandoff(page: Page, baseUrl: string): Promise<void>
   assert(ascent.rocketY > start.rocketY + 18, `expected rocket ascent, y ${start.rocketY} -> ${ascent.rocketY}`);
   assert(ascent.cameraY > start.cameraY + 3, `expected camera to follow ascent, y ${start.cameraY} -> ${ascent.cameraY}`);
   assert(ascent.targetY > start.targetY + 3, `expected camera target to follow rocket, y ${start.targetY} -> ${ascent.targetY}`);
-  await page.waitForURL('**/launch?flow=1', { timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => location.pathname === '/launch' && new URLSearchParams(location.search).has('flow'), null, { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'launch pad flow');
 }
 
@@ -243,7 +243,7 @@ async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<
   assert(transit.earthScale < start.earthScale - 0.08, `expected Earth to shrink, scale ${start.earthScale} -> ${transit.earthScale}`);
   assert(transit.shipZ > start.shipZ + 60, `expected station to approach, z ${start.shipZ} -> ${transit.shipZ}`);
   assert(transit.shipScale > start.shipScale + 0.4, `expected station to grow, scale ${start.shipScale} -> ${transit.shipScale}`);
-  await page.waitForURL('**/dock?flow=1', { timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => location.pathname === '/dock' && new URLSearchParams(location.search).has('flow') && new URLSearchParams(location.search).get('auto') === '1', null, { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'capsule transit flow');
 }
 
@@ -321,14 +321,20 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
   await client.goto(`${baseUrl}/game?${qs}&name=client`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await host.waitForFunction(() => (window as any).__chorus?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
   await client.waitForFunction(() => (window as any).__chorus?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
-  await host.evaluate(() => (window as any).__chorus.camera.position.set(1.1, 1.6, -18.25));
-  await client.waitForFunction(() => {
+  const hostIsHost = await host.evaluate(() => Boolean((window as any).__chorus.state.multiplayer.isHost));
+  const hostPage = hostIsHost ? host : client;
+  const clientPage = hostIsHost ? client : host;
+  const hostPageErrors = hostIsHost ? hostErrors : clientErrors;
+  const clientPageErrors = hostIsHost ? clientErrors : hostErrors;
+
+  await hostPage.evaluate(() => (window as any).__chorus.camera.position.set(1.1, 1.6, -18.25));
+  await clientPage.waitForFunction(() => {
     const poses = Object.values((window as any).__chorus.state.remotePoses || {}) as Array<{ x: number; z: number }>;
     return poses.some(pose => Math.abs(pose.x - 1.1) < 0.35 && Math.abs(pose.z + 18.25) < 0.35);
   }, null, { timeout: TIMEOUT_MS });
-  const liveCrew = await client.evaluate(() => (window as any).__chorus.state.liveCrew);
-  assert(liveCrew.some((member: { remote: boolean; name: string }) => member.remote && member.name === 'HOST'), `expected HOST to replace an NPC slot, got ${JSON.stringify(liveCrew)}`);
-  await host.evaluate(() => {
+  const liveCrew = await clientPage.evaluate(() => (window as any).__chorus.state.liveCrew);
+  assert(liveCrew.some((member: { remote: boolean; name: string }) => member.remote), `expected remote player to replace an NPC slot, got ${JSON.stringify(liveCrew)}`);
+  await hostPage.evaluate(() => {
     const api = (window as any).__chorus;
     api.camera.position.set(-1.35, 1.6, -16);
     api.smoke.interact();
@@ -340,24 +346,24 @@ async function checkStationMultiplayer(browser: Browser, baseUrl: string, signal
     api.smoke.interact();
   });
   try {
-    await client.waitForFunction(() => (window as any).__chorus.state.restored === true, null, { timeout: TIMEOUT_MS });
+    await clientPage.waitForFunction(() => (window as any).__chorus.state.restored === true, null, { timeout: TIMEOUT_MS });
   } catch (err) {
     const context = {
-      host: await host.evaluate(() => (window as any).__chorus.state),
-      client: await client.evaluate(() => (window as any).__chorus.state),
+      host: await hostPage.evaluate(() => (window as any).__chorus.state),
+      client: await clientPage.evaluate(() => (window as any).__chorus.state),
     };
     throw new Error(`timed out waiting for restored sync: ${JSON.stringify(context)}\n${String(err)}`);
   }
-  await client.waitForFunction(() => (window as any).__chorus.state.needValve === true, null, { timeout: TIMEOUT_MS });
-  await client.evaluate(() => (window as any).__chorus.camera.position.set(5.72, 1.6, -35.9));
-  await client.evaluate(() => (window as any).__chorus.smoke.interact());
-  await host.waitForFunction(() => (window as any).__chorus.state.valveFixing === true || (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
-  await client.waitForFunction(() => (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
-  await host.close();
-  await client.waitForFunction(() => (window as any).__chorus.state.multiplayer.isHost === true, null, { timeout: TIMEOUT_MS });
-  await assertNoPageErrors(hostErrors, 'station multiplayer host');
-  await assertNoPageErrors(clientErrors, 'station multiplayer client');
-  await client.close();
+  await clientPage.waitForFunction(() => (window as any).__chorus.state.needValve === true, null, { timeout: TIMEOUT_MS });
+  await clientPage.evaluate(() => (window as any).__chorus.camera.position.set(5.72, 1.6, -35.9));
+  await clientPage.evaluate(() => (window as any).__chorus.smoke.interact());
+  await hostPage.waitForFunction(() => (window as any).__chorus.state.valveFixing === true || (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
+  await clientPage.waitForFunction(() => (window as any).__chorus.state.valveDone === true, null, { timeout: TIMEOUT_MS });
+  await hostPage.close();
+  await clientPage.waitForFunction(() => (window as any).__chorus.state.multiplayer.isHost === true, null, { timeout: TIMEOUT_MS });
+  await assertNoPageErrors(hostPageErrors, 'station multiplayer host');
+  await assertNoPageErrors(clientPageErrors, 'station multiplayer client');
+  await clientPage.close();
 }
 
 async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<void> {
@@ -418,14 +424,22 @@ async function main(): Promise<void> {
     await waitForHttp(baseUrl, TIMEOUT_MS);
 
     browser = await launchBrowser();
-    await checkLobbyAutoBoards(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
-    await checkPadAscentHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
-    await checkCapsuleTransitHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
-    await checkDockingHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
-    await checkStationFlowEntry(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
-    await checkStationHideMechanic(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    const runPageCheck = async (fn: (page: Page) => Promise<void>): Promise<void> => {
+      const page = await browser!.newPage({ viewport: { width: 1280, height: 720 } });
+      try {
+        await fn(page);
+      } finally {
+        await page.close().catch(() => undefined);
+      }
+    };
+    await runPageCheck(page => checkLobbyAutoBoards(page, baseUrl));
+    await runPageCheck(page => checkPadAscentHandoff(page, baseUrl));
+    await runPageCheck(page => checkCapsuleTransitHandoff(page, baseUrl));
+    await runPageCheck(page => checkDockingHandoff(page, baseUrl));
+    await runPageCheck(page => checkStationFlowEntry(page, baseUrl));
+    await runPageCheck(page => checkStationHideMechanic(page, baseUrl));
     await checkStationMultiplayer(browser, baseUrl, signaling.baseUrl);
-    await checkStationObjectivePath(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await runPageCheck(page => checkStationObjectivePath(page, baseUrl));
     console.log('lookdev full-loop smoke passed');
   } finally {
     await browser?.close().catch(() => undefined);
