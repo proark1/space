@@ -76,6 +76,7 @@ function resize(){const w=innerWidth,h=innerHeight;
 const controls=new OrbitControls(camera,canvas);
 controls.enableDamping=true; controls.dampingFactor=0.06; controls.autoRotate=true; controls.autoRotateSpeed=0.35;
 controls.minDistance=28; controls.maxDistance=360; controls.maxPolarAngle=Math.PI*0.52; controls.target.set(0,14,0);
+const launchCamTarget=new THREE.Vector3(), launchCamPos=new THREE.Vector3(), launchLook=new THREE.Vector3();
 
 function snap(m){ return m; }   // outer scene: no PS1 vertex snap — crisp, smooth geometry
 function tex(draw,w=256,h=256){ const c=document.createElement('canvas'); c.width=w;c.height=h; draw(c.getContext('2d')); const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t; }
@@ -251,7 +252,25 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   if(since>FLIGHT-0.8) fade=Math.min(fade,1-smooth(FLIGHT-0.8,FLIGHT,Math.min(since,FLIGHT)));
   renderer.toneMappingExposure=BASE_EXP*fade*(1+lightning*0.5);
   // --- camera follows her up; ambient pad life ---
-  controls.target.y += (clamp(14+ry*0.5,14,150)-controls.target.y)*0.04;
+  // Once she leaves the tower, the launch becomes a scripted tracking shot so the rocket
+  // stays in frame until the cockpit handoff.
+  if(since>=-0.2){
+    controls.autoRotate=false;
+    controls.enabled=false;
+    const rocketY=rocket.position.y+27;
+    const follow=smooth(-0.2,3.2,since);
+    const high=smooth(5.5,13.8,since);
+    launchCamTarget.set(0,clamp(rocketY,16,380),0);
+    launchCamPos.set(lerp(58,28,follow)+high*12,lerp(22,rocketY+24,follow),lerp(70,118,follow)+high*34);
+    camera.position.lerp(launchCamPos,0.075);
+    launchLook.copy(controls.target).lerp(launchCamTarget,0.12);
+    controls.target.copy(launchLook);
+    camera.lookAt(controls.target);
+  } else {
+    controls.enabled=true;
+    controls.autoRotate=true;
+    controls.target.y += (clamp(14+ry*0.5,14,150)-controls.target.y)*0.04;
+  }
   for(const b of beacons) b.emissiveIntensity=(Math.sin(t*4)>0.4)?2.6:0.3;
   for(const f of floods) f.emissiveIntensity=3.0*(0.9+0.1*Math.sin(t*20+f.id*0.1));
   klaxon.rotation.y=t*2.2;
@@ -260,7 +279,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   for(let i=0;i<SMOKEN;i++){ smokePos[i*3+1]+= (0.2+smokeSeed[i]*0.5)*dt; if(smokePos[i*3+1]>3.5) smokePos[i*3+1]=0; }
   smokeGeo.attributes.position.needsUpdate=true;
   setPhase(since<-4?'— HOLD —':since<0?'>> COUNTDOWN':since<IGN?'>> IGNITION':since<6?'>> LIFTOFF':since<13?'>> ASCENT':'· · ·');
-  controls.update();
+  if(controls.enabled) controls.update();
   const shk=burn*0.45*(1-dark*0.6); if(shk>0.001){ camera.position.x+=(Math.random()-0.5)*shk; camera.position.y+=(Math.random()-0.5)*shk; camera.position.z+=(Math.random()-0.5)*shk; }
   Grade.uniforms.uTime.value=t; composer.render();
 }

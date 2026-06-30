@@ -19,6 +19,8 @@
   #hint{position:fixed;left:12px;bottom:10px;font:11px ui-monospace,monospace;color:#5a6b78;pointer-events:none}
   #cross{position:fixed;left:50%;top:50%;width:3px;height:3px;margin:-1.5px;background:#cdd6e0;border-radius:50%;opacity:.45;display:none;pointer-events:none}
   #obj{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 12px ui-monospace,monospace;letter-spacing:2px;color:#E8A33D;text-shadow:0 0 8px #000;pointer-events:none;text-align:center;max-width:90vw}
+  #crewTalk{position:fixed;left:50%;top:42px;transform:translateX(-50%);font:12px ui-monospace,monospace;color:#cdd6e0;text-shadow:0 0 8px #000;pointer-events:none;text-align:center;max-width:88vw;opacity:0;transition:opacity .3s}
+  #crewTalk b{color:#E8A33D}
   #prompt{position:fixed;left:50%;top:58%;transform:translateX(-50%);font:600 12px ui-monospace,monospace;letter-spacing:2px;color:#7dffb0;text-shadow:0 0 8px #000;pointer-events:none;display:none}
   #over{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,3,6,.78);pointer-events:auto;text-align:center;padding:20px}
   #over b{font:700 22px ui-monospace,monospace;letter-spacing:5px;color:#ff6a5a}
@@ -32,15 +34,16 @@
 <body>
 <canvas id="c"></canvas>
 <div id="cross"></div>
-<div id="obj">REACH THE COMMS CONSOLE · RESTORE THE SIGNAL</div>
-<div id="prompt">[E] RESTORE THE SIGNAL</div>
+<div id="obj">REACH COMMAND CENTER · RECOVER FINAL RECORDINGS</div>
+<div id="crewTalk"></div>
+<div id="prompt">[E] RECOVER RECORDINGS</div>
 <div id="over"><b id="overTxt">TAKEN</b><span id="overSub">[R] try again</span><span id="runStats"></span><div id="overActions"><button id="copyRun" type="button">COPY RUN</button><button id="retryRun" type="button">TRY AGAIN</button></div></div>
 <div id="hint">SIGNAL LOST · look-dev v2 · low-poly / PS1 · sound on</div>
 <div id="ui"><div id="panel">
   <h1>SIGNAL&nbsp;LOST</h1>
   <p>Earth lost the derelict. VESTA found one signal still calling out.</p>
   <p><b>Click</b> look · <b>WASD</b> move · <b>Shift</b> run · <b>F</b> light · <b>E</b> use · <b>R</b> retry</p>
-  <p><small>Get to the command console. If something answers, keep moving.</small></p>
+  <p><small>Reach command, recover the final logs, and send them home.</small></p>
   <button id="go">ENTER THE SHIP</button>
   <div style="margin-top:12px;display:grid;gap:6px"><a href="/lobby?flow=1&auto=1" style="color:#7dffb0;font:12px ui-monospace,monospace;text-decoration:none">▸ play the full cold open</a><a href="/exterior" style="color:#9fd0ff;font:12px ui-monospace,monospace;text-decoration:none">▸ or see the ship from outside</a></div>
 </div></div>
@@ -56,6 +59,9 @@
 import * as THREE from 'three';
 import './nav.js?v=2';
 import { loadUnitModel } from './unitgltf.js';
+import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
+import { NPC_CREW, crewLine } from './crew.js';
+import { FLOW, fadeIn } from './flow.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -66,6 +72,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 const QUERY = new URLSearchParams(location.search);
 const SHOWCASE = QUERY.get('showcase');
 const ADMIN_UNIT = QUERY.get('adminUnit') || 'unit-chorus';
+const FLOW_ARRIVAL = FLOW && SHOWCASE !== 'monster';
 let adminUnitSettings = {height:2.35, scale:1, yaw:0, positionY:0, colliderRadius:0.55, colliderHeight:2.35, materialEnabled:false, materialColor:'#1a1f22', emissiveEnabled:false, emissiveColor:'#36e0d0', emissiveIntensity:0, showCollider:true};
 function finiteNumber(value, fallback){ const n=Number(value); return Number.isFinite(n)?n:fallback; }
 function normalizeUnitSettings(value, fallback=adminUnitSettings){
@@ -188,6 +195,24 @@ const LEN=46, W=3.6, H=3.2;
 box(W,0.2,LEN,C.floor,0,0,-LEN/2); box(W,0.2,LEN,C.ceil,0,H,-LEN/2);
 box(0.2,H,LEN,C.wall,-W/2,H/2,-LEN/2); box(0.2,H,LEN,C.wall, W/2,H/2,-LEN/2);
 const flick=[]; const lamps=[]; let strobe=null;
+const hideSpots=[];
+function makeLocker(side,z,label){
+  const x=side*(W/2-0.2), doorX=side*(W/2-0.48);
+  box(0.38,2.2,1.05,C.wall2,x,1.18,z);
+  box(0.08,2.0,0.42,C.pipe,doorX,1.12,z-0.24);
+  box(0.08,2.0,0.42,C.pipe,doorX,1.12,z+0.24);
+  box(0.09,0.12,0.18,C.cyan,doorX,1.72,z);
+  decal(sign('HIDE','#9FD0FF'),0.42,0.2,doorX-side*0.05,2.15,z,0,side>0?-Math.PI/2:Math.PI/2);
+  hideSpots.push({
+    label,
+    side,
+    pos:new THREE.Vector3(side*(W/2-0.72),1.32,z),
+    exit:new THREE.Vector3(side*(W/2-1.05),1.6,z+0.45),
+    lure:new THREE.Vector3(0,1.4,z-1.2)
+  });
+}
+makeLocker(1,-12.5,'forward locker');
+makeLocker(-1,-28.5,'aft locker');
 for(let i=0;i<12;i++){ const z=-2-i*4;
   box(0.3,H,0.5,C.wall2,-W/2+0.15,H/2,z); box(0.3,H,0.5,C.wall2,W/2-0.15,H/2,z); box(W,0.42,0.5,C.wall2,0,H-0.21,z);
   cyl(0.07,W-0.4,C.pipe,0.7,H-0.45,z+1,0,Math.PI/2); cyl(0.05,W-0.7,C.pipe,-0.65,H-0.62,z+1,0,Math.PI/2);
@@ -203,6 +228,12 @@ decal(blood,2.0,2.0, 0,0.13,-25, -Math.PI/2);
 decal(sign('SECTOR 7','#E8A33D'),0.55,0.55, W/2-0.12,2.1,-6,0,-Math.PI/2);
 decal(sign('COMMAND','#9FD0FF'),0.9,0.45, 0,2.55,-LEN-6.78);
 box(0.5,0.75,0.4,C.pipe,-W/2+0.37,1.15,-9); box(0.4,0.4,0.4,C.amber,-W/2+0.4,1.65,-9);
+const BREAKER=new THREE.Vector3(-W/2+0.42,1.45,-19);
+box(0.18,1.18,0.9,C.pipe,BREAKER.x,1.45,BREAKER.z);
+box(0.08,0.26,0.16,C.red,BREAKER.x+0.06,1.78,BREAKER.z-0.22);
+box(0.08,0.26,0.16,C.amber,BREAKER.x+0.06,1.45,BREAKER.z);
+box(0.08,0.26,0.16,C.cyan,BREAKER.x+0.06,1.13,BREAKER.z+0.22);
+decal(sign('POWER','#E8A33D'),0.62,0.32,BREAKER.x+0.11,2.18,BREAKER.z,0,Math.PI/2);
 box(0.95,0.95,0.95,C.crate,W/2-0.74,0.57,-14,0,0.3,0); box(0.85,0.85,0.85,C.crate,W/2-0.82,1.4,-14,0.1,0.2,0);
 box(0.95,0.95,0.95,C.crate,W/2-0.74,0.57,-22.5,0,-0.2,0);
 box(0.7,0.5,1.3,C.rust,-W/2+0.48,0.35,-30); box(0.12,0.85,0.82,C.pipe,-W/2+0.09,1.7,-19); for(let k=0;k<4;k++) box(0.1,0.04,0.62,C.wall2,-W/2+0.13,1.5+k*0.14,-19);
@@ -216,6 +247,15 @@ cable(0.95,-38,1.35); cable(-1.0,-42,1.1);
 box(W,0.2,7,C.floor,0,0,-LEN-3.5); box(W,0.2,7,C.ceil,0,H,-LEN-3.5);
 box(0.2,H,7,C.wall,-W/2,H/2,-LEN-3.5); box(0.2,H,7,C.wall,W/2,H/2,-LEN-3.5); box(W,H,0.3,C.wall2,0,H/2,-LEN-7);
 box(0.5,0.5,0.5,C.cyan,0,2.0,-LEN-6.7);
+box(W-0.45,0.18,0.9,C.pipe,0,0.95,-LEN-6.72);
+box(0.95,0.7,0.16,C.cyan,-0.86,1.52,-LEN-6.83);
+box(0.95,0.7,0.16,C.amber,0,1.55,-LEN-6.84);
+box(0.95,0.7,0.16,C.red,0.86,1.52,-LEN-6.83);
+box(0.22,0.12,0.22,C.red,0,1.03,-LEN-6.1);
+box(1.2,0.08,0.35,C.pipe,0,1.12,-LEN-6.1);
+decal(sign('EARTH LINK','#7dffb0'),0.72,0.36,-0.86,1.52,-LEN-6.92);
+decal(sign('LOGS','#E8A33D'),0.66,0.36,0,1.55,-LEN-6.93);
+decal(sign('SEND','#ff6a5a'),0.66,0.36,0.86,1.52,-LEN-6.92);
 const emer=new THREE.PointLight(0xff2a18,0,8,1.6); emer.position.set(0,2.4,-LEN-5); world.add(emer);
 const threatRim=new THREE.PointLight(0x28dfff,1.8,8,1.7); threatRim.position.set(0,2.45,-LEN-6.2); world.add(threatRim);
 const redRim=new THREE.PointLight(0xff2414,2.2,7,1.8); redRim.position.set(W/2-0.2,2.0,-LEN-2.1); world.add(redRim);
@@ -268,6 +308,17 @@ const steam=pts(110,0x5a6a78,0.1,0.18); for(let i=0;i<steam.n;i++){ const rear=i
 const DN=320, dp=new Float32Array(DN*3); for(let i=0;i<DN;i++){ dp[i*3]=(Math.random()-0.5)*W; dp[i*3+1]=Math.random()*H; dp[i*3+2]=(Math.random()-0.5)*22; }
 const dgeo=new THREE.BufferGeometry(); dgeo.setAttribute('position',new THREE.BufferAttribute(dp,3));
 const dust=new THREE.Points(dgeo,new THREE.PointsMaterial({color:0x8a96a0,size:0.011,sizeAttenuation:true,transparent:true,opacity:0.18,depthWrite:false,blending:THREE.NormalBlending,fog:true})); scene.add(dust);
+
+// ---------- NPC crew fallback ----------
+const crewMates=NPC_CREW.map((c,i)=>{
+  const root=makeAstronaut({accent:c.accent,tone:c.tone});
+  root.scale.setScalar(0.64);
+  root.position.set(c.slot*0.55,0,-0.3+i*0.58);
+  root.rotation.y=Math.PI;
+  root.visible=SHOWCASE!=='monster';
+  world.add(root);
+  return {...c,root,panic:0,phase:Math.random()*9};
+});
 
 // ---------- monster ----------
 const mob=new THREE.Group();
@@ -436,34 +487,48 @@ async function loadClips(){ if(!A)return; try{
 // ---------- controls ----------
 const controls=new PointerLockControls(camera,document.body);
 const ui=document.getElementById('ui'),cross=document.getElementById('cross');
-document.getElementById('go').onclick=()=>{ initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); controls.lock(); };
-controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.display='block'; if(!runStarted) runStarted=performance.now(); initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); });
+const panel=document.getElementById('panel'), goBtn=document.getElementById('go');
+if(FLOW_ARRIVAL){
+  panel.querySelector('h1').textContent='AIRLOCK OPEN';
+  const p=panel.querySelectorAll('p');
+  if(p[0])p[0].textContent='Hard dock confirmed. The inner hatch is open.';
+  if(p[1])p[1].innerHTML='<b>Click</b> enter station · <b>WASD</b> move · <b>E</b> use / hide';
+  if(p[2])p[2].innerHTML='<small>Recover the final logs, reroute power, and send them to Earth.</small>';
+  goBtn.textContent='ENTER STATION';
+}
+goBtn.onclick=()=>{ initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume(); controls.lock(); };
+controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.display='block'; if(!runStarted) runStarted=performance.now(); initAudio(); if(A&&A.ctx.state==='suspended')A.ctx.resume();
+  if(FLOW_ARRIVAL&&!flowIntroPlayed){ flowIntroPlayed=true; setTimeout(()=>say(crewLine(NPC_CREW[0].name,'inner hatch is sealed. we are officially inside.'),3.0),500); setTimeout(()=>say(crewLine(NPC_CREW[1].name,'command center is forward. try not to touch anything that screams.'),3.2),3600); }
+});
 controls.addEventListener('unlock',()=>{ if(!caught&&!won) ui.style.display='flex'; cross.style.display='none'; });
 const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='KeyF'&&!caught&&!won){flashes++; flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
 addEventListener('keyup',e=>{keys[e.code]=false;});
 
 // ---------- objective / interaction ----------
-const objEl=document.getElementById('obj'), promptEl=document.getElementById('prompt'), overEl=document.getElementById('over'), overTxt=document.getElementById('overTxt'), overSub=document.getElementById('overSub'), runStatsEl=document.getElementById('runStats'), copyRunBtn=document.getElementById('copyRun'), retryRunBtn=document.getElementById('retryRun');
+const objEl=document.getElementById('obj'), crewTalkEl=document.getElementById('crewTalk'), promptEl=document.getElementById('prompt'), overEl=document.getElementById('over'), overTxt=document.getElementById('overTxt'), overSub=document.getElementById('overSub'), runStatsEl=document.getElementById('runStats'), copyRunBtn=document.getElementById('copyRun'), retryRunBtn=document.getElementById('retryRun');
 let lightFactor=1;
 const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
 const setObj=t=>{ objEl.textContent=t; };
-setObj('REACH THE COMMS CONSOLE · RESTORE THE SIGNAL');
-let restoredAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, runStarted=0, shareText='';
+setObj('REACH COMMAND CENTER · RECOVER FINAL RECORDINGS');
+let restoredAt=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0;
+const storyBeats={wet:false,scratches:false,body:false,command:false};
+function say(html,hold=3.2){ crewTalkEl.innerHTML=html; crewTalkEl.style.opacity='1'; talkHideAt=performance.now()+hold*1000; }
 const fmtTime=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
 function statLine(){
   const elapsed=performance.now()-(runStarted||performance.now());
   const restoreCopy=restoredAt?fmtTime(restoredAt-runStarted):'no';
+  const sentCopy=sentAt?fmtTime(sentAt-runStarted):'no';
   const closeCopy=isFinite(closest)?closest.toFixed(1)+'m':'--';
-  return `time ${fmtTime(elapsed)} · signal ${restoreCopy} · closest ${closeCopy} · flashlight ${flashes} · panic steps ${stepsTaken} · stare failures ${longStares}`;
+  return `time ${fmtTime(elapsed)} · logs ${restoreCopy} · sent ${sentCopy} · closest ${closeCopy} · flashlight ${flashes} · panic steps ${stepsTaken}`;
 }
 function showDebrief(kind){
   const wonRun=kind==='win';
   if(controls.isLocked) controls.unlock();
   const line=statLine();
-  overTxt.textContent=wonRun?'SIGNAL LOST':'THE CHORUS TOOK YOU';
-  overSub.textContent=wonRun?'you got out. for now.':'it learned the shape of your panic.';
+  overTxt.textContent=wonRun?'MESSAGE SENT':'THE CHORUS TOOK YOU';
+  overSub.textContent=wonRun?'Earth has the final recordings. first loop complete.':'it learned the shape of your panic.';
   runStatsEl.textContent=line;
-  shareText=`SIGNAL LOST ${wonRun?'ESCAPE':'DEATH'} RUN\n${line}\nI restored the signal and immediately regretted it.`;
+  shareText=`SIGNAL LOST ${wonRun?'TRANSMISSION':'DEATH'} RUN\n${line}\nI sent the station recordings to Earth while something wore our voices.`;
   copyRunBtn.textContent='COPY RUN';
   overEl.style.display='flex';
   setObj('');
@@ -485,33 +550,122 @@ if(SHOWCASE==='monster'){
   mThroat.material.emissiveIntensity=2.0;
   for(let i=0;i<bioStrips.length;i++) bioStrips[i].material.emissiveIntensity=1.25;
 }
-function tryInteract(){ if(restored||caught||won) return; if(camera.position.distanceTo(CONSOLE)<3.4) restore(); }
-function restore(){ restored=true; restoredAt=performance.now(); lightFactor=0.08; lightStun=0.55; flashOn=false; shake=0.45; spendSilence(0.78); playClip('crt-call',0.85);
-  SCRL=['> SIGNAL ....... RESTORED','> CHANNEL OPEN','> ... hello?','> I AM THE RESCUE','> YOU CALLED FOR','> [ IT IS HERE ]']; scrScroll=0; drawScreen();
-  setObj('CHANNEL OPEN · LISTEN'); promptEl.style.display='none';
-  setTimeout(()=>{ if(!restored||caught||won)return; enraged=true; flashOn=true; lightStun=0.28; shake=1.0; if(!playClip('vox-chorus-1',1.0)) sting(); setObj('IT ANSWERED · GET BACK TO THE AIRLOCK'); mob.position.set(camera.position.x,0,camera.position.z-3.2); },820); }                 // it surges in
+function nearestHide(max=1.35){
+  let best=null, bd=max;
+  for(const h of hideSpots){
+    const d=Math.hypot(camera.position.x-h.exit.x,camera.position.z-h.exit.z);
+    if(d<bd){ best=h; bd=d; }
+  }
+  return best;
+}
+function enterHide(h){
+  hidden=true; activeHide=h; flashOn=false; lightStun=0.15; shake=0.08;
+  camera.position.copy(h.pos);
+  say(crewLine(NPC_CREW[2].name,'great. four astronauts, one closet energy.'),2.7);
+}
+function exitHide(){
+  if(!activeHide)return;
+  camera.position.copy(activeHide.exit);
+  hidden=false; activeHide=null; lightStun=0.15;
+  say(crewLine(NPC_CREW[0].name,'move when it looks away.'),2.1);
+}
+function startBreaker(){
+  breakerFixing=true; breakerT=0; noisyUntil=performance.now()+4800; mActive=true; shake=0.28; lightStun=0.35; spendSilence(0.35);
+  SCRL=['> SECTOR 7 BREAKER','> MANUAL REROUTE','> noise: unavoidable','> hold it together']; scrScroll=0; drawScreen();
+  setObj('REROUTING POWER · DO NOT MOVE');
+  say(crewLine(NPC_CREW[1].name,'I need three seconds. naturally it sounds like a dinner bell.'),3.2);
+}
+function finishBreaker(){
+  breakerFixing=false; breakerDone=true; needBreaker=false; readyToSend=true; noisyUntil=performance.now()+2600; lightFactor=0.35; shake=0.45;
+  SCRL=['> EARTH LINK POWERED','> PAYLOAD: FINAL LOGS','> WARNING: CHORUS PATTERN','> RETURN TO COMMAND','> SEND?']; scrScroll=0; drawScreen();
+  setObj('RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH');
+  say(crewLine(NPC_CREW[1].name,'link is powered. I hated every second of that.'),3.0);
+}
+function tryInteract(){
+  if(caught||won||breakerFixing) return;
+  if(hidden){ exitHide(); return; }
+  const h=nearestHide();
+  if(h && (mActive||enraged||transmitting)){ enterHide(h); return; }
+  if(needBreaker && !breakerDone && camera.position.distanceTo(BREAKER)<2.0){ startBreaker(); return; }
+  if(camera.position.distanceTo(CONSOLE)>=3.4) return;
+  if(!restored) recoverRecordings();
+  else if(readyToSend&&!transmitting) sendToEarth();
+}
+function recoverRecordings(){ restored=true; restoredAt=performance.now(); readyToSend=false; lightFactor=0.26; lightStun=0.55; flashOn=false; shake=0.32; spendSilence(0.78); playClip('crt-call',0.85);
+  SCRL=['> FINAL REC 001','> commander hale','> "we opened the dock"','> FINAL REC 002','> "it used reyes voice"','> FINAL REC 003','> "do not transmit--"']; scrScroll=0; drawScreen();
+  setObj('FINAL RECORDINGS FOUND · LISTEN');
+  promptEl.style.display='none';
+  say('<b>STATION LOG</b>: day 41. we locked the command deck. it kept knocking with our voices.',4.2);
+  setTimeout(()=>{ if(!restored||caught||won)return; say('<b>STATION LOG</b>: day 42. if it says it is rescue, do not open the door.',4.0); },2200);
+  setTimeout(()=>{ if(!restored||caught||won)return; say(crewLine(NPC_CREW[1].name,'tiny note, the console is begging us not to press send.'),3.3); },4300);
+  setTimeout(()=>{ if(!restored||caught||won)return; needBreaker=true; flashOn=true; lightStun=0.18; setObj('REROUTE POWER AT SECTOR 7 BREAKER'); SCRL=['> EARTH LINK OFFLINE','> PAYLOAD: FINAL LOGS','> AUX POWER REQUIRED','> SECTOR 7 BREAKER','> station says no','> mission says yes']; scrScroll=0; drawScreen(); },6200);
+  setTimeout(()=>{ if(!restored||caught||won)return; enraged=true; shake=0.75; if(!playClip('vox-chorus-1',1.0)) sting(); setObj(breakerDone||readyToSend?'RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH':'IT HEARD THE RECORDINGS · REROUTE POWER'); mob.position.set(camera.position.x,0,camera.position.z-11.0); say(crewLine(NPC_CREW[2].name,'that was behind us. that was absolutely behind us.'),3.2); },7600);
+}
+function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=false; enraged=true; transmitStart=performance.now(); lightFactor=0.12; shake=0.5; flashOn=true; spendSilence(0.4); if(!playClip('crt-call',0.9)) click();
+  SCRL=['> TRANSMITTING TO EARTH','> 00%','> do not listen','> hold channel','> hold channel','> hold channel']; scrScroll=0; drawScreen();
+  setObj('TRANSMITTING TO EARTH · HOLD THE ROOM');
+  say(crewLine(NPC_CREW[0].name,'I am holding the hatch. please make that button worth it.'),3.4);
+}
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); }
-function respawn(){ caught=false; won=false; restored=false; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
-  overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; setObj('REACH THE COMMS CONSOLE · RESTORE THE SIGNAL');
+function respawn(){ caught=false; won=false; restored=false; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; hidden=false; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText='';
+  Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
+  overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; crewTalkEl.style.opacity='0'; setObj('REACH COMMAND CENTER · RECOVER FINAL RECORDINGS');
   if(SHOWCASE!=='monster'){ ui.style.display='flex'; cross.style.display='none'; }
   camera.position.set(0,1.6,-1.5); mob.position.set(0.5,0,-LEN-4.6); mob.visible=true; mob.scale.setScalar(MOB_SCALE); mThroat.material.emissiveIntensity=1; mGlow.intensity=0;
+  crewMates.forEach((c,i)=>{ c.root.position.set(c.slot*0.55,0,-0.3+i*0.58); c.root.rotation.y=Math.PI; c.root.visible=SHOWCASE!=='monster'; });
   SCRL=['> SYS DIAGNOSTIC','> O2 ......... 41%','> HULL ...... BREACH','> CREW ...... ?? / 87','> SIGNAL: ..... LOST','> it is listening','> do not answer']; scrScroll=0; drawScreen(); }
+
+function storyBeatCheck(){
+  const z=camera.position.z;
+  if(!storyBeats.wet && z<-8){ storyBeats.wet=true; say(crewLine(NPC_CREW[2].name,'why is the floor wet in space?'),3.0); }
+  if(!storyBeats.scratches && z<-18){ storyBeats.scratches=true; say(crewLine(NPC_CREW[1].name,'those scratches are on the inside of the panels.'),3.2); }
+  if(!storyBeats.body && z<-31){ storyBeats.body=true; say(crewLine(NPC_CREW[0].name,'nobody say "it left." that is how people die in briefings.'),3.8); }
+  if(!storyBeats.command && z<-LEN-3.0){ storyBeats.command=true; say('<b>EARTH CONTROL</b>: command center beacon acquired. recover the last logs.',3.3); }
+}
+function updateCrew(dt,t,moving){
+  if(SHOWCASE==='monster')return;
+  for(let i=0;i<crewMates.length;i++){
+    const c=crewMates[i], root=c.root;
+    const panic=mActive||enraged||transmitting;
+    const trail=panic?(1.4+i*0.55):(1.8+i*0.9);
+    const tx=THREE.MathUtils.clamp(camera.position.x*0.2+c.slot*(panic?0.82:0.58),-W/2+0.55,W/2-0.55);
+    const tz=THREE.MathUtils.clamp(camera.position.z+trail,-LEN-5.4,-0.2);
+    const dx=tx-root.position.x, dz=tz-root.position.z, d=Math.hypot(dx,dz);
+    if(d>0.025){
+      const sp=(panic?3.7:2.15)*dt;
+      root.position.x+=dx/d*Math.min(d,sp);
+      root.position.z+=dz/d*Math.min(d,sp);
+      root.rotation.y=Math.atan2(dx,dz);
+    }
+    root.position.y=Math.abs(Math.sin(t*(panic?9:5)+c.phase))*0.035*(d>0.08?1:0.35);
+    animateAstronaut(root, d>0.08?(panic?'run':'walk'):'idle', t+c.phase, 1);
+  }
+}
 
 // ---------- loop ----------
 const clock=new THREE.Clock(); const fwd=new THREE.Vector3(); const want=new THREE.Vector3();
 let bob=0, shake=0, heart=0, stareHold=0;
 function animate(){ requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05), t=clock.elapsedTime;
-  const moving = controls.isLocked && (keys.KeyW||keys.KeyS||keys.KeyA||keys.KeyD);
-  if(controls.isLocked && !caught && !won){ const s=(keys.ShiftLeft?5.4:3.0)*dt;
+  const moving = controls.isLocked && !hidden && !breakerFixing && (keys.KeyW||keys.KeyS||keys.KeyA||keys.KeyD);
+  if(controls.isLocked && !caught && !won && !hidden && !breakerFixing){ const s=(keys.ShiftLeft?5.4:3.0)*dt;
     if(keys.KeyW)controls.moveForward(s); if(keys.KeyS)controls.moveForward(-s); if(keys.KeyA)controls.moveRight(-s); if(keys.KeyD)controls.moveRight(s); }
   camera.position.x=Math.max(-W/2+0.4,Math.min(W/2-0.4,camera.position.x));
   camera.position.z=Math.max(-LEN-6,Math.min(-0.6,camera.position.z));
+  if(hidden&&activeHide){ camera.position.copy(activeHide.pos); }
   bob += moving ? dt*(keys.ShiftLeft?13:9) : 0;
-  camera.position.y = 1.6 + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
+  camera.position.y = hidden ? 1.32 : 1.6 + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
   stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip('sfx-step',0.35); }
+  if(controls.isLocked && !caught && !won) storyBeatCheck();
+  updateCrew(dt,t,moving);
+  if(performance.now()>talkHideAt) crewTalkEl.style.opacity='0';
+  if(breakerFixing){
+    breakerT+=dt; shake=Math.max(shake,0.2+Math.sin(t*28)*0.08);
+    SCRL=['> SECTOR 7 BREAKER','> MANUAL REROUTE',`> ${Math.min(100,Math.floor(breakerT/2.2*100))}%`,'> noise: unavoidable','> hold it together']; drawScreen();
+    if(breakerT>=2.2) finishBreaker();
+  }
 
   // flashlight (trailing)
   lightStun=Math.max(0,lightStun-dt);
@@ -553,15 +707,24 @@ function animate(){ requestAnimationFrame(animate);
   if(stalkNode){ if(!caught){ setPanPos(stalkNode,mob.position); stalkNode.g.gain.value=Math.max(0,Math.min(0.8,1.2-dM/13)); } else { stalkNode.g.gain.value=Math.max(0,stalkNode.g.gain.value-dt*0.5); } }
   if(!mActive && controls.isLocked && camera.position.z<-7){ mActive=true; playClip3D('crt-call',mob.position,0.65); }   // it wakes once you are inside
   if(!mimicPlayed && controls.isLocked && camera.position.z<-22){ mimicPlayed=true; if(!playClip('vox-vesta-1',0.75)) playClip('vox-vesta-3',0.75); }
+  if(transmitting && !caught && !won){
+    const k=Math.min(1,(performance.now()-transmitStart)/4300);
+    const pct=String(Math.floor(k*100)).padStart(2,'0');
+    SCRL=['> TRANSMITTING TO EARTH',`> ${pct}%`,'> CHORUS PATTERN ATTACHED','> CREW LOGS SEALED','> hold channel','> hold channel']; drawScreen();
+    if(!transmitWarned && k>0.32){ transmitWarned=true; say(crewLine(NPC_CREW[1].name,'if this uploads the monster too, I am resigning.'),2.6); }
+    if(k>=1){ sentAt=performance.now(); transmitting=false; won=true; SCRL=['> TRANSMISSION COMPLETE','> EARTH HAS THE LOGS','> SIGNAL LOST','> FIRST LOOP COMPLETE']; drawScreen(); showDebrief('win'); }
+  }
   if(mActive && !caught && !won){
-    const ox=mob.position.x-camera.position.x, oz=mob.position.z-camera.position.z, ol=Math.hypot(ox,oz)||1;
+    const targetPos=hidden&&activeHide?activeHide.lure:(performance.now()<noisyUntil?BREAKER:camera.position);
+    const ox=mob.position.x-targetPos.x, oz=mob.position.z-targetPos.z, ol=Math.hypot(ox,oz)||1;
+    const px=mob.position.x-camera.position.x, pz=mob.position.z-camera.position.z, pl=Math.hypot(px,pz)||1;
     camera.getWorldDirection(fwd);
-    const facing=fwd.x*(ox/ol)+fwd.z*(oz/ol);
+    const facing=fwd.x*(px/pl)+fwd.z*(pz/pl);
     const lit=flashOn && lightStun<=0 && facing>0.93 && dM<16;     // looking right at it, in the beam
     const frozen=lit && !enraged;                                  // the light pins it — until the trap enrages it
     stareHold=frozen?stareHold+dt:0;
     if(stareHold>1.9){ stareHold=0; longStares++; lightStun=0.75; shake=0.45; if(!playClip('sfx-flashlight',0.95)) burst(0.18,1900,2,0.22,'highpass'); }
-    const spd=frozen?0:(enraged?2.7:1.5);
+    const spd=frozen?0:(hidden?0.55:(breakerFixing?1.8:(enraged?2.7:1.5)));
     mob.position.x += (-ox/ol)*spd*dt; mob.position.z += (-oz/ol)*spd*dt;
     mob.position.x=Math.max(-W/2+0.35,Math.min(W/2-0.35,mob.position.x));
     mob.position.z=Math.max(-LEN-6,Math.min(-0.6,mob.position.z));
@@ -573,7 +736,7 @@ function animate(){ requestAnimationFrame(animate);
     for(let i=0;i<tendrils.length;i++){ tendrils[i].rotation.z=Math.sin(t*2.4+tendrils[i].userData.wiggle)*0.13; tendrils[i].rotation.x=Math.cos(t*1.8+i)*0.05; }
     mGlow.intensity = mThroat.material.emissiveIntensity*0.7;
     if(dM<13){ heart-=dt; const iv=THREE.MathUtils.lerp(0.4,1.05,Math.min(1,(dM-3)/10)); if(heart<=0){ thump(); if(dM<7)setTimeout(thump,165); heart=iv; } }
-    if(dM<1.5) die();
+    if(!hidden && dM<1.5) die();
   }
   // drive the forged CHORUS model's animation by state (no-op for the procedural monster)
   if(mobUnit){
@@ -581,9 +744,16 @@ function animate(){ requestAnimationFrame(animate);
     const dx=mob.position.x-_mpx, dz=mob.position.z-_mpz; _mpx=mob.position.x; _mpz=mob.position.z;
     mobUnit.play((caught||won||enraged) ? 'attack' : (Math.hypot(dx,dz)>0.0025 ? 'run' : 'idle'));
   }
-  // objective prompt + the escape
-  promptEl.style.display=(!restored && !caught && !won && camera.position.distanceTo(CONSOLE)<3.4)?'block':'none';
-  if(restored && !won && !caught && camera.position.z>-2.6){ won=true; showDebrief('win'); }
+  // objective prompt + command-center interactions
+  const nearConsole=camera.position.distanceTo(CONSOLE)<3.4;
+  const nearBreaker=needBreaker&&!breakerDone&&camera.position.distanceTo(BREAKER)<2.0;
+  const hideSpot=nearestHide();
+  if(hidden) promptEl.textContent='[E] LEAVE LOCKER';
+  else if(hideSpot&&(mActive||enraged||transmitting)) promptEl.textContent='[E] HIDE';
+  else if(breakerFixing) promptEl.textContent='REROUTING POWER...';
+  else if(nearBreaker) promptEl.textContent='[E] REROUTE POWER';
+  else promptEl.textContent=!restored?'[E] RECOVER FINAL RECORDINGS':readyToSend?'[E] SEND MESSAGE TO EARTH':transmitting?'TRANSMITTING...':'';
+  promptEl.style.display=(!caught&&!won&&(hidden||breakerFixing||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
 
   // render with shake / sway offset (no drift)
   updateListener();
@@ -592,7 +762,7 @@ function animate(){ requestAnimationFrame(animate);
   camera.position.x+=ox; camera.position.y+=oy; composer.render(); camera.position.x-=ox; camera.position.y-=oy;
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE};   // inspect the forged CHORUS model
-addEventListener('resize',resize); resize(); animate();
+addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
 </html>

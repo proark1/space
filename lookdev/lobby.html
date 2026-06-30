@@ -50,6 +50,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
+import { CREW_MANIFEST, NPC_CREW, PLAYER_CREW } from './crew.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
 const QUERY=new URLSearchParams(location.search);
@@ -159,11 +160,10 @@ function drawBig(cur){
   gx.fillStyle='#ff6a5a'; gx.font='bold 27px monospace'; gx.fillText('! DO NOT ANSWER ANYTHING',56,454);
   gx.fillText('  THAT ANSWERS BACK'+(cur?' _':''),56,488);
   gx.fillStyle='#7fd0ff'; gx.font='bold 30px monospace'; gx.fillText('// CREW READINESS',840,176);
-  const crew=[['CMDR','ASSAD DAR · YOU','#e8884f'],['PILOT','REYES','#5aa6e8'],['ENGR','KORO','#6fce8a'],['MED','LINA','#c8a6f0']];
-  crew.forEach((m,i)=>{ const y=226+i*42;
-    gx.fillStyle=m[2]; gx.beginPath(); gx.arc(858,y-9,9,0,7); gx.fill();
-    gx.fillStyle='#8fa39a'; gx.font='22px monospace'; gx.fillText(m[0],886,y);
-    gx.fillStyle='#d6ece0'; gx.font='26px monospace'; gx.fillText(m[1],1006,y);
+  CREW_MANIFEST.forEach((m,i)=>{ const y=226+i*42;
+    gx.fillStyle=m.css; gx.beginPath(); gx.arc(858,y-9,9,0,7); gx.fill();
+    gx.fillStyle='#8fa39a'; gx.font='22px monospace'; gx.fillText(m.role,886,y);
+    gx.fillStyle='#d6ece0'; gx.font='26px monospace'; gx.fillText(m.label||m.name,1006,y);
     gx.fillStyle='#7dffb0'; gx.font='22px monospace'; gx.textAlign='right'; gx.fillText('READY',1472,y); gx.textAlign='left'; });
   gx.strokeStyle='#1f5a36'; gx.lineWidth=2; gx.beginPath(); gx.moveTo(840,406); gx.lineTo(1472,406); gx.stroke();
   gx.fillStyle='#4f8f6e'; gx.font='24px monospace'; gx.fillText('STATUS',840,444); gx.fillStyle='#7dffb0'; gx.fillText('three crews lost to the silence',1000,444);
@@ -231,12 +231,11 @@ const heroGlow=new THREE.PointLight(0xffcaa0,0.5,5,2); heroGlow.position.set(HPX
 const placLight=new THREE.PointLight(0xffe6b8,0.95,3.4,2); placLight.position.set(HPX,1.25,-6.95); scene.add(placLight);   // light the nameplate so it reads
 
 // YOU (controllable) + up to 3 AI crew waiting
-const player=makeAstronaut({accent:0xc8552f}); scene.add(player);
-const TEAM=[0x2f86c8,0x3fae5a,0xb58ad6];
+const player=makeAstronaut({accent:PLAYER_CREW.accent,tone:PLAYER_CREW.tone}); scene.add(player);
 const POS=[[-2.2,1.0,0.4],[2.4,-0.4,-0.7],[-0.6,2.6,1.2]];   // x, z, facing
 const aiCrew=[];
-POS.forEach((p,i)=>{ const a=makeAstronaut({accent:TEAM[i], tone:i+1}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
-  aiCrew.push({a, from:new THREE.Vector3(p[0],0,p[1]), to:new THREE.Vector3((i-1)*0.5,0,-7.8), delay:i*0.4, s:Math.random()*9}); });
+POS.forEach((p,i)=>{ const member=NPC_CREW[i]; const a=makeAstronaut({accent:member.accent, tone:member.tone}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
+  aiCrew.push({member,a, from:new THREE.Vector3(p[0],0,p[1]), to:new THREE.Vector3(member.slot*0.5,0,-7.8), delay:i*0.4, s:Math.random()*9}); });
 // ==BUILD END==
 
 // load the uploaded hero photo (if any) and frame it into the portrait; the painted hero stays otherwise
@@ -348,8 +347,10 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 // ---- host sequence ----
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
 boardLink.onclick=e=>{ e.preventDefault(); goNext('/pad?flow=1'); };   // board -> the launch sequence
-let phase='wait', doorOpen=0, seqT=0;
-function startSeq(){ if(phase!=='wait')return; phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY'; }
+let phase='wait', doorOpen=0, seqT=0, flowBoarded=false;
+function startSeq(){ if(phase!=='wait')return; phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY';
+  if(FLOW&&AUTO_START){ setTimeout(()=>{ if(flowBoarded)return; flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); },7600); }
+}
 startBtn.onclick=startSeq;
 if(AUTO_START) setTimeout(startSeq,900);
 
@@ -379,12 +380,13 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   // walk through the open door → board
   if(pos.z<-7.6){ goNext('/pad?flow=1'); }   // walked through the hatch -> launch sequence
   // --- host-start: doors open, AI crew run aboard ---
-  if(phase==='open'){ doorOpen=Math.min(1,doorOpen+dt*0.7); doorL.position.x=-0.8-doorOpen*1.45; doorR.position.x=0.8+doorOpen*1.45;
+  if(phase==='open'){ doorOpen=Math.min(1,doorOpen+dt*(FLOW&&AUTO_START?1.8:0.7)); doorL.position.x=-0.8-doorOpen*1.45; doorR.position.x=0.8+doorOpen*1.45;
     if(doorOpen>=1){ phase='walk'; seqT=0; statusEl.textContent='● DOORS OPEN — WALK TO THE HATCH TO BOARD'; boardLink.style.display='inline-block'; } }
   if(phase==='walk'){ seqT+=dt;
     for(const a of aiCrew){ const lt=Math.max(0,seqT-a.delay), k=Math.min(1,lt/2.4);
       const p=a.from.clone().lerp(a.to,k*k*(3-2*k)); a.a.position.set(p.x,Math.abs(Math.sin(lt*7))*0.06*(k<1?1:0),p.z);
       if(k>0.01){ const d=a.to.clone().sub(a.from); a.a.rotation.y=Math.atan2(d.x,d.z); } a.a.visible=k<0.99; }
+    if(FLOW&&AUTO_START&&!flowBoarded&&seqT>2.2){ flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); }
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
