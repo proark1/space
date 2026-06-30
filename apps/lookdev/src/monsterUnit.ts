@@ -1,4 +1,4 @@
-import { Box3, Group, MeshStandardMaterial, Object3D, Vector3 } from 'three';
+import { AnimationMixer, Box3, Group, MeshStandardMaterial, Object3D, Vector3, type AnimationClip } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGLTFLoaderSetup } from '@sl/render';
 
@@ -41,6 +41,7 @@ export interface MonsterUnitFactory {
 
 interface MonsterUnitSource {
   readonly scene: Object3D;
+  readonly clips: readonly AnimationClip[];
   readonly offset: Vector3;
   readonly scale: number;
 }
@@ -75,6 +76,9 @@ function buildInstance(source: MonsterUnitSource): MonsterUnitInstance {
   root.scale.setScalar(source.scale);
   root.add(inner);
 
+  const mixer = source.clips.length > 0 ? new AnimationMixer(inner) : null;
+  const action = source.clips[0] ? mixer?.clipAction(source.clips[0]) : null;
+  action?.reset().play();
   let bob = Math.random() * Math.PI * 2;
 
   return {
@@ -90,8 +94,13 @@ function buildInstance(source: MonsterUnitSource): MonsterUnitInstance {
       root.position.set(pose.x, pose.y - MONSTER_CAPSULE_CENTER_TO_FEET + breathe * gait, pose.z);
       root.rotation.set(stunShake, pose.yaw, Math.sin(bob * 0.65) * 0.025 * gait);
       root.scale.setScalar(source.scale * hitPulse * (pose.stunned ? 0.94 : pose.attacking ? 1.08 + lunge : 1));
+      if (mixer) {
+        mixer.timeScale = pose.stunned ? 0.25 : pose.attacking ? 1.35 : pose.moving ? 1 : 0.55;
+        mixer.update(dt);
+      }
     },
     dispose() {
+      mixer?.stopAllAction();
       root.clear();
     },
   };
@@ -110,7 +119,7 @@ async function loadMonsterUnitSource(): Promise<MonsterUnitSource | null> {
     const scale = MONSTER_UNIT_HEIGHT / Math.max(_size.y, 0.0001);
     const offset = new Vector3(-_center.x, -_box.min.y, -_center.z);
 
-    return { scene, offset, scale };
+    return { scene, clips: gltf.animations ?? [], offset, scale };
   } catch (err) {
     console.warn('[lookdev] monster unit failed to load; falling back to procedural capsule', err);
     return null;
