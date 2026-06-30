@@ -35,6 +35,13 @@ export interface ClientInputIntent {
   readonly yaw?: number;
   readonly pitch?: number;
   readonly dtMs?: number;
+  readonly voicePressure?: number;
+}
+
+export interface HostInputMeta {
+  readonly ownerSlot: number;
+  readonly playerEid: number;
+  readonly voicePressure: number;
 }
 
 export interface GameplayNetDriverOptions {
@@ -46,7 +53,7 @@ export interface GameplayNetDriverOptions {
   readonly now?: () => number;
   readonly maxPeerSlots?: number;
   readonly onSnapshot?: (snapshot: WorldSnapshot, result: ReturnType<typeof applySnapshotToEcs>) => void;
-  readonly onHostInput?: (peerId: string, cmds: readonly InputCmd[]) => void;
+  readonly onHostInput?: (peerId: string, cmds: readonly InputCmd[], meta: HostInputMeta) => void;
   readonly onLocalReconcile?: (result: LocalReconcileResult) => void;
   readonly onSlotAssigned?: (slot: number) => void;
 }
@@ -202,7 +209,11 @@ export class GameplayNetDriver {
       for (const cmd of cmds) {
         this.opts.hostGame.stepControlledPlayer(player, inputFromButtons(cmd), cmd.dtMs / 1000, cmd.clientTick);
       }
-      this.opts.onHostInput?.(peerId, cmds);
+      this.opts.onHostInput?.(peerId, cmds, {
+        ownerSlot,
+        playerEid: player,
+        voicePressure: cmds.at(-1)?.voicePressure ?? 0,
+      });
       return;
     }
 
@@ -258,6 +269,7 @@ export class GameplayNetDriver {
       moveYaw: intent.yaw ?? 0,
       movePitch: intent.pitch ?? 0,
       dtMs: intent.dtMs ?? 16,
+      voicePressure: intent.voicePressure ?? 0,
     });
     this.pendingLocalInputs.push(cmd);
     if (this.pendingLocalInputs.length > 256) this.pendingLocalInputs.shift();

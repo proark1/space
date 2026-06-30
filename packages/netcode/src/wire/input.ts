@@ -19,11 +19,24 @@ export interface InputCmd {
   moveYaw: number;
   movePitch: number;
   dtMs: number;
+  voicePressure?: number;
 }
 
 export function clampDt(dtMs: number): number {
   const r = Math.round(dtMs);
   return r < 1 ? 1 : r > 50 ? 50 : r;
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+export function quantizeVoicePressure(pressure: number): number {
+  return Math.round(clamp01(pressure) * 255);
+}
+
+export function dequantizeVoicePressure(q: number): number {
+  return (q & 0xff) / 255;
 }
 
 export function encodeInputPacket(
@@ -47,6 +60,7 @@ export function encodeInputPacket(
     w.u16(quantizeYaw(c.moveYaw));
     w.i16(quantizePitch(c.movePitch));
     w.u8(clampDt(c.dtMs));
+    w.u8(quantizeVoicePressure(c.voicePressure ?? 0));
   }
   return w.bytes();
 }
@@ -64,6 +78,7 @@ export function decodeInputPacket(bytes: Uint8Array): { clientTick: number; cmds
       moveYaw: dequantizeYaw(r.u16()),
       movePitch: dequantizePitch(r.i16()),
       dtMs: r.u8(),
+      voicePressure: dequantizeVoicePressure(r.u8()),
     });
   }
   return { clientTick: h.serverTick, cmds };

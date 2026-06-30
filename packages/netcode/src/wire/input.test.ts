@@ -16,13 +16,14 @@ function mk(seq: number, over: Partial<InputCmd> = {}): InputCmd {
 describe('input codec', () => {
   it('round-trips a command within quantization tolerance', () => {
     const back = decodeInputPacket(
-      encodeInputPacket([mk(1, { buttons: 0b101, moveYaw: 1.2, movePitch: -0.3 })]),
+      encodeInputPacket([mk(1, { buttons: 0b101, moveYaw: 1.2, movePitch: -0.3, voicePressure: 0.73 })]),
     ).cmds[0]!;
     expect(back.seq).toBe(1);
     expect(back.buttons).toBe(0b101);
     expect(back.dtMs).toBe(16);
     expect(Math.abs(back.moveYaw - 1.2)).toBeLessThan(0.001);
     expect(Math.abs(back.movePitch - -0.3)).toBeLessThan(0.001);
+    expect(back.voicePressure).toBeCloseTo(0.73, 2);
   });
 
   it('re-sends only the last 6 commands', () => {

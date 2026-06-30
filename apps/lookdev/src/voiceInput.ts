@@ -1,7 +1,7 @@
 export type VoiceLevel = 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
 export type ActiveVoiceLevel = Exclude<VoiceLevel, 'silent'>;
 export type VoiceCommand = 'whisper' | 'talk' | 'scream';
-export type VoiceSource = 'mic' | 'keyboard' | 'smoke';
+export type VoiceSource = 'mic' | 'keyboard' | 'remote' | 'smoke';
 export type MicVoiceStatus = 'unsupported' | 'idle' | 'requesting' | 'active' | 'denied' | 'error';
 
 export interface VoiceSignal {

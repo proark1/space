@@ -173,6 +173,29 @@ describe('GameplayNetDriver', () => {
     clientGame.dispose();
   });
 
+  it('passes quantized client voice pressure to the host input callback', async () => {
+    const hostGame = await Game.create({ role: 'host' });
+    const hostSession = new FakeSession('ROOM01', true, ['client-a']);
+    const clientSession = new FakeSession('ROOM01', false, ['host']);
+    const heard: Array<{ ownerSlot: number; playerEid: number; voicePressure: number }> = [];
+    const hostDriver = new GameplayNetDriver(hostSession, {
+      hostGame,
+      onHostInput: (_peerId, _cmds, meta) => heard.push(meta),
+    });
+    const clientDriver = new GameplayNetDriver(clientSession);
+    clientSession.unreliablePeer = (data) => hostDriver.handleUnreliable('client-a', data);
+
+    clientDriver.sendClientInput({ buttons: 0, yaw: 0, dtMs: 16, voicePressure: 0.82 });
+
+    const hostPeerEid = [...queryRemotePlayers(hostGame.world)][0]!;
+    expect(heard).toHaveLength(1);
+    expect(heard[0]!.ownerSlot).toBe(1);
+    expect(heard[0]!.playerEid).toBe(hostPeerEid);
+    expect(heard[0]!.voicePressure).toBeCloseTo(0.82, 2);
+
+    hostGame.dispose();
+  });
+
   it('assigns distinct owner slots so multiple clients reconcile only their own avatars', async () => {
     const hostGame = await Game.create({ role: 'host' });
     const clientAGame = await Game.create({ role: 'client', initialPlayerPosition: SLOT1_SPAWN });

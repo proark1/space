@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   let netPeers = 0;
   let netState = 'offline';
   let latestNetStats: NetStatsView | null = null;
-  const hostInputStats = new Map<string, { packets: number; cmds: number; fwd: number }>();
+  const hostInputStats = new Map<string, { packets: number; cmds: number; fwd: number; voiceMax: number }>();
   const gpuTimer = new GpuTimer();
   const budgetMonitor = new BudgetMonitor({ maxDrawCalls: 150, maxMedianFrameMs: 20, maxP95FrameMs: 50, sampleWindow: 300 });
   let renderFrames = 0;
@@ -171,12 +171,14 @@ async function main(): Promise<void> {
         signalingUrl,
         hostGame: mode === 'host' ? harness.game : undefined,
         localGame: mode === 'client' ? harness.game : undefined,
-        onHostInput: (peerId, cmds) => {
-          const stats = hostInputStats.get(peerId) ?? { packets: 0, cmds: 0, fwd: 0 };
+        onHostInput: (peerId, cmds, meta) => {
+          const stats = hostInputStats.get(peerId) ?? { packets: 0, cmds: 0, fwd: 0, voiceMax: 0 };
           stats.packets += 1;
           stats.cmds += cmds.length;
           stats.fwd += cmds.filter((cmd) => (cmd.buttons & Buttons.Fwd) !== 0).length;
+          stats.voiceMax = Math.max(stats.voiceMax, meta.voicePressure);
           hostInputStats.set(peerId, stats);
+          if (meta.voicePressure > 0.04) harness.applyRemoteVoicePressure(meta.playerEid, meta.voicePressure);
         },
         events: {
           onState: (state) => {
@@ -259,6 +261,7 @@ async function main(): Promise<void> {
         yaw: harness.controls.yaw,
         pitch: harness.controls.pitch,
         dtMs: Math.round(dt * 1000),
+        voicePressure: harness.voicePressureForNetwork(),
       });
     }
     harness.fixedStep(dt);
@@ -339,6 +342,7 @@ async function main(): Promise<void> {
     },
     voiceForSmoke: (command: 'whisper' | 'talk' | 'scream') => (isWalkScene(harness) ? harness.voiceForSmoke(command) : 0),
     voicePressureForSmoke: (pressure: number) => (isWalkScene(harness) ? harness.voicePressureForSmoke(pressure) : 0),
+    remoteVoicePressureForSmoke: (pressure: number, netId?: number) => (isWalkScene(harness) ? harness.remoteVoicePressureForSmoke(pressure, netId) : 0),
     interactForSmoke: () => (isWalkScene(harness) ? harness.interactForSmoke() : 0),
     fireForSmoke: () => (isWalkScene(harness) ? harness.fireForSmoke() : 0),
     remotePlayerPositions: () => {

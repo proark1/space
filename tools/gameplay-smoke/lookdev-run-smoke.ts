@@ -31,7 +31,7 @@ interface PickupView {
 
 type VoiceLevel = 'silent' | 'whisper' | 'talk' | 'shout' | 'scream';
 type ActiveVoiceLevel = Exclude<VoiceLevel, 'silent'>;
-type VoiceSource = 'mic' | 'keyboard' | 'smoke';
+type VoiceSource = 'mic' | 'keyboard' | 'remote' | 'smoke';
 type MicVoiceStatus = 'unsupported' | 'idle' | 'requesting' | 'active' | 'denied' | 'error';
 
 interface RunStateView {
@@ -54,6 +54,7 @@ interface RunStateView {
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
+  readonly remoteVoicePressure: number;
   readonly scarePhase: 'lull' | 'build' | 'peak' | 'relax';
   readonly scareDebt: number;
   readonly inSlickZone: boolean;
@@ -93,6 +94,7 @@ interface UiFeedbackView {
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
+  readonly remoteVoicePressure: number;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
   readonly remoteVisibleCount: number;
@@ -204,6 +206,10 @@ async function voicePressure(page: Page, pressure: number): Promise<void> {
   await page.evaluate((next) => (window as any).__sl.voicePressureForSmoke(next), pressure);
 }
 
+async function remoteVoicePressure(page: Page, pressure: number): Promise<void> {
+  await page.evaluate((next) => (window as any).__sl.remoteVoicePressureForSmoke(next), pressure);
+}
+
 async function interact(page: Page): Promise<void> {
   await page.evaluate(() => (window as any).__sl.interactForSmoke());
 }
@@ -309,6 +315,22 @@ async function main(): Promise<void> {
     state = await capture('far-crew-dark-hidden');
     assert(state.nearbyCrew === 0, 'far crew should not count as nearby in darkness');
     assert(ui.nearestRemoteVisibility < 0.08, `far crew should fade into darkness, got ${ui.nearestRemoteVisibility}`);
+
+    await setPlayer(page, { x: 8, y: 1, z: 0 }, Math.PI / 2);
+    await setRemote(page, { x: 0, y: 1, z: -12 });
+    await setMonster(page, { x: 0, y: 1, z: -8 });
+    await setFlashlight(page, false);
+    await remoteVoicePressure(page, 1);
+    await stepFrames(page, 18);
+    monster = await monsterState(page);
+    state = await capture('remote-scream-bait');
+    ui = await uiFeedback(page);
+    assert(state.voiceSource === 'remote', `expected remote voice source, got ${state.voiceSource}`);
+    assert(state.activeVoice === 'scream', `expected active remote scream, got ${state.activeVoice}`);
+    assert(state.remoteVoicePressure > 0.4, `remote scream should register pressure, got ${state.remoteVoicePressure}`);
+    assert(monster.mode === 'investigate', `remote scream should pull investigation, got ${monster.mode}`);
+    assert(monster.z < -8.25, `monster should move toward remote scream, got z ${monster.z}`);
+    assert(ui.remoteVoicePressure > 0.4, `ui should expose remote voice pressure, got ${ui.remoteVoicePressure}`);
 
     await setPlayer(page, { x: 0, y: 1, z: 0 }, 0);
     await setMonster(page, { x: 0, y: 1, z: -12 });

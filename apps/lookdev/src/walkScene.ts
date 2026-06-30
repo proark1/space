@@ -13,7 +13,7 @@ import {
   Vector3,
 } from 'three';
 import { Game } from '@sl/engine';
-import { Health, PlayerState, Transform, queryRemotePlayers, type GameWorld } from '@sl/ecs';
+import { Health, NetworkId, PlayerState, Transform, queryRemotePlayers, type GameWorld } from '@sl/ecs';
 import { createFlashlight } from '@sl/render';
 import type { RenderProfile } from '@sl/render';
 import { hudSync } from '@sl/ui';
@@ -105,6 +105,7 @@ export interface WalkRunStateView {
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
+  readonly remoteVoicePressure: number;
   readonly scarePhase: ScarePhase;
   readonly scareDebt: number;
   readonly inSlickZone: boolean;
@@ -163,6 +164,7 @@ export interface WalkUiFeedbackView {
   readonly activeVoice: ActiveVoiceLevel | null;
   readonly voiceSource: VoiceSource | null;
   readonly micVoiceStatus: MicVoiceStatus;
+  readonly remoteVoicePressure: number;
   readonly inSlickZone: boolean;
   readonly nearestRemoteVisibility: number;
   readonly remoteVisibleCount: number;
@@ -199,6 +201,8 @@ interface RunState {
   activeVoice: ActiveVoiceLevel | null;
   voiceSource: VoiceSource | null;
   voiceTimer: number;
+  localVoicePressure: number;
+  remoteVoicePressure: number;
   scarePhase: ScarePhase;
   scareTimer: number;
   nextScareAt: number;
@@ -244,6 +248,9 @@ export interface WalkSceneHandle extends HarnessScene {
   setFlashlightForSmoke(on: boolean): void;
   voiceForSmoke(command: VoiceCommand): number;
   voicePressureForSmoke(pressure: number): number;
+  remoteVoicePressureForSmoke(pressure: number, netId?: number): number;
+  applyRemoteVoicePressure(eid: number, pressure: number): number;
+  voicePressureForNetwork(): number;
   interactForSmoke(): number;
   fireForSmoke(): number;
   readonly grounded: boolean;
@@ -535,6 +542,8 @@ export async function createWalkScene(
     activeVoice: null,
     voiceSource: null,
     voiceTimer: 0,
+    localVoicePressure: 0,
+    remoteVoicePressure: 0,
     scarePhase: 'lull',
     scareTimer: 0,
     nextScareAt: 9,
@@ -799,6 +808,7 @@ export async function createWalkScene(
     const cueReady = !continuous || run.simTime - lastVoiceStatusAt > 4.5;
     run.activeVoice = voiceLevel;
     run.voiceSource = signal.source;
+    if (signal.source !== 'remote') run.localVoicePressure = Math.max(run.localVoicePressure, signal.pressure);
     run.voiceTimer = continuous ? 0.24 : voiceLevel === 'scream' ? 1.25 : voiceLevel === 'shout' ? 1.05 : voiceLevel === 'talk' ? 0.95 : 0.7;
     const playerSafe = isSafeRoom(level, pos);
     const crewClose = run.nearbyCrew > 0;
@@ -881,6 +891,52 @@ export async function createWalkScene(
       monster.repathIn = 0;
     }
     return continuous ? Math.max(signal.pressure * 1.18, 0.86) : 1.18;
+  };
+
+  const applyRemoteVoiceSignal = (eid: number, pressure: number): number => {
+    const signal = voiceSignalFromPressure(pressure, 'remote');
+    run.remoteVoicePressure = Math.max(run.remoteVoicePressure, signal.pressure);
+    if (signal.level === 'silent') return 0;
+
+    const remotePos = new Vector3(Transform.x[eid] ?? 0, Transform.y[eid] ?? 1, Transform.z[eid] ?? 0);
+    const localPos = playerPos();
+    const crewDistance = dist2d(remotePos, localPos);
+    const nearby = crewDistance <= DARK_CREW_OUTLINE_RANGE;
+    const remoteSafe = isSafeRoom(level, remotePos);
+    run.soundPressure = clamp(run.soundPressure + signal.pressure * (nearby ? 0.045 : 0.032), 0, 1);
+
+    if (nearby && (signal.level === 'whisper' || signal.level === 'talk')) {
+      run.activeVoice = signal.level;
+      run.voiceSource = 'remote';
+      run.voiceTimer = 0.7;
+      run.resolve = clamp(run.resolve + (signal.level === 'talk' ? 0.05 : 0.014), 0, 100);
+      if (!storyFlags.heardVoiceSurvivalHint) {
+        storyFlags.heardVoiceSurvivalHint = true;
+        radioSay('VESTA: Crew voice carries through suit telemetry. Keep it controlled.');
+      }
+      return signal.pressure * 0.45;
+    }
+
+    if (signal.level === 'shout' || signal.level === 'scream') {
+      run.activeVoice = signal.level;
+      run.voiceSource = 'remote';
+      run.voiceTimer = signal.level === 'scream' ? 1.0 : 0.8;
+      run.tension = clamp(run.tension + (signal.level === 'scream' ? 0.18 : 0.08), 0, 100);
+      run.scareDebt = clamp(run.scareDebt + (signal.level === 'scream' ? 0.004 : 0.0015), 0, 1);
+      if (!storyFlags.heardSoundWarning) {
+        storyFlags.heardSoundWarning = true;
+        radioSay('VESTA: That was crew noise. The Chorus heard the pressure spike.');
+      }
+      if (!remoteSafe && run.stage !== 'dead' && run.stage !== 'won') {
+        monster.mode = 'investigate';
+        monster.investigateTarget = remotePos;
+        monster.repathIn = 0;
+        monster.lostSightSeconds = 0;
+      }
+      return signal.level === 'scream' ? Math.max(signal.pressure, 0.86) : signal.pressure * 0.8;
+    }
+
+    return signal.pressure * 0.45;
   };
 
   const flashlightBeamHitsMonster = (pos: Vector3): boolean => {
@@ -1629,6 +1685,7 @@ export async function createWalkScene(
     activeVoice: run.activeVoice,
     voiceSource: run.voiceSource,
     micVoiceStatus: micVoice.status,
+    remoteVoicePressure: run.remoteVoicePressure,
     scarePhase: run.scarePhase,
     scareDebt: run.scareDebt,
     inSlickZone: run.inSlickZone,
@@ -1685,6 +1742,7 @@ export async function createWalkScene(
     activeVoice: run.activeVoice,
     voiceSource: run.voiceSource,
     micVoiceStatus: micVoice.status,
+    remoteVoicePressure: run.remoteVoicePressure,
     inSlickZone: run.inSlickZone,
     nearestRemoteVisibility: Math.max(0, ...[...remoteVisuals.values()].map((visual) => visual.visibility)),
     remoteVisibleCount: [...remoteVisuals.values()].filter((visual) => visual.visibility > 0.05).length,
@@ -1746,6 +1804,20 @@ export async function createWalkScene(
     syncHudState();
     return noise;
   };
+  const remoteVoicePressureForSmoke = (pressure: number, netId = SMOKE_REMOTE_NET_ID): number => {
+    const eid = [...queryRemotePlayers(game.world)].find((candidate) => NetworkId.id[candidate] === netId);
+    const noise = eid === undefined ? 0 : applyRemoteVoiceSignal(eid, pressure);
+    syncRunToEcs();
+    syncHudState();
+    return noise;
+  };
+  const applyRemoteVoicePressure = (eid: number, pressure: number): number => {
+    const noise = applyRemoteVoiceSignal(eid, pressure);
+    syncRunToEcs();
+    syncHudState();
+    return noise;
+  };
+  const voicePressureForNetwork = (): number => run.localVoicePressure;
   const interactForSmoke = (): number => {
     const noise = handleInteract(playerPos());
     syncRunToEcs();
@@ -1786,6 +1858,9 @@ export async function createWalkScene(
     setFlashlightForSmoke,
     voiceForSmoke,
     voicePressureForSmoke,
+    remoteVoicePressureForSmoke,
+    applyRemoteVoicePressure,
+    voicePressureForNetwork,
     interactForSmoke,
     fireForSmoke,
     fixedStep(dt) {
@@ -1793,6 +1868,8 @@ export async function createWalkScene(
       let playerNoise = 0;
       const before = playerPos();
       const active = run.stage !== 'dead' && run.stage !== 'won';
+      run.localVoicePressure = 0;
+      run.remoteVoicePressure = Math.max(0, run.remoteVoicePressure - dt * 1.8);
       run.voiceTimer = Math.max(0, run.voiceTimer - dt);
       if (run.voiceTimer <= 0) {
         run.activeVoice = null;
