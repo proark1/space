@@ -84,6 +84,7 @@ const crewAt = index => ACTIVE_CREW[index % ACTIVE_CREW.length];
 const crewSayLine = (index, text) => crewLine(crewAt(index).name, text);
 let adminUnitSettings = {height:2.35, scale:1, yaw:0, positionY:0, colliderRadius:0.55, colliderHeight:2.35, materialEnabled:false, materialColor:'#1a1f22', emissiveEnabled:false, emissiveColor:'#36e0d0', emissiveIntensity:0, showCollider:true};
 function finiteNumber(value, fallback){ const n=Number(value); return Number.isFinite(n)?n:fallback; }
+function smooth(a,b,x){ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); }
 function normalizeUnitSettings(value, fallback=adminUnitSettings){
   const source=value&&typeof value==='object'?value:{};
   return {
@@ -426,9 +427,18 @@ decal(blood,1.5,1.5,-W/2+0.12,1.0,-33,0,Math.PI/2);
 // ---------- wet floor sheen (feathered glossy decal — catches the flashlight, no mirror void) ----------
 const wetMask=tex(x=>{ const g=x.createRadialGradient(128,128,12,128,128,128); g.addColorStop(0,'rgba(255,255,255,0.85)'); g.addColorStop(0.55,'rgba(255,255,255,0.5)'); g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=g; x.fillRect(0,0,256,256); });
 // dielectric sheen: diffuse ≈ floor (so it never darkens to a void), low roughness so it catches the flashlight as a wet glint
+const wetZones=[];
 function wet(x,z,r){ const o=new THREE.Mesh(new THREE.CircleGeometry(r,28), new THREE.MeshStandardMaterial({color:0x262e34,roughness:0.13,metalness:0.0,transparent:true,alphaMap:wetMask,opacity:0.5,depthWrite:false}));
-  o.rotation.x=-Math.PI/2; o.position.set(x,0.103,z); o.receiveShadow=false; scene.add(o); return o; }
+  o.rotation.x=-Math.PI/2; o.position.set(x,0.103,z); o.receiveShadow=false; scene.add(o); wetZones.push({x,z,r}); return o; }
 wet(-0.2,-37,1.6); wet(-0.45,-33,1.05); wet(0.28,-43.5,1.45);
+function wetnessAt(p){
+  let best=0;
+  for(const zone of wetZones){
+    const d=Math.hypot(p.x-zone.x,p.z-zone.z);
+    if(d<zone.r) best=Math.max(best,1-d/zone.r);
+  }
+  return best;
+}
 
 // ---------- steam ----------
 function pts(n,col,size,op){ const p=new Float32Array(n*3); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
@@ -471,6 +481,8 @@ MULTI.onTask(event=>{
     say(crewLine(event.name, event.payload?.text || 'I am on it.'),2.2);
   } else if(event.type==='noise'){
     director.hear(new THREE.Vector3(Number(event.payload?.x)||0,0,Number(event.payload?.z)||camera.position.z),Number(event.payload?.amount)||35,'remote-noise');
+  } else if(event.type==='gravity-failure'){
+    triggerGravityFailure(true);
   } else if(event.type==='intent' && isRoomHost()){
     applyHostIntent(event.payload||{},event.from);
   } else if(event.type==='state-request' && isRoomHost()){
@@ -693,9 +705,9 @@ let lightFactor=1;
 const CONSOLE=new THREE.Vector3(0,1.8,-LEN-6.7);
 const setObj=t=>{ objEl.textContent=t; };
 setObj('REACH COMMAND CENTER - RECOVER FINAL RECORDINGS');
-let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0,jumpQueued=false,jumpY=0,jumpV=0;
+let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0,jumpQueued=false,jumpY=0,jumpV=0,slickVX=0,slickVZ=0,slickLevel=0,slickWarnAt=0,gravityActive=false,gravityT=0,gravityLift=0,gravityTriggered=false,gravitySettledLine=false;
 let mechanicalFixed=false, passwordFound=false, passwordDoorOpen=false, laserDeactivated=false;
-const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,command:false};
+const storyBeats={wet:false,scratches:false,vent:false,voice:false,body:false,gravity:false,command:false};
 const sideDone=new Set();
 const RUN_VARIANT=Math.floor(Math.random()*3);
 let roomStateRev=0, lastRoomStateAt=0, applyingRoomState=false;
@@ -964,7 +976,7 @@ function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=fal
 function die(){ if(caught||won) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); broadcastRoomState(true); }
-function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; mechanicalFixed=false; passwordFound=false; passwordDoorOpen=false; laserDeactivated=false; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0;
+function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; mechanicalFixed=false; passwordFound=false; passwordDoorOpen=false; laserDeactivated=false; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0; slickVX=0; slickVZ=0; slickLevel=0; slickWarnAt=0; gravityActive=false; gravityT=0; gravityLift=0; gravityTriggered=false; gravitySettledLine=false;
   Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
   sideDone.clear();
   overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; crewTalkEl.style.opacity='0'; setRouteObjective();
@@ -1052,6 +1064,7 @@ function roomSnapshot(){
     restored,needValve,valveDone,valveFixing,valveT,needBreaker,breakerDone,breakerFixing,breakerT,
     mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,
     readyToSend,transmitting,transmitProgress,transmitWarned,enraged,mActive,caught,won,lightFactor,flashOn,
+    gravity:{active:gravityActive,t:gravityT,triggered:gravityTriggered},
     sideDone:[...sideDone],
     objective:objEl.textContent,
     prompt:promptEl.textContent,
@@ -1077,6 +1090,11 @@ function applyRoomState(state){
   mechanicalFixed=!!state.mechanicalFixed; passwordFound=!!state.passwordFound; passwordDoorOpen=!!state.passwordDoorOpen; laserDeactivated=!!state.laserDeactivated;
   readyToSend=!!state.readyToSend; transmitting=!!state.transmitting; transmitWarned=!!state.transmitWarned; enraged=!!state.enraged; mActive=!!state.mActive;
   lightFactor=Number.isFinite(Number(state.lightFactor))?Number(state.lightFactor):lightFactor; flashOn=!!state.flashOn;
+  if(state.gravity){
+    gravityTriggered=!!state.gravity.triggered;
+    if(state.gravity.active && !gravityActive) triggerGravityFailure(true);
+    if(state.gravity.active) gravityT=Math.max(gravityT,Number(state.gravity.t)||0);
+  }
   sideDone.clear(); for(const id of (Array.isArray(state.sideDone)?state.sideDone:[])) sideDone.add(id);
   if(typeof state.objective==='string') setObj(state.objective);
   if(Array.isArray(state.scrl)){ SCRL=state.scrl.map(String); scrScroll=0; drawScreen(); }
@@ -1116,6 +1134,30 @@ function scareBeat(kind){
   else { director.hear(camera.position,45,'mimic'); if(!playClip('vox-vesta-1',0.75)) sting(); SCRL=['> INTERNAL COMMS','> REYES: open up','> REYES: open up','> REYES is beside you']; say(crewSayLine(0,'that was my voice and I did not say it.'),3.2); }
   scrScroll=0; drawScreen();
 }
+function triggerGravityFailure(remote=false){
+  if(gravityActive||caught||won||SHOWCASE==='monster')return;
+  gravityActive=true; gravityT=0; gravityLift=0; gravityTriggered=true; gravitySettledLine=false;
+  jumpY=0; jumpV=0; shake=Math.max(shake,0.65); lightStun=Math.max(lightStun,0.28); spendSilence(0.35);
+  SCRL=['> GRAVITY CONTROL','> deck vector: inverted','> boots: offline','> ceiling impact risk','> brace brace brace'];
+  scrScroll=0; drawScreen();
+  if(!playClip('crt-call',0.82)) thump();
+  say(crewSayLine(1,'gravity just changed its mind. brace for the ceiling.'),3.0);
+  if(!remote){ MULTI.broadcastTask('gravity-failure',{}); broadcastRoomState(true); }
+}
+function updateGravityFailure(dt,t){
+  if(!gravityActive){ gravityLift=0; return; }
+  gravityT+=dt;
+  const rise=smooth(0,0.58,gravityT);
+  const settle=1-smooth(2.35,3.35,gravityT);
+  gravityLift=1.25*Math.min(rise,settle);
+  shake=Math.max(shake,0.12+Math.max(0,1-gravityT/1.2)*0.22);
+  scarePulseT=Math.max(scarePulseT,0.08*Math.max(0,1-gravityT/2.7));
+  if(gravityT>2.35&&!gravitySettledLine){
+    gravitySettledLine=true;
+    say(crewSayLine(0,'down is back. I would like a written apology from physics.'),2.5);
+  }
+  if(gravityT>=3.45){ gravityActive=false; gravityLift=0; shake=Math.max(shake,0.18); broadcastRoomState(true); }
+}
 function storyBeatCheck(){
   const z=camera.position.z;
   if(!storyBeats.wet && z<-8){ storyBeats.wet=true; say(crewSayLine(2,'why is the floor wet in space?'),3.0); }
@@ -1123,6 +1165,7 @@ function storyBeatCheck(){
   if(!storyBeats.vent && z<-23){ storyBeats.vent=true; scareBeat('vent'); }
   if(!storyBeats.voice && z<-27){ storyBeats.voice=true; director.hear(camera.position,45,'mimic'); noisyUntil=performance.now()+1800; mob.position.set(0,0,camera.position.z-8); scareBeat('voice'); }
   if(!storyBeats.body && z<-31){ storyBeats.body=true; say(crewSayLine(0,'nobody say "it left." that is how people die in briefings.'),3.8); }
+  if(!storyBeats.gravity && z<-36 && isRoomHost()){ storyBeats.gravity=true; triggerGravityFailure(); }
   if(!storyBeats.command && z<-LEN-3.0){ storyBeats.command=true; say('<b>EARTH CONTROL</b>: command center beacon acquired. recover the last logs.',3.3); }
 }
 function updateCrew(dt,t,moving){
@@ -1135,7 +1178,7 @@ function updateCrew(dt,t,moving){
       root.position.x += (remotePose.x-root.position.x)*0.22;
       root.position.z += (remotePose.z-root.position.z)*0.22;
       root.rotation.y += (remotePose.yaw-root.rotation.y)*0.18;
-      root.position.y=Math.abs(Math.sin(t*7+c.phase))*0.025;
+      root.position.y=gravityLift*0.82+Math.abs(Math.sin(t*7+c.phase))*0.025;
       animateAstronaut(root,Math.hypot(remotePose.x-root.position.x,remotePose.z-root.position.z)>0.035?'walk':'idle',t+c.phase,1);
       continue;
     }
@@ -1153,7 +1196,7 @@ function updateCrew(dt,t,moving){
       root.position.z+=dz/d*Math.min(d,sp);
       root.rotation.y=Math.atan2(dx,dz);
     }
-    root.position.y=Math.abs(Math.sin(t*(panic?9:5)+c.phase))*0.035*(d>0.08?1:0.35);
+    root.position.y=gravityLift*0.82+Math.abs(Math.sin(t*(panic?9:5)+c.phase))*0.035*(d>0.08?1:0.35);
     animateAstronaut(root, d>0.08?(panic?'run':'walk'):'idle', t+c.phase, 1);
   }
 }
@@ -1165,22 +1208,52 @@ function animate(){ requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05), t=clock.elapsedTime;
   const moving = controls.isLocked && !hidden && !breakerFixing && !valveFixing && (keys.KeyW||keys.KeyS||keys.KeyA||keys.KeyD);
   const running = moving && keys.ShiftLeft;
-  if(controls.isLocked && !caught && !won && !hidden && !breakerFixing && !valveFixing){ const s=(running?5.4:3.0)*dt;
-    if(keys.KeyW)controls.moveForward(s); if(keys.KeyS)controls.moveForward(-s); if(keys.KeyA)controls.moveRight(-s); if(keys.KeyD)controls.moveRight(s); }
+  const canMove=controls.isLocked && !caught && !won && !hidden && !breakerFixing && !valveFixing;
+  if(canMove){
+    let ix=0, iz=0;
+    const yaw=camera.rotation.y, fx=-Math.sin(yaw), fz=-Math.cos(yaw), rx=Math.cos(yaw), rz=-Math.sin(yaw);
+    if(keys.KeyW){ix+=fx; iz+=fz;} if(keys.KeyS){ix-=fx; iz-=fz;} if(keys.KeyA){ix-=rx; iz-=rz;} if(keys.KeyD){ix+=rx; iz+=rz;}
+    const il=Math.hypot(ix,iz); if(il>0){ ix/=il; iz/=il; }
+    const speed=running?5.4:3.0, desiredVX=ix*speed, desiredVZ=iz*speed;
+    slickLevel=wetnessAt(camera.position);
+    if(slickLevel>0.06){
+      const steer=running?2.05:1.18, damp=moving?0.98:0.58;
+      slickVX+=(desiredVX-slickVX)*Math.min(1,dt*steer);
+      slickVZ+=(desiredVZ-slickVZ)*Math.min(1,dt*steer);
+      if(!moving){ slickVX*=Math.max(0,1-dt*damp); slickVZ*=Math.max(0,1-dt*damp); }
+      const mix=slickLevel*(running?0.66:0.45);
+      camera.position.x+=(desiredVX*(1-mix)+slickVX*mix)*dt;
+      camera.position.z+=(desiredVZ*(1-mix)+slickVZ*mix)*dt;
+      if(running&&moving&&slickLevel>0.32&&performance.now()>slickWarnAt){
+        slickWarnAt=performance.now()+4200;
+        shake=Math.max(shake,0.2+slickLevel*0.22);
+        director.hear(camera.position,18+slickLevel*22,'slick-floor');
+        MULTI.broadcastTask('noise',{x:camera.position.x,z:camera.position.z,amount:18+slickLevel*22});
+        say(crewSayLine(2,'wet deck. slow down unless you want to meet the wall personally.'),2.7);
+      }
+    } else {
+      slickVX*=Math.max(0,1-dt*5.2); slickVZ*=Math.max(0,1-dt*5.2);
+      camera.position.x+=desiredVX*dt; camera.position.z+=desiredVZ*dt;
+    }
+  } else {
+    slickVX*=Math.max(0,1-dt*5.2); slickVZ*=Math.max(0,1-dt*5.2); slickLevel=0;
+  }
   clampWalkable(camera.position);
   if(hidden&&activeHide){ camera.position.copy(activeHide.pos); }
   bob += moving ? dt*(keys.ShiftLeft?13:9) : 0;
   const canJump=controls.isLocked && !caught && !won && !hidden && !breakerFixing && !valveFixing;
   if(canJump && jumpQueued && jumpY<=0.001) jumpV=2.75;
   jumpQueued=false;
-  if(canJump && (jumpV||jumpY>0)){
+  if(gravityActive){ jumpY=0; jumpV=0; }
+  else if(canJump && (jumpV||jumpY>0)){
     jumpY+=jumpV*dt;
     jumpV-=5.4*dt;
     if(jumpY<0){ jumpY=0; jumpV=0; }
   } else if(!canJump) {
     jumpY=0; jumpV=0;
   }
-  camera.position.y = hidden ? 1.32 : 1.6 + jumpY + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
+  updateGravityFailure(dt,t);
+  camera.position.y = hidden ? 1.32 : 1.6 + jumpY + gravityLift + (moving ? Math.sin(bob)*0.045 : Math.sin(t*1.3)*0.012);
   stepAcc += moving ? dt*(keys.ShiftLeft?2.6:1.8) : 0; if(stepAcc>=1){ stepAcc=0; stepsTaken++; playClip('sfx-step',0.35); }
   if(controls.isLocked && !caught && !won) storyBeatCheck();
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw:camera.rotation.y,hidden});
@@ -1317,11 +1390,13 @@ function animate(){ requestAnimationFrame(animate);
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, get crewCount(){return crewMates.length;},
   get audio(){return {clips:Object.keys(CLIPS).length, mood:musMood, music:!!musicBus, ctx:A&&A.ctx.state};},
-  get state(){return {hidden,mActive,restored,enraged,mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+  get state(){return {hidden,mActive,restored,enraged,mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,slickLevel,gravityActive,gravityLift,gravityTriggered,crewCount:crewMates.length,crewSummary:CREW_SUMMARY,sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
     forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; activeHide=h; hidden=true; camera.position.copy(h.pos); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},
     makeNoise(x,z,amount=70){director.hear(new THREE.Vector3(x,0,z),amount,'smoke-noise');},
+    triggerGravity(){triggerGravityFailure(true);},
+    wetness(){return wetnessAt(camera.position);},
     interact(){tryInteract();},
     moveTo(x,z){camera.position.set(x,1.6,z);}
   }:null

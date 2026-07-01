@@ -310,6 +310,27 @@ async function checkStationHideMechanic(page: Page, baseUrl: string): Promise<vo
   await assertNoPageErrors(errors, 'station hide');
 }
 
+async function checkStationHazards(page: Page, baseUrl: string): Promise<void> {
+  const errors = collectPageErrors(page);
+  await page.goto(`${baseUrl}/game?smoke=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => Boolean((window as any).__chorus?.smoke), null, { timeout: TIMEOUT_MS });
+  await unlockStationCommandRoute(page);
+  await page.evaluate(() => (window as any).__chorus.smoke.moveTo(-0.2, -37));
+  const wetness = await page.evaluate(() => (window as any).__chorus.smoke.wetness());
+  assert(wetness > 0.6, `expected wet floor to register as slick, got ${wetness}`);
+
+  await page.evaluate(() => (window as any).__chorus.smoke.triggerGravity());
+  await page.waitForFunction(() => {
+    const state = (window as any).__chorus.state;
+    return state.gravityActive === true && state.gravityLift > 0.55;
+  }, null, { timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => {
+    const state = (window as any).__chorus.state;
+    return state.gravityActive === false && state.gravityTriggered === true;
+  }, null, { timeout: TIMEOUT_MS });
+  await assertNoPageErrors(errors, 'station hazards');
+}
+
 async function unlockStationCommandRoute(page: Page): Promise<void> {
   await page.waitForFunction(() => Boolean((window as any).__chorus?.smoke), null, { timeout: TIMEOUT_MS });
   await page.evaluate(() => {
@@ -439,6 +460,7 @@ async function main(): Promise<void> {
     await checkDockingHandoff(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     await checkStationFlowEntry(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     await checkStationHideMechanic(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
+    await checkStationHazards(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     await checkStationMultiplayer(browser, baseUrl, signaling.baseUrl);
     await checkStationObjectivePath(await browser.newPage({ viewport: { width: 1280, height: 720 } }), baseUrl);
     console.log('lookdev full-loop smoke passed');
