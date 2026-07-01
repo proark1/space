@@ -6,7 +6,7 @@
 <title>SIGNAL LOST — look-dev v2</title>
 <style>
   html,body{margin:0;height:100%;background:#04060a;overflow:hidden}
-  #c{width:100vw;height:100vh;display:block;image-rendering:pixelated}
+  #c{width:100vw;height:100vh;display:block}
   #ui{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
       font-family:ui-monospace,Menlo,Consolas,monospace;color:#cdd6e0;text-align:center;pointer-events:none}
   #panel{background:rgba(6,9,14,.82);border:1px solid #20303c;border-radius:10px;padding:22px 26px;max-width:470px;pointer-events:auto}
@@ -111,8 +111,9 @@ async function loadAdminUnitSettings(){
   }catch(e){}
 }
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
-renderer.setPixelRatio(1);
+const DPR=Math.min(window.devicePixelRatio||1,2);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(DPR);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.2;
 
@@ -123,10 +124,10 @@ const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 130);
 camera.position.set(0, 1.6, -1.5); scene.add(camera);
 
 // ---------- post ----------
-const INTERNAL = 0.68;
 const composer = new EffectComposer(renderer);
+composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(1,1), 0.7, 0.5, 0.6); composer.addPass(bloom);
+const bloom = new UnrealBloomPass(new THREE.Vector2(1,1), 0.18, 0.28, 0.9); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const Grade = new ShaderPass({
   uniforms:{ tDiffuse:{value:null}, uTime:{value:0}, uRes:{value:new THREE.Vector2(1,1)} },
@@ -140,21 +141,18 @@ const Grade = new ShaderPass({
     float rnd(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5); }
     void main(){
       vec2 uv=vUv, d=uv-0.5;
-      uv += d*dot(d,d)*0.07;                                   // subtle barrel/lens
-      float ca=0.0012+dot(d,d)*0.013;
+      float ca=0.0004+dot(d,d)*0.0018;
       vec3 col; col.r=texture2D(tDiffuse,uv+d*ca).r; col.g=texture2D(tDiffuse,uv).g; col.b=texture2D(tDiffuse,uv-d*ca).b;
-      float lv=24.0; col=floor(col*lv+bayer(gl_FragCoord.xy))/lv;
       float lum=dot(col,vec3(0.33));
       col*=mix(vec3(0.8,0.96,1.1), vec3(1.06,0.99,0.88), smoothstep(0.0,0.55,lum));
-      col*=0.92+0.08*sin(gl_FragCoord.y*3.14159);
-      col+=(rnd(uv*uRes+uTime)-0.5)*0.018;
-      col*=mix(0.46,1.0, smoothstep(0.98,0.26,length(d)));
+      col+=(rnd(uv*uRes+uTime)-0.5)*0.01;
+      col*=mix(0.74,1.0, smoothstep(1.25,0.12,length(d)));
       gl_FragColor=vec4(max(col,0.0),1.0);
     }`
 });
 composer.addPass(Grade);
-function resize(){ const w=innerWidth,h=innerHeight,lw=Math.max(2,Math.floor(w*INTERNAL)),lh=Math.max(2,Math.floor(h*INTERNAL));
-  renderer.setSize(lw,lh,false); composer.setSize(lw,lh); bloom.setSize(lw,lh); Grade.uniforms.uRes.value.set(lw,lh);
+function resize(){ const w=innerWidth,h=innerHeight;
+  renderer.setSize(w,h,false); composer.setSize(w,h); bloom.setSize(w,h); Grade.uniforms.uRes.value.set(w*DPR,h*DPR);
   camera.aspect=w/h; camera.updateProjectionMatrix(); }
 
 // ---------- lights ----------
@@ -272,10 +270,16 @@ function makeSideRoute(route,label,color){
   for(const d of route.doors){
     const dz=(d.zMin+d.zMax)/2;
     const doorX=route.side*W/2;
-    box(0.2,2.82,d.zMax-d.zMin,C.pipe,doorX,H/2,dz);
-    box(0.14,0.08,d.zMax-d.zMin,lightMat,doorX-route.side*0.35,0.2,dz);
-    box(0.12,0.95,0.18,lightMat,doorX-route.side*0.12,1.55,d.zMax-0.12);
-    box(0.12,0.95,0.18,lightMat,doorX-route.side*0.12,1.55,d.zMin+0.12);
+    const doorW=d.zMax-d.zMin;
+    const voidMat=new THREE.MeshBasicMaterial({color:0x030609,transparent:true,opacity:0.78,side:THREE.DoubleSide});
+    box(0.02,2.32,Math.max(0.4,doorW-0.36),voidMat,doorX+route.side*0.045,1.38,dz);
+    box(0.28,H,0.2,C.pipe,doorX,H/2,d.zMax-0.1);
+    box(0.28,H,0.2,C.pipe,doorX,H/2,d.zMin+0.1);
+    box(0.28,0.28,doorW,C.pipe,doorX,H-0.14,dz);
+    box(0.34,0.08,doorW,lightMat,doorX-route.side*0.22,0.08,dz);
+    box(0.12,1.1,0.18,lightMat,doorX-route.side*0.14,1.45,d.zMax-0.22);
+    box(0.12,1.1,0.18,lightMat,doorX-route.side*0.14,1.45,d.zMin+0.22);
+    box(0.7,0.04,Math.max(0.7,doorW-0.7),lightMat,doorX-route.side*0.62,0.12,dz);
     decal(sign(label,signColor),0.8,0.34,doorX-route.side*0.12,2.42,dz,0,route.side>0?-Math.PI/2:Math.PI/2);
   }
 }
@@ -848,6 +852,18 @@ function nearestSideInteract(max=1.55){
     if(sideDone.has(item.id))continue;
     const d=Math.hypot(camera.position.x-item.pos.x,camera.position.z-item.pos.z);
     if(d<bd){best=item; bd=d;}
+  }
+  return best;
+}
+function nearestSideDoor(max=1.2){
+  let best=null, bd=max;
+  for(const route of SIDE_ROUTES){
+    for(const d of route.doors){
+      if(!inBand(camera.position.z,d.zMin,d.zMax)) continue;
+      const thresholdX=route.side*(W/2-0.55);
+      const dx=Math.abs(camera.position.x-thresholdX);
+      if(dx<bd){ best=route; bd=dx; }
+    }
   }
   return best;
 }
@@ -1456,6 +1472,7 @@ function animate(){ requestAnimationFrame(animate);
   const nearBreaker=needBreaker&&!breakerDone&&camera.position.distanceTo(BREAKER)<2.0;
   const hideSpot=nearestHide();
   const sideSpot=nearestSideInteract();
+  const sideDoor=nearestSideDoor();
   const gateSpot=nearestProgressDoor();
   if(hidden) promptEl.textContent='[E] LEAVE LOCKER';
   else if(hideSpot&&(mActive||enraged||transmitting)) promptEl.textContent='[E] HIDE';
@@ -1463,10 +1480,11 @@ function animate(){ requestAnimationFrame(animate);
   else if(breakerFixing) promptEl.textContent='REROUTING POWER...';
   else if(gateSpot) promptEl.textContent=progressDoorPrompt(gateSpot);
   else if(sideSpot) promptEl.textContent=sideSpot.prompt;
+  else if(sideDoor) promptEl.textContent=`${sideDoor.label} HATCH`;
   else if(nearValve) promptEl.textContent='[E] SEAL COOLANT LEAK';
   else if(nearBreaker) promptEl.textContent='[E] REROUTE POWER';
   else promptEl.textContent=!restored?'[E] RECOVER FINAL RECORDINGS':readyToSend?'[E] SEND MESSAGE TO EARTH':transmitting?'TRANSMITTING...':'';
-  promptEl.style.display=(!caught&&!won&&(hidden||valveFixing||breakerFixing||gateSpot||sideSpot||nearValve||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
+  promptEl.style.display=(!caught&&!won&&(hidden||valveFixing||breakerFixing||gateSpot||sideSpot||sideDoor||nearValve||nearBreaker||(hideSpot&&(mActive||enraged||transmitting))||(nearConsole&&(!restored||readyToSend||transmitting))))?'block':'none';
 
   // render with shake / sway offset (no drift)
   updateListener();
