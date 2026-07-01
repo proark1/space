@@ -1,4 +1,4 @@
-const KEEP_PARAMS = ['room', 'code', 'session', 'signal', 'name', 'players', 'peers', 'crew', 'host', 'join'];
+const KEEP_PARAMS = ['room', 'code', 'session', 'signal', 'name', 'players', 'peers', 'crew', 'slots', 'crewSlots', 'host', 'join'];
 
 function roomCode(query) {
   return (query.get('room') || query.get('code') || query.get('session') || '').trim().toUpperCase();

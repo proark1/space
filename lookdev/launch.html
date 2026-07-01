@@ -14,6 +14,20 @@
   #nav a{color:#9fd0ff;text-decoration:none;background:rgba(8,12,18,.7);border:1px solid #20303c;border-radius:6px;padding:6px 10px}
   #title{position:fixed;left:14px;top:12px;font:600 13px ui-monospace,monospace;letter-spacing:3px;color:#E8A33D;pointer-events:none}
   #stat{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);font:11px ui-monospace,monospace;color:#9fd0ff;pointer-events:none;opacity:.0;transition:opacity .5s;letter-spacing:2px}
+  #voice{position:fixed;right:14px;bottom:12px;width:190px;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:8px;padding:8px 9px;font:11px ui-monospace,monospace;color:#9fd0ff;display:flex;flex-direction:column;gap:6px}
+  #voiceTop{display:flex;align-items:center;gap:8px}
+  #micToggle{width:82px;background:#7dffb0;color:#04140a;border:0;border-radius:6px;padding:7px 8px;font:800 10px ui-monospace,monospace;letter-spacing:1px;cursor:pointer}
+  #micToggle.muted{background:#25313b;color:#cdd6e0;border:1px solid #40505b}
+  #micState{flex:1;color:#cdd6e0;text-align:right;white-space:nowrap}
+  #micMeter{height:5px;background:#111922;border:1px solid #20303c;border-radius:999px;overflow:hidden}
+  #micFill{display:block;width:100%;height:100%;background:#7dffb0;transform-origin:left center;transform:scaleX(.03)}
+  #voicePeers{display:flex;flex-wrap:wrap;gap:4px;min-height:14px}
+  #voicePeers span{border:1px solid #20303c;border-radius:5px;padding:2px 4px;color:#7b8894}
+  #voicePeers span.live{color:#7dffb0;border-color:#2c5a40}
+  #voicePeers span.remote{color:#9fd0ff}
+  #voicePeers span.npc{color:#667480}
+  #voicePeers b{color:#E8A33D;font-weight:800}
+  #voiceAudio{display:none}
 </style>
 </head>
 <body>
@@ -22,6 +36,8 @@
 <div id="nav"><a href="/exterior">▸ the derelict</a><a href="/game">▸ aboard</a></div>
 <div id="hud"><b>drag</b> look · <b>WASD</b> walk when standing · <b>SPACE</b> stand/sit · the derelict is ahead</div>
 <div id="stat">▸ APPROACHING THE DERELICT</div>
+
+<div id="voice"><div id="voiceTop"><button id="micToggle" type="button">MIC</button><div id="micState">MIC OFF</div></div><div id="micMeter"><i id="micFill"></i></div><div id="voicePeers"><span>CREW COMMS</span></div><div id="voiceAudio"></div></div>
 
 <script type="importmap">
 { "imports": {
@@ -43,6 +59,7 @@ import { makeAstronaut } from './units_alpha.js?v=5';
 import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
+import { createLobbyVoiceChat } from './voice_chat.js';
 import { buildApproachDockFaceZ } from './station_parts.js';
 
 const canvas=document.getElementById('c');
@@ -60,6 +77,7 @@ const CREW_SLOTS=buildCrewSlots({search: location.search});
 const ACTIVE_CREW=CREW_SLOTS.slice(1);
 const CREW_SUMMARY=crewSummary(CREW_SLOTS);
 const MULTI=createLookdevMultiplayer({scene:'launch'});
+const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>CREW_SLOTS});
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -108,6 +126,7 @@ const CAP=(r,l,a,b)=>new THREE.CapsuleGeometry(r,l,a||6,b||16);
 // ==BUILD START==
 const flick=[];   // {m, b(base), s(seed)} emissive readouts + engines
 const crew=[];    // {g, s} seated crewmate groups (idle bob)
+const seatAssignments=[];
 
 // ---- materials ----
 const grime=tex(x=>{ x.fillStyle='#7d828c'; x.fillRect(0,0,256,256);
@@ -247,23 +266,25 @@ readout(M.red,0.14,0.14,0.95,-1.06,1.4);
 for(let i=0;i<8;i++) part(CYL(0.04,0.04,0.06,8),M.metal,cabin,-1.0+i*0.26,-0.52,-1.0,-0.5,0,0);
 
 // seats + crew — 4 in an inward-facing ring (max 4 players) so the crew can see each other
-function seat(px,pz,faceY,accent,tone){
+function seat(px,pz,faceY,member,station){
   const s=new THREE.Group(); s.position.set(px,0,pz); s.rotation.y=faceY; cabin.add(s);
   part(BOX(0.7,0.12,0.7),M.seat,s,0,-0.95,0);
   part(BOX(0.7,1.0,0.12),M.seat,s,0,-0.5,0.32);
   part(BOX(0.12,0.5,0.7),M.seat,s,-0.31,-0.7,0); part(BOX(0.12,0.5,0.7),M.seat,s,0.31,-0.7,0);
-  if(accent!=null){
+  const occupant=member||{};
+  seatAssignments.push({station,slotNumber:occupant.slotNumber||seatAssignments.length+1,kind:occupant.kind||'local',name:occupant.name||'PLAYER',role:occupant.role||station,cameraSeat:occupant.kind==='local'});
+  if(occupant.kind!=='local'&&occupant.accent!=null){
     const c=new THREE.Group(); c.position.set(0,-0.95,0.04); c.rotation.y=Math.PI; c.userData.by=-0.95; s.add(c);
-    const a=makeAstronaut({accent,seated:true,tone}); a.scale.setScalar(0.56); c.add(a);
-    crew.push({g:c,s:Math.random()*9});
+    const a=makeAstronaut({accent:occupant.accent,seated:true,tone:occupant.tone}); a.scale.setScalar(0.56); c.add(a);
+    crew.push({g:c,s:Math.random()*9,seat:station,member:occupant});
   }
   return s;
 }
 // ring: YOU at the back (camera), up to 3 crew facing inward — everyone sees everyone
-seat(0,0.85,0,null);                  // YOU (back seat / camera) — face the centre & window
-seat(0,-0.85,Math.PI,ACTIVE_CREW[0].accent,ACTIVE_CREW[0].tone);       // pilot, faces you
-seat(-0.85,0,-Math.PI/2,ACTIVE_CREW[1].accent,ACTIVE_CREW[1].tone);    // engineer
-seat(0.85,0,Math.PI/2,ACTIVE_CREW[2].accent,ACTIVE_CREW[2].tone);      // medic
+seat(0,0.85,0,CREW_SLOTS[0],'commander');                  // YOU (back seat / camera) — face the centre & window
+seat(0,-0.85,Math.PI,ACTIVE_CREW[0],'pilot');       // pilot, faces you
+seat(-0.85,0,-Math.PI/2,ACTIVE_CREW[1],'engineer');    // engineer
+seat(0.85,0,Math.PI/2,ACTIVE_CREW[2],'medic');      // medic
 // ==BUILD END==
 
 // ---- transit timeline + render loop ----
@@ -324,7 +345,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,flowSession:flowSession('capsule'),multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
+window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,seatAssignments,seatSummary:{total:seatAssignments.length,local:seatAssignments.filter(s=>s.kind==='local').length,remote:seatAssignments.filter(s=>s.kind==='remote').length,npc:seatAssignments.filter(s=>s.kind==='npc').length},flowSession:flowSession('capsule'),voice:voice.state(),multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

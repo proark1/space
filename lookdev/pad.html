@@ -237,6 +237,7 @@ const _c=new THREE.Color();
 // event-driven launch: ignition fires at `launchAt`; before it she holds on the pad and counts down.
 const FLOW_FAST=FLOW && new URLSearchParams(location.search).get('fast')==='1';
 const IGN=0.6, CLIMB=FLOW_FAST?4.2:14, FLIGHT=FLOW_FAST?5.4:15.5, HOLD0=FLOW_FAST?0.6:7.0, RELOOP=7.0;     // seconds
+const CAPSULE_MOUNT_Y=39.2, CAPSULE_TOP_Y=42.6;
 let T=0, launchAt=null, holdDur=HOLD0, prevSince=-1, lightning=0, lastBeep=99, voCountdown=false, armRetract=0;
 function armLaunch(d){ launchAt=T+d; holdDur=d; lastBeep=99; }   // (re)arm — ignition in d seconds
 function setPhase(s){ if(phaseEl.textContent!==s) phaseEl.textContent=s; }
@@ -351,7 +352,7 @@ function startAudio(){ if(padAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__pad={rocket,camera,controls,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,serviceArmRetract:armRetract,serviceArmCount:serviceArms.length,flowSession:flowSession('launch'),rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
+window.__pad={rocket,camera,controls,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); const crewArm=serviceArms.find(g=>g.userData.crew); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,serviceArmRetract:armRetract,crewArmRetract:crewArm?armRetract:0,serviceArmCount:serviceArms.length,capsuleAttached:true,capsuleMountDelta:CAPSULE_MOUNT_Y,capsuleWorldY:rocket.position.y+CAPSULE_MOUNT_Y,capsuleTopWorldY:rocket.position.y+CAPSULE_TOP_Y,crewBridgeConnected:armRetract<0.18,crewBridgeClear:armRetract>0.82,flowSession:flowSession('launch'),rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

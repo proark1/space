@@ -33,6 +33,9 @@
   #voicePeers{display:flex;flex-wrap:wrap;gap:4px;min-height:14px}
   #voicePeers span{border:1px solid #20303c;border-radius:5px;padding:2px 4px;color:#7b8894}
   #voicePeers span.live{color:#7dffb0;border-color:#2c5a40}
+  #voicePeers span.remote{color:#9fd0ff}
+  #voicePeers span.npc{color:#667480}
+  #voicePeers b{color:#E8A33D;font-weight:800}
   #voiceAudio{display:none}
   #lock{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font:12px ui-monospace,monospace;color:#cdd6e0;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:10px;padding:14px 20px;text-align:center;letter-spacing:1px}
   #lock b{color:#E8A33D}
@@ -265,8 +268,23 @@ const placLight=new THREE.PointLight(0xffe6b8,0.95,3.4,2); placLight.position.se
 const player=makeAstronaut({accent:PLAYER_CREW.accent,tone:PLAYER_CREW.tone}); scene.add(player);
 const POS=[[-2.2,1.0,0.4],[2.4,-0.4,-0.7],[-0.6,2.6,1.2]];   // x, z, facing
 const aiCrew=[];
-POS.forEach((p,i)=>{ const member=ACTIVE_CREW[i]; const a=makeAstronaut({accent:member.accent, tone:member.tone}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; scene.add(a);
-  aiCrew.push({member,a, from:new THREE.Vector3(p[0],0,p[1]), to:new THREE.Vector3(member.slot*0.5,0,-7.8), delay:i*0.4, s:Math.random()*9}); });
+function makeCrewBadge(member){
+  const canvas=document.createElement('canvas'); canvas.width=512; canvas.height=128;
+  const tex=new THREE.CanvasTexture(canvas); tex.colorSpace=THREE.SRGBColorSpace;
+  const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false,depthWrite:false}));
+  sprite.scale.set(1.72,0.43,1); sprite.position.set(0,2.36,0); sprite.renderOrder=20; updateCrewBadge(sprite,member); return sprite;
+}
+function updateCrewBadge(sprite,member){
+  const canvas=sprite.material.map.image, x=canvas.getContext('2d'), live=member.kind==='remote';
+  x.clearRect(0,0,canvas.width,canvas.height);
+  x.fillStyle=live?'rgba(8,30,18,0.86)':'rgba(8,12,18,0.82)'; x.fillRect(0,0,canvas.width,canvas.height);
+  x.strokeStyle=live?'#7dffb0':'#40505b'; x.lineWidth=8; x.strokeRect(4,4,canvas.width-8,canvas.height-8);
+  x.fillStyle=live?'#7dffb0':'#9fb0be'; x.font='800 34px ui-monospace, Menlo, monospace'; x.textAlign='center'; x.fillText(member.name,256,52);
+  x.fillStyle=live?'#cdd6e0':'#667480'; x.font='700 22px ui-monospace, Menlo, monospace'; x.fillText(`${member.role} · ${live?'PLAYER':'NPC STANDBY'}`,256,88);
+  sprite.material.map.needsUpdate=true;
+}
+POS.forEach((p,i)=>{ const member={...ACTIVE_CREW[i],kind:'npc',remote:false,slotNumber:i+2}; const a=makeAstronaut({accent:member.accent, tone:member.tone}); a.position.set(p[0],0,p[1]); a.rotation.y=p[2]; const badge=makeCrewBadge(member); a.add(badge); scene.add(a);
+  aiCrew.push({member,badge,a, from:new THREE.Vector3(p[0],0,p[1]), to:new THREE.Vector3(member.slot*0.5,0,-7.8), delay:i*0.4, s:Math.random()*9}); });
 // ==BUILD END==
 
 // load the uploaded hero photo (if any) and frame it into the portrait; the painted hero stays otherwise
@@ -379,11 +397,11 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
 const roomNameEl=document.getElementById('roomName'), roomCodeEl=document.getElementById('roomCode'), roomSignalEl=document.getElementById('roomSignal');
 const createRoomBtn=document.getElementById('createRoom'), joinRoomBtn=document.getElementById('joinRoom'), copyInviteBtn=document.getElementById('copyInvite');
-const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio')});
-boardLink.onclick=e=>{ e.preventDefault(); boardRocket(); };   // board -> the launch sequence
 let phase='wait', doorOpen=0, seqT=0, flowBoarded=false;
-const DOOR_CLOSED_X=0.91, DOOR_SLIDE_X=1.68, DOOR_PASS_X=1.75;
 let localReady=false, autoStartQueued=false, launchFlowParams=null; const readyPeers=new Set();
+const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>lobbyCrewSlots()});
+boardLink.onclick=e=>{ e.preventDefault(); boardRocket(); };   // board -> the launch sequence
+const DOOR_CLOSED_X=0.91, DOOR_SLIDE_X=1.68, DOOR_PASS_X=1.75;
 function readinessInfo(){
   const st={...MULTI.state(),isHost:MULTI.isHost()};
   const peers=MULTI.peers().filter(p=>p.lastSeen>0);
@@ -397,6 +415,39 @@ function readinessInfo(){
   return {st,peers,humanCount,npcReady,remoteReady,hostReady,ready,allHumansReady:hostReady&&remoteReady>=peers.length};
 }
 function cleanCrewName(value){ return String(value||'').trim().replace(/\s+/g,' ').slice(0,18).toUpperCase(); }
+function lobbySupportSlots(){
+  const peers=readinessInfo().peers.slice(0,3);
+  return ACTIVE_CREW.map((fallback,index)=>{
+    const peer=peers[index];
+    if(peer){
+      return {...fallback,id:`peer-${peer.id}`,name:cleanCrewName(peer.name),label:`${cleanCrewName(peer.name)} · PLAYER`,kind:'remote',remote:true,livePeerId:peer.id,slotNumber:index+2};
+    }
+    return {...fallback,kind:'npc',remote:false,livePeerId:'',slotNumber:index+2};
+  });
+}
+function lobbyCrewSlots(){
+  return [{
+    ...PLAYER_CREW,
+    name:cleanCrewName(roomNameEl?.value||MULTI.name||PLAYER_CREW.name),
+    label:`${cleanCrewName(roomNameEl?.value||MULTI.name||PLAYER_CREW.name)} · YOU`,
+    kind:'local',
+    remote:false,
+    livePeerId:MULTI.selfId||'local',
+    slotNumber:1
+  }, ...lobbySupportSlots()];
+}
+function applyLobbySupportSlots(){
+  const slots=lobbySupportSlots();
+  slots.forEach((member,index)=>{
+    const crew=aiCrew[index];
+    if(!crew)return;
+    crew.member=member;
+    crew.a.userData.crewName=member.name;
+    crew.a.userData.crewKind=member.kind;
+    crew.a.userData.livePeerId=member.livePeerId||'';
+    if(crew.badge) updateCrewBadge(crew.badge,member);
+  });
+}
 function uniqueCrewNames(names){
   const seen=new Set(), out=[];
   for(const raw of names){
@@ -414,10 +465,21 @@ function namesFromStartPayload(payload){
     typeof payload?.crew==='string'?payload.crew.split(','):[];
   return uniqueCrewNames(raw);
 }
+function namesFromSlotParam(raw=''){
+  return uniqueCrewNames(String(raw||'').split(',').map(entry=>String(entry).split(':').slice(1).join(':')));
+}
+function encodeCrewSlots(slots){
+  return slots.map(slot=>{
+    const kind=slot.kind==='remote'?'remote':slot.kind==='local'?'local':'npc';
+    return `${kind}:${cleanCrewName(slot.name).replace(/[,]/g,' ')}`;
+  }).join(',');
+}
 function currentFlowParams(payload={}){
+  const payloadSlots=typeof payload?.slots==='string'?payload.slots:'';
   const payloadNames=namesFromStartPayload(payload);
-  const roster=payloadNames.length?payloadNames:uniqueCrewNames([roomNameEl.value||MULTI.name||'PLAYER',...readinessInfo().peers.map(p=>p.name)]);
-  return {players:roster.join(',')};
+  const slots=payloadNames.length?payloadNames:payloadSlots?namesFromSlotParam(payloadSlots):lobbyCrewSlots().map(slot=>slot.name);
+  const roster=uniqueCrewNames(slots);
+  return {players:roster.join(','), slots:payloadSlots||encodeCrewSlots(lobbyCrewSlots())};
 }
 function boardRocket(){ goNext('/pad?flow=1',launchFlowParams||currentFlowParams()); }
 function randomRoom(){ return Math.random().toString(36).replace(/[^a-z0-9]/g,'').slice(2,8).toUpperCase().padEnd(6,'7'); }
@@ -436,6 +498,7 @@ function goRoom(code){
   location.href=roomLink(code).toString();
 }
 function updateRoomStatus(){
+  applyLobbySupportSlots();
   roomNameEl.value=roomNameEl.value||MULTI.name||'';
   roomCodeEl.value=roomCodeEl.value||MULTI.code||'';
   roomSignalEl.value=roomSignalEl.value||new URLSearchParams(location.search).get('signal')||localStorage.getItem('sl-signal-url')||'';
@@ -521,7 +584,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:params}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); const crewSlots=lobbyCrewSlots(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:{total:crewSlots.length,local:1,remote:crewSlots.filter(c=>c.kind==='remote').length,npc:crewSlots.filter(c=>c.kind==='npc').length},crewSlots,flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:params}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

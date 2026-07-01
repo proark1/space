@@ -9,7 +9,7 @@ This is the finish-line tracker for the current playable game idea. The target f
 ## Locked Direction
 
 - Final game target: players recover physical tapes in the command center and bring them back to Earth.
-- Temporary vertical-slice ending: the current station still sends recordings to Earth. This stays as a working proof until return/extraction is implemented.
+- Vertical-slice ending: players recover physical tapes in command, reroute extraction power, carry the case back to the airlock, and launch it home.
 - Every scene must expose one authoritative flow session with stage, room code, player name, roster, objective, and endgame. The first implementation lives in `lookdev/flow.js` as `flowSession()`.
 - Real players replace NPC crew slots immediately. NPCs are fallback crew only.
 - Host owns objectives, docking authority, and station threat/objective state. Clients can request actions, but the host decides final state.
@@ -19,14 +19,14 @@ This is the finish-line tracker for the current playable game idea. The target f
 
 | Plan item | Status | Implemented now | Still missing before done |
 |---|---|---|---|
-| Unify the playable flow | Partial | `flow.js` carries room/name/roster params and now exposes `flowSession()`; full-flow smoke covers lobby -> pad -> capsule -> docking -> station and command promotion. | Replace query-only handoff with a stronger FlowSession object for all scenes, add return/extraction stage, and make objective state persistent beyond station. |
-| Build real lobby voice | Partial | `lookdev/voice_chat.js` has mic permission, mute/unmute, level meter, WebRTC peer audio tracks, and lobby UI. | Add clearer first-entry mic permission UX, speaker/nameplate icons per real player, smoke-friendly UI checks, and decide whether voice UI persists beyond lobby. |
-| Fix live crew replacement | Partial | Lobby builds player roster; station replaces NPC labels/slots when peers join; flow params preserve named crew. | Make slot 2-4 claiming explicit across all scenes, restore NPCs on pre-launch leave, and verify replacement in lobby, capsule, docking, and station. |
-| Make launch physically believable | Partial | Pad scene has exterior rocket, attached capsule, crew access arm/connector, arm clearing, ascent camera, and smoke coverage. | Tie lobby boarding to the outside connector more clearly, preserve seat assignments into capsule interior, and add assertions that capsule remains attached through ascent. |
-| Add docking ownership | Partial | Dock scene has TAKE PILOT UI, first-claim control, spectator text, and auto/manual smoke coverage. | Add explicit release/takeover rules, host-authoritative docking state sync, and multiplayer smoke for pilot ownership. |
-| Merge station mechanics | Partial | Station route has wider/longer walkable path, wet-floor slipping, gravity failure, CHORUS sensing, host-authoritative interactions, and ceiling ambusher. | Bring remaining mechanics from `apps/lookdev` if needed: pickups/extraction/combat feedback parity, stronger host events, and final return/extraction loop. |
-| Expand the station | Partial | Current chain has engineering/mechanical, archive/password, security/laser, command center, left/right branches, mission work, lockers, and monster pressure. | Add more branch depth, section-specific mission work, and a clearer command-to-extraction route. |
-| Endgame | Decided, not implemented | Current ending sends recordings to Earth and is smoke-tested. | Replace or extend it with physical tape pickup -> return/extraction -> Earth/debrief. |
+| Unify the playable flow | Partial | `flow.js` carries room/name/roster params, typed `slots=`, and now exposes `flowSession()`; full-flow smoke covers lobby -> pad -> capsule -> docking -> station -> command -> returnExtraction. | Make objective state persistent beyond the station scene/page boundary. |
+| Build real lobby voice | Partial | `lookdev/voice_chat.js` has mic permission, mute/unmute, level meter, WebRTC peer audio tracks, lobby UI, and compact comms panels in capsule/docking/station with smoke-visible crew labels. | Add deeper real-device mic QA and persistent voice continuity across full page navigations if the final app stays multi-page. |
+| Fix live crew replacement | Partial | Lobby assigns real peers into slots 2-4, restores NPCs on leave, emits typed slot handoff, and smoke verifies lobby/capsule/docking/station preserve player-vs-NPC roles and comms labels. | Add final product UI polish for slot claiming/release and real-player seat ownership. |
+| Make launch physically believable | Done for vertical slice | Pad scene has exterior rocket, attached capsule, crew access arm/connector, arm clearing, ascent camera, smoke-asserted capsule attachment through ascent, and capsule seat assignments preserving HOST/CLIENT/NPC roles. | Product polish: clearer lobby-to-connector boarding staging and more detailed crew seating animations. |
+| Add docking ownership | Done for vertical slice | Dock scene has TAKE PILOT/RELEASE/TAKE OVER UI, host-granted pilot ownership, remote pilot input forwarding, host-published docking state sync, and multiplayer smoke for claim/release/host takeover. | Product polish: clearer front-console art and longer real-device multiplayer QA. |
+| Merge station mechanics | Partial | Station route has wider/longer walkable path, wet-floor slipping, gravity failure, CHORUS sensing, host-authoritative interactions, ceiling ambusher, and host-synced tape extraction. | Bring remaining mechanics from `apps/lookdev` if needed: pickups/combat feedback parity and stronger host event polish. |
+| Expand the station | Done for vertical slice | Current chain has engineering/mechanical, archive/password, security/laser, command center, left/right branches, lockers, monster pressure, command-to-airlock extraction, and smoke-covered branch jobs for medical patch recovery, bypass winch priming, and survey tape recovery. | Product polish: more art passes, clearer signage, and optional mission rewards. |
+| Endgame | Done for vertical slice | Physical tape pickup -> coolant valve -> breaker reroute -> airlock extraction -> Earth recovery debrief is implemented and smoke-tested. | Product polish: dedicated return-capsule scene and richer debrief. |
 
 ## Milestone Order
 
@@ -37,16 +37,16 @@ This is the finish-line tracker for the current playable game idea. The target f
    - Done when mic permission, mute, meter, speaker/nameplate, NPC replacement, and leave/rejoin behavior work before launch.
 
 3. Launch and capsule continuity
-   - Done when boarding connector, tower clearing, attached capsule, seated crew, and capsule interior handoff are visually and statefully continuous.
+   - Done for the vertical slice: boarding connector, tower clearing, attached capsule, seated crew, and capsule interior handoff are visually/statefully continuous and smoke-tested.
 
 4. Docking ownership
-   - Done when one player owns the pilot console, others see spectator/control UI, release/takeover rules work, and host sync owns final dock state.
+   - Done for the vertical slice: one player owns the pilot console, others see spectator/control UI, release/takeover rules work, host sync owns dock state, and smoke covers claim/release/takeover.
 
 5. Station route and mechanics
-   - Done when the engineering/archive/security/command sections all have mission work, door gating, left/right branches, monster pressure, wet floors, gravity failure, and ceiling/roof reaction.
+   - Done for the vertical slice: the engineering/archive/security/command sections all have mission work, door gating, left/right branches, monster pressure, wet floors, gravity failure, ceiling/roof reaction, and smoke-covered optional branch work.
 
 6. Return/extraction
-   - Done when tapes are physically recovered, carried out, returned to Earth, and the debrief confirms what happened.
+   - Done for the vertical slice: tapes are physically recovered, carried out, returned to Earth, and the debrief confirms what happened.
 
 ## Verification Gates
 

@@ -40,7 +40,8 @@ export function flowSession(stage = 'unknown', params = {}) {
   const query = new URLSearchParams(location.search);
   applyParams(query, params);
   const name = cleanName(query.get('name') || localStorage.getItem('sl-player-name') || 'PLAYER');
-  const roster = rosterFrom(query);
+  const crewSlots = slotsFrom(query);
+  const roster = crewSlots.length ? crewSlots.map(slot => slot.name) : rosterFrom(query);
   if (name && !roster.includes(name)) roster.unshift(name);
   while (roster.length < 4) roster.push(`NPC ${roster.length}`);
   roster.length = Math.min(roster.length, 4);
@@ -56,7 +57,9 @@ export function flowSession(stage = 'unknown', params = {}) {
     host: /^(1|true|yes)$/i.test(query.get('host') || ''),
     join: /^(1|true|yes)$/i.test(query.get('join') || ''),
     roster,
+    crewSlots: crewSlots.length ? crewSlots : roster.map((slotName, index) => ({ kind: index === 0 ? 'local' : (slotName.startsWith('NPC ') ? 'npc' : 'remote'), name: slotName, slotNumber: index + 1 })),
     playerSlot: Math.max(0, roster.indexOf(name)),
+    playerSlotNumber: Math.max(1, roster.indexOf(name) + 1),
     objective: query.get('objective') || FLOW_OBJECTIVES[stage] || '',
     endgame: query.get('endgame') || FLOW_ENDGAME,
   };
@@ -64,7 +67,7 @@ export function flowSession(stage = 'unknown', params = {}) {
 
 function withCrewParams(url, params = {}) {
   const current = new URLSearchParams(location.search);
-  const keep = ['players', 'peers', 'crew', 'room', 'code', 'session', 'signal', 'name', 'host', 'join', 'slot', 'objective', 'endgame'];
+  const keep = ['players', 'peers', 'crew', 'slots', 'crewSlots', 'room', 'code', 'session', 'signal', 'name', 'host', 'join', 'slot', 'objective', 'endgame'];
   const next = new URL(url, location.href);
   keep.forEach(key => {
     if (current.has(key) && !next.searchParams.has(key)) next.searchParams.set(key, current.get(key));
@@ -96,4 +99,25 @@ function rosterFrom(query) {
     roster.push(name);
   });
   return roster;
+}
+
+function slotKind(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'local' || raw === 'you' || raw === 'host') return 'local';
+  if (raw === 'remote' || raw === 'player' || raw === 'peer') return 'remote';
+  if (raw === 'npc' || raw === 'ai') return 'npc';
+  return '';
+}
+
+function slotsFrom(query) {
+  const raw = query.get('slots') || query.get('crewSlots') || '';
+  return raw.split(',')
+    .map((entry, index) => {
+      const [kindRaw, ...nameParts] = String(entry || '').split(':');
+      const kind = slotKind(kindRaw);
+      const name = cleanName(nameParts.join(':'));
+      return kind && name ? { kind, name, slotNumber: index + 1 } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 4);
 }

@@ -29,6 +29,20 @@
   #pilot{position:fixed;right:14px;bottom:42px;background:rgba(8,12,18,.88);border:1px solid #2b4656;border-radius:7px;color:#9fd0ff;font:800 10px ui-monospace,monospace;letter-spacing:1px;padding:9px 11px;cursor:pointer}
   #pilot.active{color:#04140a;background:#7dffb0;border-color:#7dffb0}
   #pilot:disabled{cursor:default;opacity:.86}
+  #voice{position:fixed;right:14px;bottom:84px;width:190px;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:8px;padding:8px 9px;font:11px ui-monospace,monospace;color:#9fd0ff;display:flex;flex-direction:column;gap:6px}
+  #voiceTop{display:flex;align-items:center;gap:8px}
+  #micToggle{width:82px;background:#7dffb0;color:#04140a;border:0;border-radius:6px;padding:7px 8px;font:800 10px ui-monospace,monospace;letter-spacing:1px;cursor:pointer}
+  #micToggle.muted{background:#25313b;color:#cdd6e0;border:1px solid #40505b}
+  #micState{flex:1;color:#cdd6e0;text-align:right;white-space:nowrap}
+  #micMeter{height:5px;background:#111922;border:1px solid #20303c;border-radius:999px;overflow:hidden}
+  #micFill{display:block;width:100%;height:100%;background:#7dffb0;transform-origin:left center;transform:scaleX(.03)}
+  #voicePeers{display:flex;flex-wrap:wrap;gap:4px;min-height:14px}
+  #voicePeers span{border:1px solid #20303c;border-radius:5px;padding:2px 4px;color:#7b8894}
+  #voicePeers span.live{color:#7dffb0;border-color:#2c5a40}
+  #voicePeers span.remote{color:#9fd0ff}
+  #voicePeers span.npc{color:#667480}
+  #voicePeers b{color:#E8A33D;font-weight:800}
+  #voiceAudio{display:none}
   #assist{position:fixed;left:50%;top:calc(50% + 96px);transform:translateX(-50%);font:700 11px ui-monospace,monospace;letter-spacing:2px;color:#9fd0ff;text-shadow:0 0 8px #000;pointer-events:none}
   #assist.good{color:#7dffb0} #assist.warn{color:#ffcf50} #assist.bad{color:#ff6a5a}
   #result{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:12px;text-align:center}
@@ -47,6 +61,7 @@
 <div id="crewline"></div>
 <div id="prompt"><b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow</div>
 <button id="pilot" type="button">TAKE PILOT</button>
+<div id="voice"><div id="voiceTop"><button id="micToggle" type="button">MIC</button><div id="micState">MIC OFF</div></div><div id="micMeter"><i id="micFill"></i></div><div id="voicePeers"><span>CREW COMMS</span></div><div id="voiceAudio"></div></div>
 <div id="assist">WAITING FOR APPROACH VECTOR</div>
 <div id="result"><div id="rtxt"></div><a id="enter" href="/game">▸ STEP INTO THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
 
@@ -70,6 +85,7 @@ import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
 import { crewLine } from './crew.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
+import { createLobbyVoiceChat } from './voice_chat.js';
 import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
 import { buildDockingBerthZ } from './station_parts.js';
 
@@ -88,6 +104,7 @@ const CREW_SLOTS=buildCrewSlots({search: location.search});
 const ACTIVE_CREW=CREW_SLOTS.slice(1);
 const CREW_SUMMARY=crewSummary(CREW_SLOTS);
 const MULTI=createLookdevMultiplayer({scene:'dock'});
+const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>CREW_SLOTS});
 const crewLineFor=(index,text)=>crewLine(ACTIVE_CREW[index%ACTIVE_CREW.length].name,text);
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
@@ -269,8 +286,10 @@ addEventListener('keydown',e=>{ if(state==='inside' && e.code==='Space' && jumpY
 canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLockElement!==canvas) canvas.requestPointerLock(); });
 
 // ---- state / physics ----
-const TOL=0.72, SPEED_MAX=1.85, THR=3.4, CLOSE=3.0, DAMP=0.8;
-let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0,jumpY=0,jumpV=0,pilotId='',pilotName=''; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
+const TOL=0.72, SPEED_MAX=1.85, THR=3.4, CLOSE=3.0, DAMP=0.8, DOCK_SYNC_MS=110, PILOT_IDLE_TAKEOVER_MS=8500;
+let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0,jumpY=0,jumpV=0,pilotId='',pilotName='',pilotClaimedAt=0,pilotLastActiveAt=0,pilotNotice='',dockRev=0,lastDockPublish=0,lastDockReceive=0,lastPilotInputSend=0;
+let remotePilotInput={ix:0,iy:0,iz:0,thrusting:false,at:0};
+const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
 const PROMPT_DOCK='<b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow';
 function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=4.2*sgn; apprY0=2.6; apprXt=2.0*sgn; apprYt=-0.9; offX=apprX0; offY=apprY0; voffX=voffY=0; dist=120; vdist=0; apprT=0; driftP=DOCK_AUTO?0:Math.random()*9; state='approach'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
   softT=0; stationQueued=false; lastCrewHint=''; clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ; }); crewSay(crewLineFor(0,'visual on the collar. autopilot has us.'),2.8);
@@ -279,7 +298,8 @@ function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=4.2*sgn; apprY0=2.6;
   document.getElementById('cross').style.display=''; document.getElementById('stats').style.display=''; capture.style.display=''; assist.style.display='';
   document.getElementById('prompt').innerHTML='<b>▸ APPROACH</b> · autopilot lining up the port — stand by for manual docking'; }
 reset();
-retry.onclick=reset;
+publishDockState(true);
+retry.onclick=()=>{ reset(); publishDockState(true); };
 
 const clock=new THREE.Clock(); const _v=new THREE.Vector3();
 function setAssist(kind,text){
@@ -289,7 +309,16 @@ function setAssist(kind,text){
 }
 function localPilotId(){ return MULTI.code?MULTI.selfId:'local'; }
 function cleanPilotName(value){ return String(value||MULTI.name||'PILOT').trim().replace(/\s+/g,' ').slice(0,18).toUpperCase(); }
-function canSteer(){ return DOCK_AUTO||!MULTI.code||pilotId===localPilotId(); }
+function ownsDockState(){ return !MULTI.code||MULTI.isHost(); }
+function connectedPilot(id){ return id===MULTI.selfId||MULTI.peers().some(peer=>peer.id===id&&peer.lastSeen>0); }
+function pilotIdle(){ return pilotId?performance.now()-pilotLastActiveAt:0; }
+function takeoverAllowed(id=localPilotId()){
+  if(!pilotId||pilotId===id)return true;
+  if(MULTI.code&&MULTI.isHost()&&id===localPilotId())return true;
+  if(!connectedPilot(pilotId))return true;
+  return pilotIdle()>PILOT_IDLE_TAKEOVER_MS;
+}
+function canSteer(){ return !MULTI.code||pilotId===localPilotId(); }
 function updatePilotUi(){
   if(!pilotBtn)return;
   if(MULTI.code&&!MULTI.selfId){
@@ -305,30 +334,142 @@ function updatePilotUi(){
   } else if(!pilotId){
     pilotBtn.textContent='TAKE PILOT';
     pilotBtn.disabled=false;
+  } else if(local){
+    pilotBtn.textContent='RELEASE PILOT';
+    pilotBtn.disabled=false;
+  } else if(MULTI.isHost()){
+    pilotBtn.textContent='TAKE OVER';
+    pilotBtn.disabled=false;
+  } else if(takeoverAllowed()){
+    pilotBtn.textContent='TAKE OVER';
+    pilotBtn.disabled=false;
   } else {
-    pilotBtn.textContent=local?'PILOT: YOU':`PILOT: ${cleanPilotName(pilotName)}`;
-    pilotBtn.disabled=true;
+    pilotBtn.textContent=`ASK ${cleanPilotName(pilotName)}`;
+    pilotBtn.disabled=false;
   }
   pilotBtn.classList.toggle('active',local&&Boolean(pilotId||!MULTI.code));
 }
-function claimPilot(payload=null){
-  if(MULTI.code&&!MULTI.selfId&&!payload)return;
-  const id=payload?.id||localPilotId();
-  if(!id||pilotId&&pilotId!==id)return;
-  pilotId=id; pilotName=cleanPilotName(payload?.name||MULTI.name);
-  if(!payload&&MULTI.code)MULTI.broadcastTask('pilot-claim',{id:pilotId,name:pilotName});
+function dockSnapshot(){
+  return {scope:'dock',state,dist,offX,offY,voffX,voffY,vdist,softT,boardT,boomT,shake,stationQueued,pilotId,pilotName,pilotClaimedAt,pilotLastActiveAt,dockRev};
+}
+function publishDockState(force=false){
+  if(!MULTI.code||!MULTI.isHost())return;
+  const now=performance.now();
+  if(!force&&now-lastDockPublish<DOCK_SYNC_MS)return;
+  lastDockPublish=now; dockRev=Date.now();
+  MULTI.publishRoomState({...dockSnapshot(),dockRev},dockRev);
+}
+function applyDockState(snapshot={}){
+  if(!snapshot||snapshot.scope!=='dock'||MULTI.isHost())return;
+  lastDockReceive=performance.now();
+  if(snapshot.dockRev&&snapshot.dockRev<dockRev)return;
+  dockRev=snapshot.dockRev||dockRev;
+  if(typeof snapshot.state==='string')state=snapshot.state;
+  dist=Number.isFinite(snapshot.dist)?snapshot.dist:dist;
+  offX=Number.isFinite(snapshot.offX)?snapshot.offX:offX;
+  offY=Number.isFinite(snapshot.offY)?snapshot.offY:offY;
+  voffX=Number.isFinite(snapshot.voffX)?snapshot.voffX:voffX;
+  voffY=Number.isFinite(snapshot.voffY)?snapshot.voffY:voffY;
+  vdist=Number.isFinite(snapshot.vdist)?snapshot.vdist:vdist;
+  softT=Number.isFinite(snapshot.softT)?snapshot.softT:softT;
+  boardT=Number.isFinite(snapshot.boardT)?snapshot.boardT:boardT;
+  boomT=Number.isFinite(snapshot.boomT)?snapshot.boomT:boomT;
+  shake=Number.isFinite(snapshot.shake)?snapshot.shake:shake;
+  stationQueued=Boolean(snapshot.stationQueued);
+  pilotId=String(snapshot.pilotId||'');
+  pilotName=cleanPilotName(snapshot.pilotName||'');
+  pilotClaimedAt=Number(snapshot.pilotClaimedAt)||0;
+  pilotLastActiveAt=Number(snapshot.pilotLastActiveAt)||pilotClaimedAt;
   updatePilotUi();
 }
-pilotBtn.onclick=()=>claimPilot();
+function grantPilot(id,name,reason='claim'){
+  if(!id)return false;
+  if(pilotId&&pilotId!==id&&!takeoverAllowed(id)){
+    pilotNotice=`${cleanPilotName(pilotName)} still has control`;
+    publishDockState(true);
+    return false;
+  }
+  pilotId=id; pilotName=cleanPilotName(name);
+  pilotClaimedAt=performance.now(); pilotLastActiveAt=pilotClaimedAt;
+  pilotNotice=reason==='takeover'?`${pilotName} took pilot`:`${pilotName} has pilot`;
+  publishDockState(true); updatePilotUi(); return true;
+}
+function clearPilot(id=localPilotId()){
+  if(pilotId&&id&&pilotId!==id&&!(MULTI.code&&MULTI.isHost()))return false;
+  const old=pilotName; pilotId=''; pilotName=''; pilotClaimedAt=0; pilotLastActiveAt=0; remotePilotInput={ix:0,iy:0,iz:0,thrusting:false,at:0};
+  pilotNotice=old?`${cleanPilotName(old)} released pilot`:'pilot released';
+  publishDockState(true); updatePilotUi(); return true;
+}
+function handlePilotRequest(payload={},from='',fallbackName=''){
+  if(MULTI.code&&!MULTI.isHost())return;
+  const id=payload.id||from||localPilotId();
+  const name=payload.name||fallbackName||MULTI.name;
+  grantPilot(id,name,pilotId&&pilotId!==id?'takeover':'claim');
+}
+function requestPilotControl(){
+  if(MULTI.code&&!MULTI.selfId)return;
+  const id=localPilotId(), name=cleanPilotName(MULTI.name);
+  if(pilotId===id){ if(MULTI.code&&!MULTI.isHost())MULTI.broadcastTask('pilot-release',{id,name}); else clearPilot(id); return; }
+  if(!MULTI.code){ grantPilot(id,name); return; }
+  if(MULTI.isHost())handlePilotRequest({id,name,takeover:Boolean(pilotId)});
+  else MULTI.broadcastTask('pilot-request',{id,name,takeover:Boolean(pilotId)});
+}
+function handlePilotInput(payload={},from=''){
+  if(!MULTI.isHost()||from!==pilotId)return;
+  remotePilotInput={
+    ix:THREE.MathUtils.clamp(Number(payload.ix)||0,-THR,THR),
+    iy:THREE.MathUtils.clamp(Number(payload.iy)||0,-THR,THR),
+    iz:THREE.MathUtils.clamp(Number(payload.iz)||0,0,CLOSE),
+    thrusting:Boolean(payload.thrusting),
+    at:performance.now()
+  };
+  pilotLastActiveAt=remotePilotInput.at;
+}
+function localPilotInput(){
+  let ix=0,iy=0,iz=0,thrusting=false;
+  if(canSteer()){
+    if(keys.ArrowLeft||keys.KeyA){ ix+=THR; thrusting=true; } if(keys.ArrowRight||keys.KeyD){ ix-=THR; thrusting=true; }
+    if(keys.ArrowUp||keys.KeyW){ iy-=THR; thrusting=true; } if(keys.ArrowDown||keys.KeyS){ iy+=THR; thrusting=true; }
+    if(keys.Space){ iz+=CLOSE; thrusting=true; }
+  }
+  return {ix,iy,iz,thrusting};
+}
+function pilotInputForPhysics(){
+  const localId=localPilotId();
+  if(MULTI.code&&MULTI.isHost()&&pilotId&&pilotId!==localId&&performance.now()-remotePilotInput.at<650)return remotePilotInput;
+  return localPilotInput();
+}
+function sendPilotInput(input){
+  if(!MULTI.code||MULTI.isHost()||pilotId!==localPilotId())return;
+  const now=performance.now();
+  if(now-lastPilotInputSend<70)return;
+  lastPilotInputSend=now;
+  MULTI.broadcastTask('pilot-input',input);
+}
+pilotBtn.onclick=()=>requestPilotControl();
 MULTI.onRoster(roster=>{
-  if(pilotId&&pilotId!==localPilotId()&&!roster.some(peer=>peer.id===pilotId)){ pilotId=''; pilotName=''; }
+  if(MULTI.isHost()&&pilotId&&pilotId!==localPilotId()&&!roster.some(peer=>peer.id===pilotId)){
+    clearPilot('');
+  }
   updatePilotUi();
+  if(!MULTI.isHost())MULTI.requestRoomState();
 });
-MULTI.onTask(event=>{ if(event.type==='pilot-claim')claimPilot(event.payload||{}); });
+MULTI.onHostChange(()=>{ updatePilotUi(); if(MULTI.isHost())publishDockState(true); else MULTI.requestRoomState(); });
+MULTI.onRoomState(state=>applyDockState(state));
+MULTI.onTask(event=>{
+  if(event.type==='pilot-claim'||event.type==='pilot-request')handlePilotRequest(event.payload||{},event.from,event.name);
+  else if(event.type==='pilot-release'&&MULTI.isHost()&&pilotId===event.from)clearPilot(event.from);
+  else if(event.type==='pilot-input')handlePilotInput(event.payload||{},event.from);
+  else if(event.type==='state-request')publishDockState(true);
+});
+setTimeout(()=>{ if(MULTI.code&&!MULTI.isHost())MULTI.requestRoomState(); else publishDockState(true); },700);
 updatePilotUi();
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw,hidden:false});
   if(A)A.approach(1-Math.min(1,Math.max(0,dist||0)/120),t);
+  const localInput=localPilotInput(); sendPilotInput(localInput);
+  if(localInput.thrusting&&pilotId===localPilotId())pilotLastActiveAt=performance.now();
+  const driveInput=pilotInputForPhysics();
   if(state==='approach'){
     // autopilot cruises in and lines the port up — reads as "arriving, heading for the dock" before manual control
     apprT+=dt; const k=Math.min(1,apprT/4.5), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
@@ -338,7 +479,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     setAssist('warn','AUTOPILOT APPROACH · MANUAL CONTROL IMMINENT');
     ringLights.forEach((m,i)=>{ m.emissive.setHex(0xff5030); m.emissiveIntensity=1+1.6*Math.max(0,Math.sin(t*4-i*0.4)); });
     tgt.material.emissive.setHex(0xffcf50);
-    const grab=(DOCK_AUTO&&apprT>0.9)||(canSteer()&&apprT>0.7 && (keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight));
+    const grab=(DOCK_AUTO&&apprT>0.9)||(apprT>0.7&&driveInput.thrusting);
     if(k>=1||grab){ if(k>=1){ dist=38; offX=apprXt; offY=apprYt; } if(DOCK_AUTO){ dist=10; offX=0.18; offY=-0.12; } state='align'; voffX=voffY=0; vdist=0; crewSay(crewLineFor(1,'manual control. keep the green dot inside the collar.'),3.2);
       document.getElementById('prompt').innerHTML=canSteer()?PROMPT_DOCK:'<b>PILOT</b> claim control at the front console'; }
   } else if(state==='align'){
@@ -346,11 +487,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     let ix=0,iy=0,iz=0, thrusting=false;
     const pilotCanSteer=canSteer();
     document.getElementById('prompt').innerHTML=pilotCanSteer?PROMPT_DOCK:'<b>PILOT</b> claim control at the front console';
-    if(pilotCanSteer){
-      if(keys.ArrowLeft||keys.KeyA){ ix+=THR; thrusting=true; } if(keys.ArrowRight||keys.KeyD){ ix-=THR; thrusting=true; }
-      if(keys.ArrowUp||keys.KeyW){ iy-=THR; thrusting=true; } if(keys.ArrowDown||keys.KeyS){ iy+=THR; thrusting=true; }
-      if(keys.Space){ iz+=CLOSE; thrusting=true; }
-    }
+    ix+=driveInput.ix; iy+=driveInput.iy; iz+=driveInput.iz; thrusting=driveInput.thrusting;
     if(DOCK_AUTO){
       ix+=THREE.MathUtils.clamp(-offX*5-voffX*2-dfx,-THR,THR);
       iy+=THREE.MathUtils.clamp(-offY*5-voffY*2-dfy,-THR,THR);
@@ -431,12 +568,13 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   approachLad.forEach(g=>{ g.m.emissive.setHex(docking?0xff9040:0x35ff70); g.m.emissiveIntensity=0.6+2.4*Math.max(0,Math.sin(t*3 + g.i*0.7)); });
   if(state==='align'||state==='boom') camera.position.set((Math.random()-0.5)*shake*0.4,(Math.random()-0.5)*shake*0.4,0);
   if(performance.now()>crewHideAt) crewline.style.opacity='0';
+  publishDockState();
   Grade.uniforms.uTime.value=t;
   try{ composer.render(); }catch(err){ document.getElementById('title').textContent='RENDER ERR: '+(err&&err.message||err); }
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
 function softPulse(t,k){ ringLights.forEach((m,i)=>{ m.emissive.setHex(k>0.8?0x35ff70:0xffcf50); m.emissiveIntensity=1.6+2.0*Math.max(0,Math.sin(t*6+i*0.45)); }); clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ+0.52*k; }); tgt.material.emissive.setHex(0x7dffb0); }
-window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,claimPilot,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,pilotId,pilotName,canSteer:canSteer(),crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,flowSession:flowSession('docking'),multiplayer:MULTI.state(),stationQueued}; }};
+window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,requestPilotControl,releasePilot:()=>clearPilot(),claimPilot:requestPilotControl,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,pilotId,pilotName,pilotNotice,pilotClaimedAt,pilotLastActiveAt,pilotIdleMs:pilotIdle(),canSteer:canSteer(),canTakeover:takeoverAllowed(),dockRev,lastDockReceive,ownsDockState:ownsDockState(),crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,flowSession:flowSession('docking'),voice:voice.state(),multiplayer:MULTI.state(),stationQueued}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

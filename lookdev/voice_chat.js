@@ -6,6 +6,7 @@ export function createLobbyVoiceChat(multiplayer, ui = {}) {
   const meterFill = ui.meterFill || null;
   const rosterEl = ui.roster || null;
   const audioRoot = ui.audioRoot || document.body;
+  const crewSlotsProvider = typeof ui.crewSlots === 'function' ? ui.crewSlots : () => (Array.isArray(ui.crewSlots) ? ui.crewSlots : []);
 
   const peers = new Map();
   let localStream = null;
@@ -25,6 +26,19 @@ export function createLobbyVoiceChat(multiplayer, ui = {}) {
     return String(value || 'CREW').trim().replace(/\s+/g, ' ').slice(0, 18).toUpperCase();
   }
 
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  }
+
+  function peerForName(name) {
+    const target = cleanName(name);
+    return [...peers.values()].find(entry => cleanName(entry.name) === target) || null;
+  }
+
+  function connected(entry) {
+    return Boolean(entry && (entry.pc.connectionState === 'connected' || entry.pc.iceConnectionState === 'connected'));
+  }
+
   function statusText() {
     if (status === 'unsupported') return 'VOICE UNAVAILABLE';
     if (status === 'requesting') return 'ALLOW MIC';
@@ -40,12 +54,17 @@ export function createLobbyVoiceChat(multiplayer, ui = {}) {
     if (statusEl) statusEl.textContent = statusText();
     if (meterFill) meterFill.style.transform = `scaleX(${Math.max(0.03, meterLevel).toFixed(3)})`;
     if (rosterEl) {
-      const rows = [...peers.values()]
+      const crewSlots = crewSlotsProvider();
+      const rows = crewSlots.length ? crewSlots.map((slot, index) => {
+        const kind = slot.kind === 'local' ? 'local' : slot.kind === 'remote' ? 'remote' : 'npc';
+        const entry = kind === 'remote' ? peerForName(slot.name) : null;
+        const isLive = kind === 'local' ? Boolean(localStream && !muted) : connected(entry);
+        const tag = kind === 'npc' ? 'NPC' : kind === 'local' ? (localStream ? (muted ? 'MUTE' : 'MIC') : 'YOU') : (isLive ? 'SPK' : 'LINK');
+        const cls = [kind, isLive ? 'live' : ''].filter(Boolean).join(' ');
+        return `<span class="${cls}"><b>${tag}</b> ${escapeHtml(cleanName(slot.name || `CREW ${index + 1}`))}</span>`;
+      }) : [...peers.values()]
         .filter(entry => entry.name)
-        .map(entry => {
-          const connected = entry.pc.connectionState === 'connected' || entry.pc.iceConnectionState === 'connected';
-          return `<span class="${connected ? 'live' : ''}">${cleanName(entry.name)}</span>`;
-        });
+        .map(entry => `<span class="${connected(entry) ? 'live' : ''}"><b>SPK</b> ${escapeHtml(cleanName(entry.name))}</span>`);
       rosterEl.innerHTML = rows.length ? rows.join('') : '<span>NPC COMMS</span>';
     }
   }
