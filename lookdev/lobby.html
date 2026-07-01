@@ -69,8 +69,17 @@ import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
-import { createLobbyVoiceChat } from './voice_chat.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
+
+function createFallbackLobbyVoiceChat(_multiplayer, ui={}){
+  if(ui.status)ui.status.textContent='MIC OFF';
+  if(ui.meterFill)ui.meterFill.style.transform='scaleX(.03)';
+  if(ui.roster)ui.roster.innerHTML='<span>NPC COMMS</span>';
+  return {state(){return {status:'unavailable',muted:true,local:false,peers:0};},requestMic(){},close(){}};
+}
+const createLobbyVoiceChat=await import('./voice_chat.js')
+  .then(mod=>mod.createLobbyVoiceChat||createFallbackLobbyVoiceChat)
+  .catch(err=>{ console.warn('voice chat unavailable; continuing without mic module',err); return createFallbackLobbyVoiceChat; });
 
 const QUERY=new URLSearchParams(location.search);
 const AUTO_START = QUERY.has('auto');

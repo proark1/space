@@ -22,7 +22,7 @@ WORKDIR /app
 COPY --from=build /app/apps/client/dist ./
 COPY --from=build /app/apps/lookdev/dist ./lookdev/
 COPY --from=build /app/apps/client/static_server.py ./static_server.py
-COPY lookdev/admincontent.js lookdev/audio.js lookdev/crew.js lookdev/crew_manager.js lookdev/flow.js lookdev/hero.js lookdev/multiplayer.js lookdev/nav.js lookdev/station_parts.js lookdev/units.js lookdev/units_alpha.js ./
+COPY lookdev/admincontent.js lookdev/audio.js lookdev/crew.js lookdev/crew_manager.js lookdev/flow.js lookdev/hero.js lookdev/multiplayer.js lookdev/nav.js lookdev/station_parts.js lookdev/units.js lookdev/units_alpha.js lookdev/voice_chat.js ./
 COPY lookdev/units.html lookdev/launch.html lookdev/lobby.html lookdev/pad.html lookdev/dock.html lookdev/exterior.html lookdev/units_alpha.html ./
 COPY lookdev/index.html ./game.html
 # Unit Forge: the shared Tripo3D backend (imported by static_server.py), the /forge page, the /model viewer,
