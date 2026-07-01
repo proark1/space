@@ -83,7 +83,7 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
   const broadcast = data => {
     for (const id of peers.keys()) send(id, data);
   };
-  const isLocalHost = () => Boolean(code && selfId && hostId === selfId) || !code;
+  const isLocalHost = () => !code || wantsHost || Boolean(selfId && hostId === selfId);
   const hello = to => send(to, { kind: 'hello', name, scene, host: isLocalHost(), at: Date.now() });
 
   if (code && enabled) {
