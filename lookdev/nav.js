@@ -14,13 +14,13 @@ style.textContent = `
   #slnav{position:fixed;top:38px;right:12px;z-index:90;display:flex;gap:5px;flex-wrap:wrap;
     justify-content:flex-end;max-width:74vw;font:11px ui-monospace,Menlo,monospace;transition:opacity .3s}
   #slnav a{color:#9fd0ff;text-decoration:none;background:rgba(8,12,18,.72);border:1px solid #20303c;
-    border-radius:14px;padding:4px 10px;letter-spacing:1px}
+    border-radius:999px;padding:5px 11px;line-height:1;letter-spacing:1px}
   #slnav a:hover{border-color:#E8A33D;color:#fff}
   #slnav a.cur{color:#E8A33D;border-color:#E8A33D;background:rgba(232,163,61,.09)}
   body.lk #slnav{opacity:0;pointer-events:none}
   @media (max-width:640px){
     #slnav{left:8px;right:8px;max-width:none;justify-content:center;gap:4px}
-    #slnav a{font-size:10px;padding:4px 8px}
+    #slnav a{font-size:10px;padding:5px 9px}
   }`;
 document.head.appendChild(style);
 

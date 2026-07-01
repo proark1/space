@@ -217,7 +217,29 @@ ship.position.set(64,12,-340);
 // ---- COCKPIT (fixed shell around the camera; window opening faces -Z) ----
 const cabin=new THREE.Group(); scene.add(cabin);
 part(BOX(3.4,0.2,3.8),M.dark,cabin,0,-1.25,-0.1);     // floor
-// Panoramic canopy: the capsule has a glass roof and broad side panes, with only structural rails.
+const shellMat=M.dark.clone();
+shellMat.color.setHex(0x18232d);
+shellMat.transparent=true;
+shellMat.opacity=0.52;
+shellMat.side=THREE.BackSide;
+shellMat.depthWrite=false;
+const shell=part(new THREE.CylinderGeometry(1.7,1.7,3.72,48,1,true),shellMat,cabin,0,-0.12,-0.08,Math.PI/2,0,0);
+shell.renderOrder=1;
+const ribMat=M.metal.clone();
+ribMat.color.setHex(0x9aa8b3);
+const ribGlow=M.cyan.clone();
+ribGlow.emissiveIntensity=0.82;
+const rib=(r,t,z,mat=ribMat,y=-0.12)=>{ const m=part(new THREE.TorusGeometry(r,t,12,88),mat,cabin,0,y,z); m.renderOrder=5; return m; };
+rib(1.7,0.055,-1.62);
+rib(1.7,0.04,-0.72);
+rib(1.7,0.04,0.42);
+rib(1.7,0.052,1.54);
+for(const a of [-1.08,-0.58,0,0.58,1.08]){
+  const x=Math.sin(a)*1.57, y=-0.12+Math.cos(a)*1.57;
+  const bar=part(BOX(0.07,0.07,3.36),ribMat,cabin,x,y,-0.08,0,0,-a*0.28);
+  bar.renderOrder=5;
+}
+// Round pressure shell with broad glass panes and slim internal struts.
 const canopyGlass=M.glass.clone();
 canopyGlass.opacity=0.34;
 canopyGlass.emissiveIntensity=0.48;
@@ -229,14 +251,14 @@ const roofEdge=new THREE.MeshBasicMaterial({color:0xc8f5ff,transparent:true,opac
 part(new THREE.PlaneGeometry(2.42,0.035),roofEdge,cabin,0,1.171,-1.15,-Math.PI/2,0,0);
 part(new THREE.PlaneGeometry(1.75,0.03),roofEdge,cabin,-0.34,1.174,0.66,-Math.PI/2,0,0.18);
 part(new THREE.PlaneGeometry(1.1,0.025),roofEdge,cabin,0.72,1.176,-0.14,-Math.PI/2,0,-0.22);
-part(BOX(0.13,0.14,3.45),M.cyan,cabin,0,1.18,-0.1);
+part(BOX(0.05,0.06,3.28),ribMat,cabin,0,1.19,-0.1);
 part(BOX(3.45,0.2,0.22),M.metal,cabin,0,1.12,-1.78);  // forward roof bow
 part(BOX(3.45,0.2,0.22),M.metal,cabin,0,1.12,1.55);   // rear roof bow
 part(BOX(0.2,0.2,3.55),M.metal,cabin,-1.55,1.12,-0.1);
 part(BOX(0.2,0.2,3.55),M.metal,cabin,1.55,1.12,-0.1);
-part(BOX(2.9,0.08,0.06),M.cyan,cabin,0,1.2,-0.08);
-part(BOX(0.06,0.08,3.0),M.cyan,cabin,-0.76,1.2,-0.08);
-part(BOX(0.06,0.08,3.0),M.cyan,cabin,0.76,1.2,-0.08);
+part(BOX(2.42,0.04,0.045),ribMat,cabin,0,1.2,-0.08);
+part(BOX(0.035,0.045,2.8),ribMat,cabin,-0.76,1.2,-0.08);
+part(BOX(0.035,0.045,2.8),ribMat,cabin,0.76,1.2,-0.08);
 part(BOX(0.18,0.36,3.6),M.dark,cabin,-1.6,-1.02,-0.1); // left lower sill
 part(BOX(0.18,0.36,3.6),M.dark,cabin,1.6,-1.02,-0.1);  // right lower sill
 part(new THREE.PlaneGeometry(3.2,1.85),M.glass,cabin,-1.52,0.02,-0.12,0,Math.PI/2,0);
@@ -248,17 +270,31 @@ for(const x of [-1.6,1.6]){
 }
 part(BOX(3.4,2.6,0.2),M.hull,cabin,0,-0.05,1.78);     // back wall
 part(BOX(1.2,1.4,0.16),M.dark,cabin,0,-0.1,1.7);      // back hatch
+part(new THREE.TorusGeometry(0.72,0.055,12,56),ribMat,cabin,0,-0.1,1.59);
+part(new THREE.TorusGeometry(0.48,0.025,8,44),ribGlow,cabin,0,-0.1,1.585);
 part(BOX(0.08,0.1,2.5),M.metal,cabin,-1.5,-0.82,-0.2);
 part(BOX(0.08,0.1,2.5),M.metal,cabin,1.5,-0.82,-0.2);
-// window frame (front) — widened so launch, Earth, and the derelict stay visible while free-looking.
-part(BOX(3.25,0.22,0.25),M.metal,cabin,0,1.02,-1.62);
-part(BOX(3.25,0.28,0.25),M.dark,cabin,0,-0.92,-1.62);
-part(BOX(0.22,2.28,0.25),M.metal,cabin,-1.48,0.02,-1.62);
-part(BOX(0.22,2.28,0.25),M.metal,cabin,1.48,0.02,-1.62);
-part(new THREE.PlaneGeometry(2.95,1.95),M.glass,cabin,0,0.05,-1.6);
-for(const x of [-0.95,0.95]) part(BOX(0.08,1.88,0.18),M.metal,cabin,x,0.05,-1.61);
-part(BOX(2.75,0.06,0.18),M.cyan,cabin,0,0.97,-1.6);
-part(BOX(2.75,0.06,0.18),M.cyan,cabin,0,-0.85,-1.6);
+// Round forward pressure window: wide enough for the derelict while avoiding a boxy windshield.
+const forwardGlass=M.glass.clone();
+forwardGlass.opacity=0.27;
+forwardGlass.emissiveIntensity=0.42;
+const forwardPane=part(new THREE.CircleGeometry(1.3,72),forwardGlass,cabin,0,0.05,-1.6);
+forwardPane.renderOrder=3;
+rib(1.35,0.075,-1.595,ribMat,0.05);
+rib(1.08,0.025,-1.59,ribGlow,0.05);
+part(BOX(3.05,0.16,0.22),M.dark,cabin,0,1.02,-1.62);
+part(BOX(3.05,0.2,0.22),M.dark,cabin,0,-0.92,-1.62);
+part(BOX(0.18,2.16,0.22),M.dark,cabin,-1.48,0.02,-1.62);
+part(BOX(0.18,2.16,0.22),M.dark,cabin,1.48,0.02,-1.62);
+for(const x of [-0.95,0.95]) part(BOX(0.055,1.68,0.16),ribMat,cabin,x,0.05,-1.61);
+part(BOX(2.36,0.05,0.16),ribGlow,cabin,0,0.97,-1.6);
+part(BOX(2.36,0.05,0.16),ribGlow,cabin,0,-0.85,-1.6);
+for(const side of [-1,1]){
+  const pane=part(new THREE.CircleGeometry(0.44,48),M.glass,cabin,side*1.525,0.08,-0.34,0,Math.PI/2,0);
+  pane.renderOrder=3;
+  part(new THREE.TorusGeometry(0.48,0.045,10,48),ribMat,cabin,side*1.53,0.08,-0.34,0,Math.PI/2,0);
+  part(new THREE.TorusGeometry(0.34,0.018,8,36),ribGlow,cabin,side*1.535,0.08,-0.34,0,Math.PI/2,0);
+}
 // dash console
 part(BOX(3.0,0.5,0.7),M.dark,cabin,0,-0.62,-1.15,-0.5,0,0);
 const readout=(mat,w,h,x,z,base)=>{ const m=part(BOX(w,h,0.02),mat,cabin,x,-0.5,z,-0.5,0,0); flick.push({m,b:base,s:Math.random()*9}); return m; };
