@@ -5,8 +5,43 @@ export const FLOW = new URLSearchParams(location.search).has('flow');
 export const FLOW_ORDER = ['lobby', 'boardRocket', 'launch', 'capsule', 'docking', 'station', 'command', 'returnExtraction'];
 export const FLOW_ENDGAME = 'return-extraction';
 const FLOW_STORAGE_KEY = 'signal-lost-flow-session-v1';
-const FLOW_FADE_MS = 780;
+const FLOW_TRANSITION_KEY = 'signal-lost-flow-transition-v1';
+const FLOW_FADE_MS = 620;
+const FLOW_ENTER_MS = 460;
+const FLOW_PRELOAD_WAIT_MS = 950;
+const FLOW_PREFETCH_HORIZON = 2;
+const FLOW_KEEP_PARAMS = ['players', 'peers', 'crew', 'slots', 'crewSlots', 'room', 'code', 'session', 'signal', 'name', 'host', 'join', 'slot', 'objective', 'endgame'];
+const FLOW_ROUTE_NEXT = {
+  '/lobby': '/pad?flow=1',
+  '/pad': '/launch?flow=1',
+  '/launch': '/dock?flow=1',
+  '/dock': '/game?flow=1',
+};
+const COMMON_MODULES = [
+  './nav.js?v=2',
+  './flow.js',
+  './audio.js',
+  './crew.js',
+  './crew_manager.js',
+  './multiplayer.js',
+  './voice_chat.js',
+  './units_alpha.js?v=5',
+  './station_parts.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/RenderPass.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/OutputPass.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/ShaderPass.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/PointerLockControls.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+];
 const preloadedUrls = new Set();
+const preloadPromises = new Map();
+const modulePreloaded = new Set();
+const speculationRules = new Set();
+let prerenderedHref = '';
 const FLOW_OBJECTIVES = {
   lobby: 'assemble crew',
   boardRocket: 'board the rocket',
@@ -22,40 +57,186 @@ let el;
 function ensure() {
   if (el) return el;
   el = document.createElement('div');
-  el.style.cssText = `position:fixed;inset:0;background:#000;z-index:80;opacity:1;transition:opacity ${FLOW_FADE_MS}ms ease;pointer-events:none;will-change:opacity`;
+  el.style.cssText = `position:fixed;inset:0;background:#000;z-index:2147483000;opacity:1;transition:opacity ${FLOW_ENTER_MS}ms ease;pointer-events:none;will-change:opacity;transform:translateZ(0)`;
+  el.setAttribute('aria-hidden', 'true');
   document.body.appendChild(el);
   return el;
 }
 // reveal the scene (fade from black)
 export function fadeIn() {
   const e = ensure();
-  requestAnimationFrame(() => requestAnimationFrame(() => { e.style.opacity = '0'; }));
+  consumeTransition();
+  e.style.transitionDuration = `${FLOW_ENTER_MS}ms`;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    e.style.opacity = '0';
+    e.style.pointerEvents = 'none';
+  }));
 }
 // fade to black, then navigate (guarded so it only fires once)
 let going = false;
 export function goNext(url, params = {}) {
   if (going) return; going = true;
   const href = preloadNext(url, params);
-  const e = ensure(); e.style.opacity = '1';
+  rememberTransition(href);
+  const e = ensure();
+  e.style.transitionDuration = `${FLOW_FADE_MS}ms`;
+  e.style.pointerEvents = 'auto';
+  e.style.opacity = '1';
   e.dataset.next = href;
-  setTimeout(() => { location.href = href; }, FLOW_FADE_MS);
+  const ready = preloadPromises.get(href) || Promise.resolve(href);
+  const waitForPreload = Promise.race([ready, sleep(FLOW_PRELOAD_WAIT_MS)]);
+  Promise.all([sleep(FLOW_FADE_MS), waitForPreload]).then(() => { location.href = href; });
 }
 
-export function preloadNext(url, params = {}) {
+export function preloadNext(url, params = {}, opts = {}) {
   const href = withCrewParams(url, params);
-  if (preloadedUrls.has(href)) return href;
+  preloadCommonModules();
+  preloadDocument(href, { warm: opts.warm !== false });
+  preloadFlowLookahead(href);
+  return href;
+}
+
+function preloadDocument(href, opts = {}) {
+  if (preloadedUrls.has(href)) return preloadPromises.get(href) || Promise.resolve(href);
   preloadedUrls.add(href);
   try {
     const link = document.createElement('link');
     link.rel = 'prefetch';
     link.as = 'document';
     link.href = href;
+    link.fetchPriority = 'low';
     link.dataset.flowPreload = '1';
     document.head.appendChild(link);
   } catch {
     // Preload is a polish path; navigation still works without it.
   }
-  return href;
+  addSpeculationRule(href, 'prefetch');
+  if (opts.warm && !prerenderedHref && canPrerender(href)) {
+    prerenderedHref = href;
+    addSpeculationRule(href, 'prerender');
+  }
+  const promise = fetchDocument(href);
+  preloadPromises.set(href, promise);
+  return promise;
+}
+
+function preloadCommonModules() {
+  for (const src of COMMON_MODULES) {
+    try {
+      const href = new URL(src, location.href).href;
+      if (modulePreloaded.has(href)) continue;
+      modulePreloaded.add(href);
+      const link = document.createElement('link');
+      link.rel = 'modulepreload';
+      link.href = href;
+      link.fetchPriority = 'low';
+      link.dataset.flowPreload = '1';
+      document.head.appendChild(link);
+    } catch {
+      // Module warm-up is best-effort.
+    }
+  }
+}
+
+function preloadFlowLookahead(seedHref) {
+  if (!FLOW) return;
+  let seed = new URL(seedHref, location.href);
+  for (let i = 0; i < FLOW_PREFETCH_HORIZON; i += 1) {
+    const next = nextFlowHref(seed);
+    if (!next) return;
+    preloadDocument(next, { warm: false });
+    seed = new URL(next, location.href);
+  }
+}
+
+function nextFlowHref(seedUrl) {
+  const path = normalizePath(seedUrl.pathname);
+  const next = FLOW_ROUTE_NEXT[path];
+  return next ? withCrewParams(next, {}, seedUrl.searchParams) : '';
+}
+
+function normalizePath(path) {
+  return (String(path || '').replace(/\/+$/, '') || '/');
+}
+
+function fetchDocument(href) {
+  try {
+    const target = new URL(href, location.href);
+    if (target.origin !== location.origin || !window.fetch) return Promise.resolve(href);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    return fetch(target.href, {
+      cache: 'force-cache',
+      credentials: 'same-origin',
+      priority: 'low',
+      signal: controller.signal,
+    })
+      .then(response => response.arrayBuffer())
+      .catch(() => null)
+      .finally(() => clearTimeout(timer))
+      .then(() => href);
+  } catch {
+    return Promise.resolve(href);
+  }
+}
+
+function addSpeculationRule(href, mode) {
+  try {
+    if (typeof HTMLScriptElement === 'undefined' || typeof HTMLScriptElement.supports !== 'function' || !HTMLScriptElement.supports('speculationrules')) return;
+    const target = new URL(href, location.href);
+    if (target.origin !== location.origin) return;
+    const key = `${mode}:${target.href}`;
+    if (speculationRules.has(key)) return;
+    speculationRules.add(key);
+    const script = document.createElement('script');
+    script.type = 'speculationrules';
+    script.text = JSON.stringify({
+      [mode]: [{
+        source: 'list',
+        urls: [target.href],
+        eagerness: mode === 'prerender' ? 'eager' : 'moderate',
+      }],
+    });
+    document.head.appendChild(script);
+  } catch {
+    // Unsupported browsers simply use the regular preload/fetch path.
+  }
+}
+
+function canPrerender(href) {
+  try {
+    const current = new URL(location.href);
+    const target = new URL(href, location.href);
+    return FLOW && target.origin === current.origin && !hasLiveRoom(current.searchParams) && !hasLiveRoom(target.searchParams);
+  } catch {
+    return false;
+  }
+}
+
+function hasLiveRoom(searchParams) {
+  return ['room', 'code', 'session', 'signal'].some(key => searchParams.has(key));
+}
+
+function rememberTransition(href) {
+  try {
+    sessionStorage.setItem(FLOW_TRANSITION_KEY, JSON.stringify({ href, at: Date.now(), fadeMs: FLOW_FADE_MS }));
+  } catch {
+    // Transition memory is cosmetic; navigation still works.
+  }
+}
+
+function consumeTransition() {
+  try {
+    const raw = sessionStorage.getItem(FLOW_TRANSITION_KEY);
+    if (raw) sessionStorage.removeItem(FLOW_TRANSITION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export function flowSession(stage = 'unknown', params = {}) {
@@ -114,15 +295,14 @@ export function rememberFlowObjective(stage = 'unknown', objective = '', params 
   return payload;
 }
 
-function withCrewParams(url, params = {}) {
-  const current = new URLSearchParams(location.search);
-  const keep = ['players', 'peers', 'crew', 'slots', 'crewSlots', 'room', 'code', 'session', 'signal', 'name', 'host', 'join', 'slot', 'objective', 'endgame'];
+function withCrewParams(url, params = {}, source = new URLSearchParams(location.search)) {
+  const current = source instanceof URLSearchParams ? source : new URLSearchParams(source);
   const next = new URL(url, location.href);
-  keep.forEach(key => {
+  FLOW_KEEP_PARAMS.forEach(key => {
     if (current.has(key) && !next.searchParams.has(key)) next.searchParams.set(key, current.get(key));
   });
   applyParams(next.searchParams, params);
-  if (FLOW && !next.searchParams.has('endgame')) next.searchParams.set('endgame', FLOW_ENDGAME);
+  if ((FLOW || current.has('flow') || next.searchParams.has('flow')) && !next.searchParams.has('endgame')) next.searchParams.set('endgame', FLOW_ENDGAME);
   return next.pathname + next.search + next.hash;
 }
 
