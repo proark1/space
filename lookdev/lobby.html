@@ -23,6 +23,17 @@
   #roomUi button{background:rgba(8,12,18,.9);border:1px solid #2b4656;border-radius:6px;color:#9fd0ff;font:700 11px ui-monospace,monospace;letter-spacing:1px;padding:8px 10px;cursor:pointer}
   #roomUi button.primary{border-color:#2c5a40;color:#7dffb0}
   #board{color:#7dffb0;text-decoration:none;border:1px solid #2c5a40;border-radius:8px;padding:9px 16px;font:600 12px ui-monospace,monospace;display:none}
+  #voice{position:fixed;right:14px;bottom:13px;width:184px;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:8px;padding:8px 9px;font:11px ui-monospace,monospace;color:#9fd0ff;display:flex;flex-direction:column;gap:6px}
+  #voiceTop{display:flex;align-items:center;gap:8px}
+  #micToggle{width:82px;background:#7dffb0;color:#04140a;border:0;border-radius:6px;padding:7px 8px;font:800 10px ui-monospace,monospace;letter-spacing:1px;cursor:pointer}
+  #micToggle.muted{background:#25313b;color:#cdd6e0;border:1px solid #40505b}
+  #micState{flex:1;color:#cdd6e0;text-align:right;white-space:nowrap}
+  #micMeter{height:5px;background:#111922;border:1px solid #20303c;border-radius:999px;overflow:hidden}
+  #micFill{display:block;width:100%;height:100%;background:#7dffb0;transform-origin:left center;transform:scaleX(.03)}
+  #voicePeers{display:flex;flex-wrap:wrap;gap:4px;min-height:14px}
+  #voicePeers span{border:1px solid #20303c;border-radius:5px;padding:2px 4px;color:#7b8894}
+  #voicePeers span.live{color:#7dffb0;border-color:#2c5a40}
+  #voiceAudio{display:none}
   #lock{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font:12px ui-monospace,monospace;color:#cdd6e0;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:10px;padding:14px 20px;text-align:center;letter-spacing:1px}
   #lock b{color:#E8A33D}
 </style>
@@ -32,6 +43,7 @@
 <div id="title">SIGNAL&nbsp;LOST · DEPARTURE LOBBY</div>
 <div id="nav"><a href="/units">▸ crew</a><a href="/launch">▸ capsule</a></div>
 <div id="view">VIEW: FIRST PERSON</div>
+<div id="voice"><div id="voiceTop"><button id="micToggle" type="button">MIC</button><div id="micState">MIC OFF</div></div><div id="micMeter"><i id="micFill"></i></div><div id="voicePeers"><span>NPC COMMS</span></div><div id="voiceAudio"></div></div>
 <div id="hud"><b>WASD</b> walk · <b>mouse</b> look · <b>V</b> first/third person · host: <b>Enter</b> to start</div>
   <div id="panel"><div id="status">● 4 CREW READY · NPC CREW STANDING BY</div><div id="roomUi"><input id="roomName" maxlength="18" placeholder="NAME"><input id="roomCode" maxlength="8" placeholder="ROOM"><input id="roomSignal" placeholder="SIGNAL URL"><button id="createRoom" class="primary" type="button">CREATE</button><button id="joinRoom" type="button">JOIN</button><button id="copyInvite" type="button">INVITE</button></div><button id="start">▶ START LAUNCH SEQUENCE</button><a id="board" href="/launch">▸ BOARD THE CAPSULE</a></div>
 <div id="lock"><b>click</b> to enter the lobby<br>WASD walk · mouse look · <b>V</b> toggle view</div>
@@ -57,6 +69,7 @@ import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
+import { createLobbyVoiceChat } from './voice_chat.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
 const QUERY=new URLSearchParams(location.search);
@@ -357,13 +370,14 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
 const roomNameEl=document.getElementById('roomName'), roomCodeEl=document.getElementById('roomCode'), roomSignalEl=document.getElementById('roomSignal');
 const createRoomBtn=document.getElementById('createRoom'), joinRoomBtn=document.getElementById('joinRoom'), copyInviteBtn=document.getElementById('copyInvite');
-boardLink.onclick=e=>{ e.preventDefault(); goNext('/pad?flow=1'); };   // board -> the launch sequence
+const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio')});
+boardLink.onclick=e=>{ e.preventDefault(); boardRocket(); };   // board -> the launch sequence
 let phase='wait', doorOpen=0, seqT=0, flowBoarded=false;
 const DOOR_CLOSED_X=0.91, DOOR_SLIDE_X=1.68, DOOR_PASS_X=1.75;
-let localReady=false; const readyPeers=new Set();
+let localReady=false, autoStartQueued=false, launchFlowParams=null; const readyPeers=new Set();
 function readinessInfo(){
   const st={...MULTI.state(),isHost:MULTI.isHost()};
-  const peers=MULTI.peers();
+  const peers=MULTI.peers().filter(p=>p.lastSeen>0);
   const peerIds=new Set(peers.map(p=>p.id));
   for(const id of [...readyPeers]) if(!peerIds.has(id)) readyPeers.delete(id);
   const humanCount=Math.min(4,(st.code?peers.length+1:1));
@@ -373,6 +387,30 @@ function readinessInfo(){
   const ready=Math.min(4,npcReady+remoteReady+(hostReady?1:0));
   return {st,peers,humanCount,npcReady,remoteReady,hostReady,ready,allHumansReady:hostReady&&remoteReady>=peers.length};
 }
+function cleanCrewName(value){ return String(value||'').trim().replace(/\s+/g,' ').slice(0,18).toUpperCase(); }
+function uniqueCrewNames(names){
+  const seen=new Set(), out=[];
+  for(const raw of names){
+    const name=cleanCrewName(raw);
+    if(!name||seen.has(name))continue;
+    seen.add(name); out.push(name);
+    if(out.length>=4)break;
+  }
+  return out;
+}
+function namesFromStartPayload(payload){
+  const raw=Array.isArray(payload?.players)?payload.players:
+    typeof payload?.players==='string'?payload.players.split(','):
+    Array.isArray(payload?.crew)?payload.crew:
+    typeof payload?.crew==='string'?payload.crew.split(','):[];
+  return uniqueCrewNames(raw);
+}
+function currentFlowParams(payload={}){
+  const payloadNames=namesFromStartPayload(payload);
+  const roster=payloadNames.length?payloadNames:uniqueCrewNames([roomNameEl.value||MULTI.name||'PLAYER',...readinessInfo().peers.map(p=>p.name)]);
+  return {players:roster.join(',')};
+}
+function boardRocket(){ goNext('/pad?flow=1',launchFlowParams||currentFlowParams()); }
 function randomRoom(){ return Math.random().toString(36).replace(/[^a-z0-9]/g,'').slice(2,8).toUpperCase().padEnd(6,'7'); }
 function roomLink(code=roomCodeEl.value.trim().toUpperCase()){
   const url=new URL('/lobby',location.href);
@@ -395,7 +433,7 @@ function updateRoomStatus(){
   const {st,peers,ready,remoteReady,allHumansReady}=readinessInfo();
   if(st.code){
     const gate=st.isHost&&!allHumansReady?` · WAITING ${remoteReady}/${peers.length} CREW`:'';
-    statusEl.textContent=`● ROOM ${st.code} · ${st.isHost?'HOST':'CLIENT'} · ${st.peers+1}/4 CREW · READY ${ready}/4${gate}`;
+    statusEl.textContent=`● ROOM ${st.code} · ${st.isHost?'HOST':'CLIENT'} · ${peers.length+1}/4 CREW · READY ${ready}/4${gate}`;
     startBtn.textContent=st.isHost?(allHumansReady?'▶ START LAUNCH SEQUENCE':'WAITING FOR CREW READY'):(localReady?'✓ READY · WAITING FOR HOST':'READY UP');
     startBtn.disabled=phase!=='wait'||(st.isHost&&!allHumansReady);
   } else {
@@ -403,6 +441,7 @@ function updateRoomStatus(){
     startBtn.textContent='▶ START LAUNCH SEQUENCE';
     startBtn.disabled=phase!=='wait';
   }
+  queueAutoStart();
 }
 createRoomBtn.onclick=()=>goRoom(randomRoom());
 joinRoomBtn.onclick=()=>{ const code=roomCodeEl.value.trim().toUpperCase(); if(code)goRoom(code); };
@@ -411,19 +450,30 @@ MULTI.onRoster(updateRoomStatus);
 MULTI.onHostChange(updateRoomStatus);
 MULTI.onTask(event=>{
   if(event.type==='ready'){ if(event.payload?.ready)readyPeers.add(event.from); else readyPeers.delete(event.from); updateRoomStatus(); }
-  if(event.type==='lobby-start' && phase==='wait') startSeq(true);
+  if(event.type==='lobby-start' && phase==='wait') startSeq(true,event.payload||{});
 });
 function toggleReady(){ localReady=!localReady; MULTI.broadcastTask('ready',{ready:localReady}); updateRoomStatus(); }
-function startSeq(fromRemote=false){
+function startSeq(fromRemote=false,payload={}){
   if(phase!=='wait')return;
   if(!fromRemote && MULTI.code && !MULTI.isHost()){ toggleReady(); return; }
   if(!fromRemote && MULTI.code && !readinessInfo().allHumansReady){ statusEl.textContent='● WAITING FOR CONNECTED CREW TO READY UP'; updateRoomStatus(); return; }
-  if(!fromRemote && MULTI.code) MULTI.broadcastTask('lobby-start',{});
+  launchFlowParams=currentFlowParams(payload);
+  if(!fromRemote && MULTI.code) MULTI.broadcastTask('lobby-start',launchFlowParams);
   phase='open'; startBtn.disabled=true; statusEl.textContent='● LAUNCH SEQUENCE INITIATED — STAND BY';
-  if(FLOW&&AUTO_START){ setTimeout(()=>{ if(flowBoarded)return; flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); },7600); }
+  if(FLOW&&AUTO_START){ setTimeout(()=>{ if(flowBoarded)return; flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; boardRocket(); },7600); }
+}
+function queueAutoStart(){
+  if(!AUTO_START||autoStartQueued||phase!=='wait')return;
+  const info=readinessInfo();
+  if(info.st.code&&(!info.st.isHost||!info.allHumansReady))return;
+  autoStartQueued=true;
+  setTimeout(()=>{
+    autoStartQueued=false;
+    const latest=readinessInfo();
+    if(phase==='wait'&&(!latest.st.code||(latest.st.isHost&&latest.allHumansReady)))startSeq();
+  },900);
 }
 startBtn.onclick=()=>startSeq();
-if(AUTO_START) setTimeout(startSeq,900);
 updateRoomStatus();
 
 const clock=new THREE.Clock(); const _f=new THREE.Vector3();
@@ -450,7 +500,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   else { camera.position.set(pos.x - fx*BACK, EYE+0.9, pos.z - fz*BACK); player.visible=true; }
   camera.rotation.set(pitch,yaw,0);
   // walk through the open door → board
-  if(pos.z<-7.6){ goNext('/pad?flow=1'); }   // walked through the hatch -> launch sequence
+  if(pos.z<-7.6){ boardRocket(); }   // walked through the hatch -> launch sequence
   // --- host-start: doors open, AI crew run aboard ---
   if(phase==='open'){ doorOpen=Math.min(1,doorOpen+dt*(FLOW&&AUTO_START?1.8:0.7)); doorL.position.x=-DOOR_CLOSED_X-doorOpen*DOOR_SLIDE_X; doorR.position.x=DOOR_CLOSED_X+doorOpen*DOOR_SLIDE_X;
     if(doorOpen>=1){ phase='walk'; seqT=0; statusEl.textContent='● DOORS OPEN — WALK TO THE HATCH TO BOARD'; boardLink.style.display='inline-block'; } }
@@ -458,11 +508,11 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     for(const a of aiCrew){ const lt=Math.max(0,seqT-a.delay), k=Math.min(1,lt/2.4);
       const p=a.from.clone().lerp(a.to,k*k*(3-2*k)); a.a.position.set(p.x,Math.abs(Math.sin(lt*7))*0.06*(k<1?1:0),p.z);
       if(k>0.01){ const d=a.to.clone().sub(a.from); a.a.rotation.y=Math.atan2(d.x,d.z); } a.a.visible=k<0.99; }
-    if(FLOW&&AUTO_START&&!flowBoarded&&seqT>2.2){ flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; goNext('/pad?flow=1'); }
+    if(FLOW&&AUTO_START&&!flowBoarded&&seqT>2.2){ flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; boardRocket(); }
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),readiness:readinessInfo(),phase,doorOpen}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:launchFlowParams||currentFlowParams()}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

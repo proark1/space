@@ -146,7 +146,10 @@ export function LandingPage() {
   };
 
   const launchRoom = (): void => {
-    playNow(isHost ? { code, host: '1' } : { code, join: '1' });
+    const roomCode = code;
+    const params: Record<string, string> = isHost ? { code: roomCode, host: '1' } : { code: roomCode, join: '1' };
+    leave();
+    playNow(params);
   };
 
   return (

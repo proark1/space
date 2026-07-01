@@ -1,4 +1,4 @@
-const KEEP_PARAMS = ['room', 'code', 'session', 'signal', 'name', 'players', 'peers', 'crew'];
+const KEEP_PARAMS = ['room', 'code', 'session', 'signal', 'name', 'players', 'peers', 'crew', 'host', 'join'];
 
 function roomCode(query) {
   return (query.get('room') || query.get('code') || query.get('session') || '').trim().toUpperCase();
@@ -46,6 +46,7 @@ export function crewFlowQuery(search = location.search) {
 export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {}) {
   const query = new URLSearchParams(location.search);
   const code = roomCode(query);
+  const wantsHost = /^(1|true|yes)$/i.test(query.get('host') || '');
   const signal = query.get('signal') || localStorage.getItem('sl-signal-url') || '';
   const name = playerName(query);
   const peers = new Map();
@@ -82,7 +83,8 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
   const broadcast = data => {
     for (const id of peers.keys()) send(id, data);
   };
-  const hello = to => send(to, { kind: 'hello', name, scene, at: Date.now() });
+  const isLocalHost = () => Boolean(code && selfId && hostId === selfId) || !code;
+  const hello = to => send(to, { kind: 'hello', name, scene, host: isLocalHost(), at: Date.now() });
 
   if (code && enabled) {
     try {
@@ -106,12 +108,12 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
         if (msg.t === 'welcome') {
           selfId = msg.self || '';
           (msg.peers || []).forEach(id => peers.set(id, peers.get(id) || { name: `CREW ${peers.size + 2}`, scene: '', pose: null, lastSeen: 0 }));
-          electHost((msg.peers && msg.peers[0]) || selfId);
+          electHost(wantsHost ? selfId : ((msg.peers && msg.peers[0]) || selfId));
           emitRoster();
           peers.forEach((_, id) => hello(id));
         } else if (msg.t === 'peer-join' && msg.peerId) {
           peers.set(msg.peerId, peers.get(msg.peerId) || { name: `CREW ${peers.size + 2}`, scene: '', pose: null, lastSeen: 0 });
-          electHost();
+          electHost(wantsHost ? selfId : '');
           emitRoster();
           hello(msg.peerId);
         } else if (msg.t === 'peer-leave' && msg.peerId) {
@@ -125,6 +127,7 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
             peer.scene = String(msg.data.scene || '');
             peer.lastSeen = Date.now();
             peers.set(msg.from, peer);
+            if (msg.data.host) electHost(msg.from);
             emitRoster();
           } else if (msg.data.kind === 'pose') {
             peer.pose = clonePose(msg.data.pose);
@@ -154,8 +157,8 @@ export function createLookdevMultiplayer({ scene = 'scene', enabled = true } = {
     name,
     get selfId() { return selfId; },
     get hostId() { return hostId; },
-    isHost() { return Boolean(code && selfId && hostId === selfId) || !code; },
-    state() { return { status, code, selfId, hostId, isHost: Boolean(selfId && hostId === selfId), name, peers: peers.size, scene }; },
+    isHost() { return isLocalHost(); },
+    state() { return { status, code, selfId, hostId, isHost: isLocalHost(), name, peers: peers.size, scene }; },
     peers: snapshot,
     remoteNames() { return snapshot().map(peer => peer.name); },
     remotePose(id) { return peers.get(id)?.pose || null; },

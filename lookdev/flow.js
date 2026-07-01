@@ -18,19 +18,22 @@ export function fadeIn() {
 }
 // fade to black, then navigate (guarded so it only fires once)
 let going = false;
-export function goNext(url) {
+export function goNext(url, params = {}) {
   if (going) return; going = true;
   const e = ensure(); e.style.opacity = '1';
-  setTimeout(() => { location.href = withCrewParams(url); }, 1100);
+  setTimeout(() => { location.href = withCrewParams(url, params); }, 1100);
 }
 
-function withCrewParams(url) {
+function withCrewParams(url, params = {}) {
   const current = new URLSearchParams(location.search);
-  const keep = ['players', 'peers', 'crew', 'room', 'code', 'session', 'signal', 'name'];
-  if (!keep.some(key => current.has(key))) return url;
+  const keep = ['players', 'peers', 'crew', 'room', 'code', 'session', 'signal', 'name', 'host', 'join'];
   const next = new URL(url, location.href);
   keep.forEach(key => {
     if (current.has(key) && !next.searchParams.has(key)) next.searchParams.set(key, current.get(key));
+  });
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    next.searchParams.set(key, Array.isArray(value) ? value.join(',') : String(value));
   });
   return next.pathname + next.search + next.hash;
 }
