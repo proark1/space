@@ -40,7 +40,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
-import { FLOW, fadeIn, goNext } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { buildApproachDockFaceZ } from './station_parts.js';
@@ -324,7 +324,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
+window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,flowSession:flowSession('capsule'),multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

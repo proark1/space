@@ -12,6 +12,18 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function assertFlowSession(state: any, stage: string, label: string): void {
+  const flow = state?.flowSession;
+  assert(flow?.stage === stage, `${label}: expected flow stage ${stage}, got ${JSON.stringify(flow)}`);
+  assert(flow?.endgame === 'return-extraction', `${label}: expected return-extraction endgame, got ${JSON.stringify(flow)}`);
+  assert(Array.isArray(flow?.roster) && flow.roster.length === 4, `${label}: expected four-slot roster, got ${JSON.stringify(flow)}`);
+}
+
+function assertFlowUrl(url: string, pathname: string, label: string): void {
+  const parsed = new URL(url);
+  assert(parsed.pathname === pathname && parsed.searchParams.get('flow') === '1', `${label}: expected ${pathname}?flow=1, got ${url}`);
+}
+
 interface SignalMsg {
   readonly t: string;
   readonly to?: string;
@@ -202,8 +214,9 @@ async function checkLobbyAutoBoards(page: Page, baseUrl: string): Promise<void> 
   assert(lobbyCrew.player && lobbyCrew.crewCount === 3, `expected lobby player plus 3 NPC crew, got ${JSON.stringify(lobbyCrew)}`);
   await page.goto(`${baseUrl}/lobby?flow=1&auto=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForSelector('#status', { state: 'attached', timeout: TIMEOUT_MS });
+  assertFlowSession(await page.evaluate(() => (window as any).__lobby.state), 'lobby', 'lobby flow');
   await page.waitForTimeout(12_000);
-  assert(page.url().includes('/pad?flow=1'), `expected lobby flow to reach /pad?flow=1, got ${page.url()}`);
+  assertFlowUrl(page.url(), '/pad', 'lobby handoff');
   await assertNoPageErrors(errors, 'lobby flow');
 }
 
@@ -213,6 +226,7 @@ async function checkPadAscentHandoff(page: Page, baseUrl: string): Promise<void>
   await assertCanvasNonBlank(page, 'launch pad');
   await page.waitForFunction(() => Boolean((window as any).__pad?.state?.flowFast), null, { timeout: TIMEOUT_MS });
   const start = await page.evaluate(() => (window as any).__pad.state);
+  assertFlowSession(start, 'launch', 'launch pad flow');
   await page.waitForFunction((baseline) => {
     const state = (window as any).__pad?.state;
     return Boolean(
@@ -226,7 +240,7 @@ async function checkPadAscentHandoff(page: Page, baseUrl: string): Promise<void>
   assert(ascent.rocketY > start.rocketY + 18, `expected rocket ascent, y ${start.rocketY} -> ${ascent.rocketY}`);
   assert(ascent.cameraY > start.cameraY + 3, `expected camera to follow ascent, y ${start.cameraY} -> ${ascent.cameraY}`);
   assert(ascent.targetY > start.targetY + 3, `expected camera target to follow rocket, y ${start.targetY} -> ${ascent.targetY}`);
-  await page.waitForURL('**/launch?flow=1', { timeout: TIMEOUT_MS });
+  await page.waitForURL((url) => url.pathname === '/launch' && url.searchParams.get('flow') === '1', { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'launch pad flow');
 }
 
@@ -236,6 +250,7 @@ async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<
   await assertCanvasNonBlank(page, 'capsule approach');
   await page.waitForFunction(() => Boolean((window as any).__launch?.state?.flowFast), null, { timeout: TIMEOUT_MS });
   const start = await page.evaluate(() => (window as any).__launch.state);
+  assertFlowSession(start, 'capsule', 'capsule flow');
   assert(start.crewCount === 3, `expected capsule transit to seat 3 NPC crew, got ${start.crewCount}`);
   await page.waitForTimeout(7_000);
   const transit = await page.evaluate(() => (window as any).__launch.state);
@@ -243,7 +258,7 @@ async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<
   assert(transit.earthScale < start.earthScale - 0.08, `expected Earth to shrink, scale ${start.earthScale} -> ${transit.earthScale}`);
   assert(transit.shipZ > start.shipZ + 60, `expected station to approach, z ${start.shipZ} -> ${transit.shipZ}`);
   assert(transit.shipScale > start.shipScale + 0.4, `expected station to grow, scale ${start.shipScale} -> ${transit.shipScale}`);
-  await page.waitForURL('**/dock?flow=1', { timeout: TIMEOUT_MS });
+  await page.waitForURL((url) => url.pathname === '/dock' && url.searchParams.get('flow') === '1', { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'capsule transit flow');
 }
 
@@ -253,6 +268,7 @@ async function checkDockingHandoff(page: Page, baseUrl: string): Promise<void> {
   await assertCanvasNonBlank(page, 'manual docking');
   await page.waitForFunction(() => Boolean((window as any).__dock?.state?.auto), null, { timeout: TIMEOUT_MS });
   const dockStart = await page.evaluate(() => (window as any).__dock.state);
+  assertFlowSession(dockStart, 'docking', 'docking flow');
   assert(dockStart.crewCount === 3, `expected docking transfer to keep 3 NPC crew, got ${dockStart.crewCount}`);
   await page.waitForFunction(() => {
     const state = (window as any).__dock?.state?.state;
@@ -261,7 +277,7 @@ async function checkDockingHandoff(page: Page, baseUrl: string): Promise<void> {
   const capture = await page.evaluate(() => (window as any).__dock.state);
   assert(capture.off < 0.7, `expected auto-dock to align before capture, got offset ${capture.off}`);
   assert(capture.speed < 1.8, `expected auto-dock speed to be safe, got ${capture.speed}`);
-  await page.waitForURL('**/game?flow=1', { timeout: TIMEOUT_MS });
+  await page.waitForURL((url) => url.pathname === '/game' && url.searchParams.get('flow') === '1', { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'manual docking flow');
 }
 
@@ -271,6 +287,7 @@ async function checkStationFlowEntry(page: Page, baseUrl: string): Promise<void>
   await page.waitForSelector('#go', { state: 'attached', timeout: TIMEOUT_MS });
   await page.waitForFunction(() => (window as any).__chorus?.crewCount === 3, null, { timeout: TIMEOUT_MS });
   await page.waitForFunction(() => document.querySelector('#panel h1')?.textContent === 'AIRLOCK OPEN', null, { timeout: TIMEOUT_MS });
+  assertFlowSession(await page.evaluate(() => (window as any).__chorus.state), 'station', 'station flow entry');
   const title = await page.locator('#panel h1').textContent();
   const button = await page.locator('#go').textContent();
   assert(title === 'AIRLOCK OPEN', `expected AIRLOCK OPEN flow entry title, got ${title}`);
@@ -328,6 +345,16 @@ async function checkStationHazards(page: Page, baseUrl: string): Promise<void> {
     const state = (window as any).__chorus.state;
     return state.gravityActive === false && state.gravityTriggered === true;
   }, null, { timeout: TIMEOUT_MS });
+
+  await page.evaluate(() => {
+    (window as any).__chorus.smoke.moveTo(0, -57);
+    (window as any).__chorus.smoke.triggerCrawler();
+  });
+  await page.waitForFunction(() => {
+    const crawler = (window as any).__chorus.state.crawler;
+    return crawler?.triggered === true && (crawler.active === true || crawler.strike > 0.05);
+  }, null, { timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => (window as any).__chorus.state.crawler?.strike > 0.12, null, { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'station hazards');
 }
 
@@ -412,6 +439,7 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(6_800);
   const afterLogs = await page.locator('#obj').textContent();
+  assertFlowSession(await page.evaluate(() => (window as any).__chorus.state), 'command', 'station command flow');
   assert(afterLogs?.includes('COOLANT'), `expected coolant objective after logs, got ${afterLogs}`);
 
   await page.evaluate(() => (window as any).__chorus.smoke.moveTo(6.52, -35.9));

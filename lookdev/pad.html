@@ -39,7 +39,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
-import { FLOW, fadeIn, goNext } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
 
 const canvas=document.getElementById('c');
 const DPR=Math.min(window.devicePixelRatio||1,2);
@@ -351,7 +351,7 @@ function startAudio(){ if(padAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__pad={rocket,camera,controls,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,serviceArmRetract:armRetract,serviceArmCount:serviceArms.length,rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
+window.__pad={rocket,camera,controls,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,serviceArmRetract:armRetract,serviceArmCount:serviceArms.length,flowSession:flowSession('launch'),rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

@@ -66,7 +66,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
-import { FLOW, fadeIn, goNext } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
 import { buildCrewSlots, crewSummary } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { createLobbyVoiceChat } from './voice_chat.js';
@@ -512,7 +512,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:launchFlowParams||currentFlowParams()}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:CREW_SUMMARY,flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:params}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

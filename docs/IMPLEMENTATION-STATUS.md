@@ -1,5 +1,7 @@
 # SIGNAL LOST — Implementation Status
 
+> Current playable-flow roadmap: [PLAYABLE-FLOW-ROADMAP.md](PLAYABLE-FLOW-ROADMAP.md).
+
 > Current audit: 2026-06-30. This file reconciles the original M0→M4 backlog with the code that
 > exists now. It is intentionally practical: green means implemented and tested in repo; partial
 > means a useful piece exists but the backlog acceptance gate is not yet satisfied.
