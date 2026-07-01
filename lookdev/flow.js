@@ -5,6 +5,8 @@ export const FLOW = new URLSearchParams(location.search).has('flow');
 export const FLOW_ORDER = ['lobby', 'boardRocket', 'launch', 'capsule', 'docking', 'station', 'command', 'returnExtraction'];
 export const FLOW_ENDGAME = 'return-extraction';
 const FLOW_STORAGE_KEY = 'signal-lost-flow-session-v1';
+const FLOW_FADE_MS = 780;
+const preloadedUrls = new Set();
 const FLOW_OBJECTIVES = {
   lobby: 'assemble crew',
   boardRocket: 'board the rocket',
@@ -20,7 +22,7 @@ let el;
 function ensure() {
   if (el) return el;
   el = document.createElement('div');
-  el.style.cssText = 'position:fixed;inset:0;background:#000;z-index:80;opacity:1;transition:opacity 1.1s ease;pointer-events:none';
+  el.style.cssText = `position:fixed;inset:0;background:#000;z-index:80;opacity:1;transition:opacity ${FLOW_FADE_MS}ms ease;pointer-events:none;will-change:opacity`;
   document.body.appendChild(el);
   return el;
 }
@@ -33,8 +35,27 @@ export function fadeIn() {
 let going = false;
 export function goNext(url, params = {}) {
   if (going) return; going = true;
+  const href = preloadNext(url, params);
   const e = ensure(); e.style.opacity = '1';
-  setTimeout(() => { location.href = withCrewParams(url, params); }, 1100);
+  e.dataset.next = href;
+  setTimeout(() => { location.href = href; }, FLOW_FADE_MS);
+}
+
+export function preloadNext(url, params = {}) {
+  const href = withCrewParams(url, params);
+  if (preloadedUrls.has(href)) return href;
+  preloadedUrls.add(href);
+  try {
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.as = 'document';
+    link.href = href;
+    link.dataset.flowPreload = '1';
+    document.head.appendChild(link);
+  } catch {
+    // Preload is a polish path; navigation still works without it.
+  }
+  return href;
 }
 
 export function flowSession(stage = 'unknown', params = {}) {
@@ -66,6 +87,7 @@ export function flowSession(stage = 'unknown', params = {}) {
     playerSlotNumber: Math.max(1, roster.indexOf(name) + 1),
     objective,
     endgame: query.get('endgame') || FLOW_ENDGAME,
+    preloads: [...preloadedUrls],
   };
   session.persisted = persistFlowSession(query, session);
   return session;

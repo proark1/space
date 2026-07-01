@@ -29,6 +29,9 @@
   #pilot{position:fixed;right:14px;bottom:42px;background:rgba(8,12,18,.88);border:1px solid #2b4656;border-radius:7px;color:#9fd0ff;font:800 10px ui-monospace,monospace;letter-spacing:1px;padding:9px 11px;cursor:pointer}
   #pilot.active{color:#04140a;background:#7dffb0;border-color:#7dffb0}
   #pilot:disabled{cursor:default;opacity:.86}
+  #pilotPanel{position:fixed;right:14px;bottom:128px;width:190px;background:rgba(6,10,16,.86);border:1px solid #20303c;border-radius:8px;padding:8px 9px;font:10px ui-monospace,monospace;color:#9fd0ff;display:flex;flex-direction:column;gap:4px;letter-spacing:1px}
+  #pilotPanel b{color:#E8A33D;font-size:11px}
+  #pilotPanel span{color:#cdd6e0}
   #voice{position:fixed;right:14px;bottom:84px;width:190px;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:8px;padding:8px 9px;font:11px ui-monospace,monospace;color:#9fd0ff;display:flex;flex-direction:column;gap:6px}
   #voiceTop{display:flex;align-items:center;gap:8px}
   #micToggle{width:82px;background:#7dffb0;color:#04140a;border:0;border-radius:6px;padding:7px 8px;font:800 10px ui-monospace,monospace;letter-spacing:1px;cursor:pointer}
@@ -61,6 +64,7 @@
 <div id="crewline"></div>
 <div id="prompt"><b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow</div>
 <button id="pilot" type="button">TAKE PILOT</button>
+<div id="pilotPanel"><b>PILOT CONSOLE</b><span id="pilotSlot">SLOT 2</span><span id="pilotOwner">NO PILOT</span></div>
 <div id="voice"><div id="voiceTop"><button id="micToggle" type="button">MIC</button><div id="micState">MIC OFF</div></div><div id="micMeter"><i id="micFill"></i></div><div id="voicePeers"><span>CREW COMMS</span></div><div id="voiceAudio"></div></div>
 <div id="assist">WAITING FOR APPROACH VECTOR</div>
 <div id="result"><div id="rtxt"></div><a id="enter" href="/game">▸ STEP INTO THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
@@ -81,7 +85,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
-import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession, preloadNext } from './flow.js';
 import { crewLine } from './crew.js';
 import { buildCrewSlots, crewSummary, crewSeatOwnership } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
@@ -91,6 +95,8 @@ import { buildDockingBerthZ } from './station_parts.js';
 
 const canvas=document.getElementById('c');
 const pilotBtn=document.getElementById('pilot');
+const pilotSlotEl=document.getElementById('pilotSlot');
+const pilotOwnerEl=document.getElementById('pilotOwner');
 const DPR=Math.min(window.devicePixelRatio||1,2);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -107,6 +113,7 @@ const SEAT_OWNERSHIP=crewSeatOwnership(CREW_SLOTS);
 const PILOT_SEAT=SEAT_OWNERSHIP.find(seat=>seat.station==='pilot')||SEAT_OWNERSHIP[1];
 const MULTI=createLookdevMultiplayer({scene:'dock'});
 const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>CREW_SLOTS});
+if(FLOW) preloadNext('/game?flow=1');
 const crewLineFor=(index,text)=>crewLine(ACTIVE_CREW[index%ACTIVE_CREW.length].name,text);
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
@@ -349,6 +356,8 @@ function updatePilotUi(){
     pilotBtn.textContent=`ASK ${cleanPilotName(pilotName)}`;
     pilotBtn.disabled=false;
   }
+  if(pilotSlotEl) pilotSlotEl.textContent=`SLOT ${PILOT_SEAT?.slotNumber||2} · ${cleanPilotName(PILOT_SEAT?.name||'PILOT')}`;
+  if(pilotOwnerEl) pilotOwnerEl.textContent=pilotId?`CONTROL · ${cleanPilotName(pilotName)}`:'CONTROL · UNCLAIMED';
   pilotBtn.classList.toggle('active',local&&Boolean(pilotId||!MULTI.code));
 }
 function dockSnapshot(){
@@ -576,7 +585,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
 function softPulse(t,k){ ringLights.forEach((m,i)=>{ m.emissive.setHex(k>0.8?0x35ff70:0xffcf50); m.emissiveIntensity=1.6+2.0*Math.max(0,Math.sin(t*6+i*0.45)); }); clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ+0.52*k; }); tgt.material.emissive.setHex(0x7dffb0); }
-window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,requestPilotControl,releasePilot:()=>clearPilot(),claimPilot:requestPilotControl,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,pilotId,pilotName,pilotNotice,pilotClaimedAt,pilotLastActiveAt,pilotIdleMs:pilotIdle(),canSteer:canSteer(),canTakeover:takeoverAllowed(),dockRev,lastDockReceive,ownsDockState:ownsDockState(),crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,pilotSeat:PILOT_SEAT,flowSession:flowSession('docking'),voice:voice.state(),multiplayer:MULTI.state(),stationQueued}; }};
+window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,requestPilotControl,releasePilot:()=>clearPilot(),claimPilot:requestPilotControl,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,pilotId,pilotName,pilotNotice,pilotClaimedAt,pilotLastActiveAt,pilotIdleMs:pilotIdle(),canSteer:canSteer(),canTakeover:takeoverAllowed(),dockRev,lastDockReceive,ownsDockState:ownsDockState(),crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,pilotSeat:PILOT_SEAT,pilotPanelText:[pilotSlotEl?.textContent||'',pilotOwnerEl?.textContent||''].join(' '),flowSession:flowSession('docking'),voice:voice.state(),multiplayer:MULTI.state(),stationQueued}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

@@ -330,6 +330,12 @@ function makeProgressDoor(door){
   progressDoorMeshes.push({door,slab,status,beams});
 }
 PROGRESS_DOORS.forEach(makeProgressDoor);
+const returnPingMats=[];
+for(let z=-10;z>-LEN+2;z-=11){
+  const m=C.cyan.clone(); m.transparent=true; m.opacity=0.2; m.emissiveIntensity=0.18; returnPingMats.push(m);
+  box(0.62,0.045,0.12,m,-W/2+0.86,0.08,z);
+  box(0.14,0.045,0.42,m,-W/2+1.1,0.08,z+0.16);
+}
 // Branch-room dressing: these are not just holes in the spine; each route has readable purpose.
 box(1.45,0.9,1.1,C.crate,W/2+3.75,0.55,-12.5,0,0.25,0);
 box(1.0,0.18,1.5,C.pipe,W/2+4.25,1.08,-15.4,0,0.12,0);
@@ -344,6 +350,10 @@ const MED_CACHE=new THREE.Vector3(-W/2-3.42,1.12,-18.35);
 box(0.86,0.28,0.66,C.crate,MED_CACHE.x,0.86,MED_CACHE.z,0,-0.08,0);
 box(0.64,0.1,0.48,C.cyan,MED_CACHE.x,1.08,MED_CACHE.z,0,-0.08,0);
 decal(sign('PATCH','#7dffb0'),0.52,0.24,MED_CACHE.x,1.28,MED_CACHE.z+0.34,0,-0.08);
+const BATTERY_PACK=new THREE.Vector3(W/2+4.35,1.08,-17.8);
+box(0.72,0.22,0.48,C.crate,BATTERY_PACK.x,0.82,BATTERY_PACK.z,0,0.16,0);
+box(0.48,0.08,0.3,C.amber,BATTERY_PACK.x,1.02,BATTERY_PACK.z,0,0.16,0);
+decal(sign('CELL','#E8A33D'),0.46,0.22,BATTERY_PACK.x,1.22,BATTERY_PACK.z+0.28,0,0.16);
 box(0.9,1.0,1.3,C.pipe,W/2+3.75,0.62,-39.4,0,0.2,0);
 box(1.2,0.18,1.8,C.rust,W/2+3.62,1.05,-33.6,0,-0.15,0);
 box(0.9,0.84,1.3,C.crate,-W/2-3.2,0.52,-34.2,0,-0.25,0);
@@ -373,6 +383,10 @@ box(1.1,0.62,0.18,C.red,LASER_CONSOLE.x,1.38,LASER_CONSOLE.z,0,-0.28,0);
 box(0.7,0.18,0.16,C.pipe,LASER_CONSOLE.x,1.02,LASER_CONSOLE.z,0,-0.28,0);
 decal(sign('LASER','#ff6a5a'),0.6,0.3,LASER_CONSOLE.x,LASER_CONSOLE.y+0.04,LASER_CONSOLE.z+0.1,0,-0.28);
 box(0.9,0.84,1.3,C.crate,W/2+3.9,0.52,-58.2,0,0.12,0);
+const SIGNAL_BOOSTER=new THREE.Vector3(W/2+3.7,1.1,-62.4);
+box(0.62,0.2,0.54,C.crate,SIGNAL_BOOSTER.x,0.78,SIGNAL_BOOSTER.z,0,-0.2,0);
+cyl(0.06,0.74,C.cyan,SIGNAL_BOOSTER.x,1.18,SIGNAL_BOOSTER.z,0.4,0);
+decal(sign('BOOST','#9FD0FF'),0.52,0.24,SIGNAL_BOOSTER.x,1.42,SIGNAL_BOOSTER.z+0.3,0,-0.2);
 box(1.05,0.5,1.25,C.rust,-W/2-3.35,0.38,-58.4,0,-0.18,0);
 decal(sign('LOCKDOWN','#E8A33D'),0.76,0.3,-W/2-3.35,1.02,-58.98,0,-0.18);
 const SURVEY_TAPE=new THREE.Vector3(-W/2-3.5,1.08,-60.4);
@@ -788,7 +802,7 @@ setObj('REACH COMMAND CENTER - RECOVER PHYSICAL TAPES');
 let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, readyToExtract=false, extracting=false, extractWarned=false, extractStart=0, extractedAt=0, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0,jumpQueued=false,jumpY=0,jumpV=0,slickVX=0,slickVZ=0,slickLevel=0,slickWarnAt=0,gravityActive=false,gravityT=0,gravityLift=0,gravityTriggered=false,gravitySettledLine=false;
 let mechanicalFixed=false, passwordFound=false, passwordDoorOpen=false, laserDeactivated=false;
 let crawlerActive=false, crawlerTriggered=false, crawlerStrike=0, crawlerCooldown=0, crawlerT=0;
-let medPatches=0, lastHitAt=0, patchConsumedAt=0;
+let medPatches=0, batteryPacks=0, signalBoost=false, batteryStunReadyAt=0, lastBatteryStunAt=0, lastHitAt=0, patchConsumedAt=0;
 rememberStationObjective=(text)=>{
   const objective=String(text||'').trim();
   if(!objective)return;
@@ -809,7 +823,7 @@ function routeObjectiveText(){
   if(!restored) return 'REACH COMMAND CENTER - RECOVER PHYSICAL TAPES';
   if(needValve&&!valveDone) return 'SEAL COOLANT LEAK IN AFT SERVICE';
   if(needBreaker&&!breakerDone) return 'REROUTE POWER AT SECTOR 7 BREAKER';
-  if(readyToExtract) return 'RETURN TO AIRLOCK - BRING TAPES HOME';
+  if(readyToExtract) return signalBoost?'FOLLOW BOOSTED PINGS TO AIRLOCK - BRING TAPES HOME':'RETURN TO AIRLOCK - BRING TAPES HOME';
   if(extracting) return 'RETURN CAPSULE LAUNCHING - HOLD AIRLOCK';
   return '';
 }
@@ -909,6 +923,7 @@ const SIDE_INTERACTS=[
   {id:'mechanical-release',pos:MECH_RELEASE,r:1.6,prompt:'[E] REPAIR MECH BULKHEAD',noise:42,line:'mechanical release freed the first bulkhead. command is deeper in.',scr:['> MECH BULKHEAD','> manual release engaged','> track obstruction: cleared','> door one: open'],unlock:'mechanical'},
   {id:'triage',pos:new THREE.Vector3(-W/2-3.36,1.45,-12.6),r:1.55,prompt:'[E] READ TRIAGE TAGS',noise:26,line:'triage tags point two survivors into medical and three out. none came back.',scr:['> MEDICAL TRIAGE','> survivors: 2','> route: aft service','> status: unconfirmed']},
   {id:'medical-cache',pos:MED_CACHE,r:1.45,prompt:'[E] TAKE MED PATCH',noise:18,line:'medical cache adds one emergency patch for the return run.',scr:['> MEDICAL CACHE','> sterile patch: recovered','> sedative: empty','> return kit: improved']},
+  {id:'battery-pack',pos:BATTERY_PACK,r:1.45,prompt:'[E] TAKE BATTERY PACK',noise:20,line:'battery pack boosts the flashlight reserve for the return sprint.',scr:['> BATTERY PACK','> charge cell: recovered','> flashlight reserve: extended','> reward: one extra stun']},
   {id:'relay',pos:new THREE.Vector3(W/2-0.76,1.2,-22.5),r:1.35,prompt:'[E] KICK STUCK RELAY',noise:46,line:'relay is unstuck. everything nearby now knows that.',scr:['> LOCAL RELAY','> manual impact accepted','> signal sharpened','> noise spike: yes']},
   {id:'badge',pos:new THREE.Vector3(-W/2+0.55,1.0,-33),r:1.35,prompt:'[E] PULL CREW BADGE',noise:28,line:RUN_VARIANT===0?'badge says HALE. command log is going to hurt.':RUN_VARIANT===1?'badge recorder is still warm. nobody touch that sentence.':'badge camera caught the dock opening from inside.' ,scr:['> CREW BADGE RECOVERED','> owner: hale','> last ping: command','> audio: corrupted']},
   {id:'password-code',pos:PASSWORD_CONSOLE,r:1.55,prompt:'[E] DECODE PASSWORD',noise:22,line:'archive console found the command door password: zero four one.',scr:['> ARCHIVE RECOVERY','> command door passcode','> 0 4 1','> use at inner door'],unlock:'password'},
@@ -916,11 +931,13 @@ const SIDE_INTERACTS=[
   {id:'bypass-winch',pos:BYPASS_WINCH,r:1.45,prompt:'[E] PRIME BYPASS WINCH',noise:34,line:'bypass winch is primed. if the main hall locks, the tape case has another way out.',scr:['> BYPASS WINCH','> clutch: reset','> cable: ready','> case weight: supported']},
   {id:'archive',pos:new THREE.Vector3(-W/2-2.78,1.1,-33.2),r:1.45,prompt:'[E] SEARCH CREW ARCHIVE',noise:32,line:'crew archive says the final order was to weld the transmitter room shut.',scr:['> CREW ARCHIVE','> final order: silence','> transmitter locked','> command deck sealed']},
   {id:'survey-tape',pos:SURVEY_TAPE,r:1.45,prompt:'[E] RECOVER SURVEY TAPE',noise:24,line:'survey tape confirms the dock opened from the station side before the crew vanished.',scr:['> SURVEY TAPE','> outer dock: opened','> origin: station side','> timestamp: before rescue']},
+  {id:'signal-booster',pos:SIGNAL_BOOSTER,r:1.45,prompt:'[E] TAKE SIGNAL BOOSTER',noise:26,line:'signal booster sharpens crew tracking and marks the safest route back.',scr:['> SIGNAL BOOSTER','> crew pings: sharpened','> return route: tagged','> reward: clearer tracking']},
   {id:'laser-control',pos:LASER_CONSOLE,r:1.6,prompt:'[E] DEACTIVATE LASER GRID',noise:48,line:'laser grid is down. command center approach is clear.',scr:['> SECURITY CONTROL','> laser grid: live','> override accepted','> door three: safe'],unlock:'laser'}
 ];
 const OPTIONAL_SECTION_IDS=['medical-cache','bypass-winch','survey-tape'];
+const REWARD_PICKUP_IDS=['battery-pack','signal-booster'];
 function sectionWorkState(){
-  return {total:SIDE_INTERACTS.length,done:sideDone.size,optionalTotal:OPTIONAL_SECTION_IDS.length,optionalDone:OPTIONAL_SECTION_IDS.filter(id=>sideDone.has(id)).length};
+  return {total:SIDE_INTERACTS.length,done:sideDone.size,optionalTotal:OPTIONAL_SECTION_IDS.length,optionalDone:OPTIONAL_SECTION_IDS.filter(id=>sideDone.has(id)).length,rewardTotal:REWARD_PICKUP_IDS.length,rewardDone:REWARD_PICKUP_IDS.filter(id=>sideDone.has(id)).length};
 }
 function nearestSideInteract(max=1.55){
   let best=null, bd=max;
@@ -987,6 +1004,12 @@ function useSideInteract(item){
   if(item.id==='medical-cache'){
     medPatches=Math.min(1,medPatches+1);
     lastHitAt=0;
+  } else if(item.id==='battery-pack'){
+    batteryPacks=Math.min(2,batteryPacks+1);
+    flashes=Math.max(0,flashes-1);
+  } else if(item.id==='signal-booster'){
+    signalBoost=true;
+    setRouteObjective();
   }
   if(item.id==='motion'||(item.id==='badge'&&RUN_VARIANT===2)) scareBeat(item.id==='motion'?'vent':'voice');
   broadcastRoomState(true);
@@ -1016,8 +1039,7 @@ function startBreaker(){
 function finishBreaker(){
   breakerFixing=false; breakerDone=true; needBreaker=false; readyToSend=false; readyToExtract=true; noisyUntil=performance.now()+2600; lightFactor=0.35; shake=0.45;
   SCRL=['> EXTRACTION POWERED','> PAYLOAD: PHYSICAL TAPES','> WARNING: CHORUS PURSUIT','> RETURN TO AIRLOCK','> DO NOT DROP CASE']; scrScroll=0; drawScreen();
-  setObj('RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH');
-  setObj('RETURN TO AIRLOCK - BRING TAPES HOME');
+  setRouteObjective();
   MULTI.broadcastTask('objective',{text:'extraction is powered. bring the tapes to the airlock.'});
   broadcastRoomState(true);
   say(crewSayLine(1,'return capsule has power. run the tapes back to the airlock.'),3.0);
@@ -1082,7 +1104,7 @@ function recoverRecordings(){ restored=true; restoredAt=performance.now(); ready
   setTimeout(()=>{ if(!restored||caught||won)return; say(crewSayLine(1,'tiny note, the console is begging us not to transmit this. good thing we have the tapes.'),3.3); },4300);
   setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; needValve=true; flashOn=true; lightStun=0.18; setObj('SEAL COOLANT LEAK IN AFT SERVICE'); SCRL=['> COOLANT LEAK DETECTED','> PAYLOAD: PHYSICAL TAPES','> AUX POWER LOCKED','> AFT SERVICE VALVE','> station says no','> mission says yes']; scrScroll=0; drawScreen(); broadcastRoomState(true); },6200);
   setTimeout(()=>{ if(!restored||caught||won||!isRoomHost())return; enraged=true; shake=0.75; director.hear(camera.position,70,'recordings'); if(!playClip('vox-chorus-1',1.0)) sting(); setObj(breakerDone||readyToSend?'RETURN TO COMMAND CENTER · SEND MESSAGE TO EARTH':valveDone?'IT HEARD THE RECORDINGS · REROUTE POWER':'IT HEARD THE RECORDINGS · SEAL COOLANT LEAK'); mob.position.set(camera.position.x,0,camera.position.z-11.0); say(crewSayLine(2,'that was behind us. that was absolutely behind us.'),3.2); broadcastRoomState(true); },7600);
-  setTimeout(()=>{ if(!restored||caught||won||!isRoomHost()||!readyToExtract)return; setObj('RETURN TO AIRLOCK - BRING TAPES HOME'); broadcastRoomState(true); },7700);
+  setTimeout(()=>{ if(!restored||caught||won||!isRoomHost()||!readyToExtract)return; setRouteObjective(); broadcastRoomState(true); },7700);
 }
 function sendToEarth(){ transmitting=true; readyToSend=false; transmitWarned=false; enraged=true; transmitStart=performance.now(); lightFactor=0.12; shake=0.5; flashOn=true; spendSilence(0.4); if(!playClip('crt-call',0.9)) click();
   SCRL=['> TRANSMITTING TO EARTH','> 00%','> do not listen','> hold channel','> hold channel','> hold channel']; scrScroll=0; drawScreen();
@@ -1123,10 +1145,35 @@ function absorbHit(){
   broadcastRoomState(true);
   return true;
 }
+function batteryOverdrive(remote=false){
+  if(batteryPacks<=0||caught||won)return false;
+  const now=performance.now();
+  if(now<batteryStunReadyAt)return false;
+  batteryPacks--;
+  batteryStunReadyAt=now+5000;
+  lastBatteryStunAt=now;
+  shake=Math.max(shake,0.58);
+  lightStun=Math.max(lightStun,0.42);
+  scarePulseT=Math.max(scarePulseT,0.42);
+  noisyUntil=now+900;
+  director.suspicion=Math.max(0,director.suspicion-38);
+  director.mode=director.suspicion>44?'stalk':'investigate';
+  const dx=mob.position.x-camera.position.x, dz=mob.position.z-camera.position.z, dl=Math.hypot(dx,dz)||1;
+  mob.position.x+=dx/dl*2.6;
+  mob.position.z+=dz/dl*2.6;
+  clampMonster(mob.position);
+  SCRL=['> BATTERY DISCHARGE','> flashlight overdrive','> chorus recoil: confirmed','> charge cell: spent'];
+  scrScroll=0; drawScreen();
+  if(!playClip('sfx-flashlight',1.0)) burst(0.22,2100,2,0.28,'highpass');
+  MULTI.broadcastTask('objective',{text:'battery overdrive stunned the chorus.'});
+  say(crewSayLine(1,'battery overdrive worked. it hates the light.'),2.7);
+  if(!remote) broadcastRoomState(true);
+  return true;
+}
 function die(){ if(caught||won) return; if(absorbHit()) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); broadcastRoomState(true); }
-function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; mechanicalFixed=false; passwordFound=false; passwordDoorOpen=false; laserDeactivated=false; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; readyToExtract=false; extracting=false; extractWarned=false; extractedAt=0; extractStart=0; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0; slickVX=0; slickVZ=0; slickLevel=0; slickWarnAt=0; gravityActive=false; gravityT=0; gravityLift=0; gravityTriggered=false; gravitySettledLine=false; medPatches=0; lastHitAt=0; patchConsumedAt=0; resetCeilingAmbusher();
+function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; mechanicalFixed=false; passwordFound=false; passwordDoorOpen=false; laserDeactivated=false; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; readyToExtract=false; extracting=false; extractWarned=false; extractedAt=0; extractStart=0; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0; slickVX=0; slickVZ=0; slickLevel=0; slickWarnAt=0; gravityActive=false; gravityT=0; gravityLift=0; gravityTriggered=false; gravitySettledLine=false; medPatches=0; batteryPacks=0; signalBoost=false; batteryStunReadyAt=0; lastBatteryStunAt=0; lastHitAt=0; patchConsumedAt=0; resetCeilingAmbusher();
   Object.keys(storyBeats).forEach(k=>storyBeats[k]=false);
   sideDone.clear();
   overEl.style.display='none'; promptEl.style.display='none'; runStatsEl.textContent=''; copyRunBtn.textContent='COPY RUN'; crewTalkEl.style.opacity='0'; setRouteObjective();
@@ -1215,7 +1262,7 @@ function roomSnapshot(){
     restored,needValve,valveDone,valveFixing,valveT,needBreaker,breakerDone,breakerFixing,breakerT,
     mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,
     readyToSend,readyToExtract,extracting,extractProgress,extractWarned,extractedAt,transmitting,transmitProgress,transmitWarned,enraged,mActive,caught,won,lightFactor,flashOn,
-    medPatches,lastHitAt,patchConsumedAt,
+    medPatches,batteryPacks,signalBoost,batteryStunReadyAt,lastBatteryStunAt,lastHitAt,patchConsumedAt,
     gravity:{active:gravityActive,t:gravityT,triggered:gravityTriggered},
     crawler:{active:crawlerActive,triggered:crawlerTriggered,strike:crawlerStrike,t:crawlerT,x:crawler.position.x,y:crawler.position.y,z:crawler.position.z,ry:crawler.rotation.y},
     sideDone:[...sideDone],
@@ -1244,7 +1291,7 @@ function applyRoomState(state){
   readyToSend=!!state.readyToSend; readyToExtract=!!state.readyToExtract; extracting=!!state.extracting; extractWarned=!!state.extractWarned; extractedAt=Number(state.extractedAt)||extractedAt;
   transmitting=!!state.transmitting; transmitWarned=!!state.transmitWarned; enraged=!!state.enraged; mActive=!!state.mActive;
   lightFactor=Number.isFinite(Number(state.lightFactor))?Number(state.lightFactor):lightFactor; flashOn=!!state.flashOn;
-  medPatches=Math.max(0,Number(state.medPatches)||0); lastHitAt=Number(state.lastHitAt)||0; patchConsumedAt=Number(state.patchConsumedAt)||0;
+  medPatches=Math.max(0,Number(state.medPatches)||0); batteryPacks=Math.max(0,Number(state.batteryPacks)||0); signalBoost=!!state.signalBoost; batteryStunReadyAt=Number(state.batteryStunReadyAt)||0; lastBatteryStunAt=Number(state.lastBatteryStunAt)||0; lastHitAt=Number(state.lastHitAt)||0; patchConsumedAt=Number(state.patchConsumedAt)||0;
   if(state.gravity){
     gravityTriggered=!!state.gravity.triggered;
     if(state.gravity.active && !gravityActive) triggerGravityFailure(true);
@@ -1421,6 +1468,11 @@ function updateCrew(dt,t,moving){
     root.position.y=gravityLift*0.82+Math.abs(Math.sin(t*(panic?9:5)+c.phase))*0.035*(d>0.08?1:0.35);
     animateAstronaut(root, d>0.08?(panic?'run':'walk'):'idle', t+c.phase, 1);
   }
+  returnPingMats.forEach((m,i)=>{
+    const lit=signalBoost&&(readyToExtract||extracting||won);
+    m.opacity=lit?0.86:0.2;
+    m.emissiveIntensity=lit?1.35+0.45*Math.sin(t*5+i):0.18;
+  });
 }
 
 // ---------- loop ----------
@@ -1569,6 +1621,7 @@ function animate(){ requestAnimationFrame(animate);
     const lit=flashOn && lightStun<=0 && facing>0.93 && dM<16;     // looking right at it, in the beam
     const frozen=lit && !enraged;                                  // the light pins it — until the trap enrages it
     stareHold=frozen?stareHold+dt:0;
+    if(lit && !enraged && dM<7.8 && batteryPacks>0) batteryOverdrive();
     if(stareHold>1.9){ stareHold=0; longStares++; lightStun=0.75; shake=0.45; if(!playClip('sfx-flashlight',0.95)) burst(0.18,1900,2,0.22,'highpass'); }
     const plan=director.update(dt,{moving,running,lit,frozen});
     const targetPos=plan.target;
@@ -1628,7 +1681,7 @@ function animate(){ requestAnimationFrame(animate);
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, voice, get crewCount(){return crewMates.length;},
   get audio(){return {clips:Object.keys(CLIPS).length, mood:musMood, music:!!musicBus, ctx:A&&A.ctx.state};},
-  get state(){const stage=(readyToExtract||extracting||won)?'returnExtraction':(restored?'command':'station'); const objective=routeObjectiveText()||(readyToExtract?'bring tapes to the airlock':extracting?'launch return capsule':restored?'secure tapes and restore extraction power':''); return {hidden,mActive,restored,enraged,mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,readyToExtract,extracting,extractWarned,extractedAt,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,slickLevel,gravityActive,gravityLift,gravityTriggered,medPatches,damageFeedback:{lastHitAt,patchConsumedAt,lastHitAgo:lastHitAt?performance.now()-lastHitAt:0},crawler:{active:crawlerActive,triggered:crawlerTriggered,strike:crawlerStrike,t:crawlerT,x:crawler.position.x,y:crawler.position.y,z:crawler.position.z},crewCount:crewMates.length,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,flowSession:flowSession(stage,{objective}),voice:voice.state(),sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],sectionWork:sectionWorkState(),liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+  get state(){const stage=(readyToExtract||extracting||won)?'returnExtraction':(restored?'command':'station'); const objective=routeObjectiveText()||(readyToExtract?'bring tapes to the airlock':extracting?'launch return capsule':restored?'secure tapes and restore extraction power':''); const work=sectionWorkState(); return {hidden,mActive,restored,enraged,mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,readyToExtract,extracting,extractWarned,extractedAt,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,slickLevel,gravityActive,gravityLift,gravityTriggered,medPatches,batteryPacks,signalBoost,optionalRewards:{medPatches,batteryPacks,signalBoost,rewardDone:work.rewardDone,rewardTotal:work.rewardTotal},damageFeedback:{lastHitAt,patchConsumedAt,lastBatteryStunAt,lastHitAgo:lastHitAt?performance.now()-lastHitAt:0,lastBatteryStunAgo:lastBatteryStunAt?performance.now()-lastBatteryStunAt:0,batteryStunCooldown:Math.max(0,batteryStunReadyAt-performance.now())},crawler:{active:crawlerActive,triggered:crawlerTriggered,strike:crawlerStrike,t:crawlerT,x:crawler.position.x,y:crawler.position.y,z:crawler.position.z},crewCount:crewMates.length,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,flowSession:flowSession(stage,{objective}),voice:voice.state(),sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],sectionWork:work,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
     forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; activeHide=h; hidden=true; camera.position.copy(h.pos); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},
@@ -1636,6 +1689,7 @@ window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSum
     triggerCrawler(){triggerCeilingAmbusher(true,{x:camera.position.x,z:camera.position.z-1.35});},
     triggerGravity(){triggerGravityFailure(true);},
     forceHit(){die();},
+    batteryStun(){return batteryOverdrive(true);},
     wetness(){return wetnessAt(camera.position);},
     interact(){tryInteract();},
     moveTo(x,z){camera.position.set(x,1.6,z);}

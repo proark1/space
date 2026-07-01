@@ -56,7 +56,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, ClipBank } from './audio.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
-import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession, preloadNext } from './flow.js';
 import { buildCrewSlots, crewSummary, crewSeatOwnership } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { createLobbyVoiceChat } from './voice_chat.js';
@@ -79,6 +79,7 @@ const CREW_SUMMARY=crewSummary(CREW_SLOTS);
 const SEAT_OWNERSHIP=crewSeatOwnership(CREW_SLOTS);
 const MULTI=createLookdevMultiplayer({scene:'launch'});
 const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>CREW_SLOTS});
+if(FLOW) preloadNext('/dock?flow=1');
 
 const composer=new EffectComposer(renderer); composer.setPixelRatio(DPR);
 composer.addPass(new RenderPass(scene,camera));
@@ -128,6 +129,7 @@ const CAP=(r,l,a,b)=>new THREE.CapsuleGeometry(r,l,a||6,b||16);
 const flick=[];   // {m, b(base), s(seed)} emissive readouts + engines
 const crew=[];    // {g, s} seated crewmate groups (idle bob)
 const seatAssignments=[];
+const seatHarnesses=[];
 
 // ---- materials ----
 const grime=tex(x=>{ x.fillStyle='#7d828c'; x.fillRect(0,0,256,256);
@@ -272,6 +274,9 @@ function seat(px,pz,faceY,member,station){
   part(BOX(0.7,0.12,0.7),M.seat,s,0,-0.95,0);
   part(BOX(0.7,1.0,0.12),M.seat,s,0,-0.5,0.32);
   part(BOX(0.12,0.5,0.7),M.seat,s,-0.31,-0.7,0); part(BOX(0.12,0.5,0.7),M.seat,s,0.31,-0.7,0);
+  const harnessMat=M.amber.clone(); harnessMat.emissiveIntensity=0.72; seatHarnesses.push(harnessMat);
+  part(BOX(0.08,0.62,0.08),harnessMat,s,-0.18,-0.5,0.25,0.55,0,0.18);
+  part(BOX(0.08,0.62,0.08),harnessMat,s,0.18,-0.5,0.25,0.55,0,-0.18);
   const occupant=member||{};
   seatAssignments.push({station,slotNumber:occupant.slotNumber||seatAssignments.length+1,kind:occupant.kind||'local',name:occupant.name||'PLAYER',role:occupant.role||station,cameraSeat:occupant.kind==='local'});
   if(occupant.kind!=='local'&&occupant.accent!=null){
@@ -321,6 +326,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   // micro cabin life (kept tiny so it doesn't fight free-look)
   cabin.rotation.z=Math.sin(t*0.32)*0.006; cabin.position.y=Math.sin(t*0.6)*0.004;
   for(const c of crew){ c.g.position.y=c.g.userData.by+Math.sin(t*1.4+c.s)*0.012; c.g.rotation.z=Math.sin(t*0.7+c.s)*0.02; }
+  seatHarnesses.forEach((m,i)=>{ m.emissiveIntensity=0.62+0.28*Math.sin(t*2.4+i); });
   if(cabinAudio){ cabinAudio.approach(e,t); if(Math.random()<0.003) cabinAudio.creak(); if(e>0.7 && Math.random()<0.012) cabinAudio.stat(); }
   for(const f of flick){ f.m.material.emissiveIntensity=f.b*(0.62+0.38*Math.sin(t*8+f.s))*((Math.sin(t*1.7+f.s)>0.93)?0.4:1.0); }
   statEl.style.opacity=(e>0.72)?0.85:0;
@@ -346,7 +352,7 @@ function startAudio(){ if(cabinAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,seatAssignments,seatOwnership:SEAT_OWNERSHIP,seatSummary:{total:seatAssignments.length,local:seatAssignments.filter(s=>s.kind==='local').length,remote:seatAssignments.filter(s=>s.kind==='remote').length,npc:seatAssignments.filter(s=>s.kind==='npc').length},flowSession:flowSession('capsule'),voice:voice.state(),multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
+window.__launch={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ return {flowFast:FLOW_FAST,crewCount:crew.length,crewSummary:CREW_SUMMARY,seatAssignments,seatOwnership:SEAT_OWNERSHIP,seatHarnessCount:seatHarnesses.length,seatHarnessPulse:seatHarnesses[0]?.emissiveIntensity||0,seatSummary:{total:seatAssignments.length,local:seatAssignments.filter(s=>s.kind==='local').length,remote:seatAssignments.filter(s=>s.kind==='remote').length,npc:seatAssignments.filter(s=>s.kind==='npc').length},flowSession:flowSession('capsule'),voice:voice.state(),multiplayer:MULTI.state(),standing,cameraX:camera.position.x,cameraY:camera.position.y,cameraZ:camera.position.z,canopyVisible:canopy.visible,canopyOpacity:canopy.material.opacity,earthZ:earth.position.z,earthScale:earth.scale.x,shipZ:ship.position.z,shipScale:ship.scale.x}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

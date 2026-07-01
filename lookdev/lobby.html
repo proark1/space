@@ -69,7 +69,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
-import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession, preloadNext } from './flow.js';
 import { buildCrewSlots, crewSummary, crewSeatOwnership } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
@@ -226,6 +226,14 @@ const doorR=part(BOX(1.72,3.25,0.18),doorMat,scene,0.91,1.62,-7.74);
 part(BOX(4.1,0.22,0.24),new THREE.MeshStandardMaterial({map:hazTex,emissive:0x1a1206,emissiveMap:hazTex,emissiveIntensity:0.45,roughness:0.8}),scene,0,3.48,-7.7); // hazard lintel
 for(const sx of [-1,1]) part(BOX(0.1,3.25,0.26),M.strip,scene,2.08*sx,1.62,-7.72);  // cyan jamb light strips
 part(BOX(1.5,0.1,1.5),M.strip,scene,0,0.01,-5.6);                                   // floor marker — stand here to board
+const boardingGuides=[];
+for(let z=1.8;z>-5.2;z-=1.15){
+  const mat=M.strip.clone();
+  mat.emissiveIntensity=0.45;
+  boardingGuides.push(mat);
+  part(BOX(0.16,0.055,0.55),mat,scene,-0.55,0.04,z);
+  part(BOX(0.16,0.055,0.55),mat,scene,0.55,0.04,z);
+}
 // Optional admin preview targets. Normal play keeps the lobby floor clear so the
 // mission briefing, crew, and airlock are the first things players notice.
 const adminCrateTargets=[];
@@ -397,7 +405,7 @@ addEventListener('keyup',e=>{ keys[e.code]=false; });
 const startBtn=document.getElementById('start'), statusEl=document.getElementById('status'), boardLink=document.getElementById('board');
 const roomNameEl=document.getElementById('roomName'), roomCodeEl=document.getElementById('roomCode'), roomSignalEl=document.getElementById('roomSignal');
 const createRoomBtn=document.getElementById('createRoom'), joinRoomBtn=document.getElementById('joinRoom'), copyInviteBtn=document.getElementById('copyInvite');
-let phase='wait', doorOpen=0, seqT=0, flowBoarded=false;
+let phase='wait', doorOpen=0, seqT=0, flowBoarded=false, boardingProgress=0;
 let localReady=false, autoStartQueued=false, launchFlowParams=null; const readyPeers=new Set();
 const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>lobbyCrewSlots()});
 boardLink.onclick=e=>{ e.preventDefault(); boardRocket(); };   // board -> the launch sequence
@@ -499,6 +507,7 @@ function goRoom(code){
 }
 function updateRoomStatus(){
   applyLobbySupportSlots();
+  if(FLOW) preloadNext('/pad?flow=1',launchFlowParams||currentFlowParams());
   roomNameEl.value=roomNameEl.value||MULTI.name||'';
   roomCodeEl.value=roomCodeEl.value||MULTI.code||'';
   roomSignalEl.value=roomSignalEl.value||new URLSearchParams(location.search).get('signal')||localStorage.getItem('sl-signal-url')||'';
@@ -582,9 +591,14 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
       if(k>0.01){ const d=a.to.clone().sub(a.from); a.a.rotation.y=Math.atan2(d.x,d.z); } a.a.visible=k<0.99; }
     if(FLOW&&AUTO_START&&!flowBoarded&&seqT>2.2){ flowBoarded=true; statusEl.textContent='● CREW ABOARD — SEALING HATCH'; boardRocket(); }
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
+  boardingProgress=phase==='wait'?0:phase==='open'?doorOpen*0.55:Math.min(1,0.55+seqT/4.8);
+  boardingGuides.forEach((mat,i)=>{
+    const live=boardingProgress*boardingGuides.length>i*0.72;
+    mat.emissiveIntensity=live?1.55+0.65*Math.sin(t*8+i):0.35;
+  });
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); const crewSlots=lobbyCrewSlots(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:{total:crewSlots.length,local:1,remote:crewSlots.filter(c=>c.kind==='remote').length,npc:crewSlots.filter(c=>c.kind==='npc').length},crewSlots,seatOwnership:crewSeatOwnership(crewSlots),flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:params}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); const crewSlots=lobbyCrewSlots(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:{total:crewSlots.length,local:1,remote:crewSlots.filter(c=>c.kind==='remote').length,npc:crewSlots.filter(c=>c.kind==='npc').length},crewSlots,seatOwnership:crewSeatOwnership(crewSlots),flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,boardingProgress,boardingGuideCount:boardingGuides.length,launchFlowParams:params}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

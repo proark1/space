@@ -54,7 +54,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
-import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
+import { FLOW, fadeIn, goNext, flowSession, preloadNext } from './flow.js';
 import { buildCrewSlots, crewSummary, crewSeatOwnership } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { createLobbyVoiceChat } from './voice_chat.js';
@@ -65,6 +65,7 @@ const CREW_SUMMARY=crewSummary(CREW_SLOTS);
 const SEAT_OWNERSHIP=crewSeatOwnership(CREW_SLOTS);
 const MULTI=createLookdevMultiplayer({scene:'pad'});
 const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>CREW_SLOTS});
+if(FLOW) preloadNext('/launch?flow=1');
 const DPR=Math.min(window.devicePixelRatio||1,2);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;

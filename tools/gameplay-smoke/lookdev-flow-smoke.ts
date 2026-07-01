@@ -27,6 +27,15 @@ function assertFlowUrl(url: string, pathname: string, label: string): void {
   assert(parsed.pathname === pathname && parsed.searchParams.get('flow') === '1', `${label}: expected ${pathname}?flow=1, got ${url}`);
 }
 
+function assertPreloaded(state: any, pathname: string, label: string): void {
+  const preloads = state?.flowSession?.preloads;
+  assert(Array.isArray(preloads), `${label}: expected flow preloads, got ${JSON.stringify(state?.flowSession)}`);
+  assert(
+    preloads.some((href: string) => new URL(String(href), 'http://lookdev.local').pathname === pathname),
+    `${label}: expected ${pathname} preload, got ${JSON.stringify(preloads)}`,
+  );
+}
+
 async function assertVoicePanel(page: Page, state: any, label: string): Promise<void> {
   assert(typeof state?.voice?.status === 'string', `${label}: expected voice state, got ${JSON.stringify(state?.voice)}`);
   const roster = await page.locator('#voicePeers').textContent();
@@ -222,9 +231,14 @@ async function checkLobbyAutoBoards(page: Page, baseUrl: string): Promise<void> 
   await page.waitForFunction(() => (window as any).__lobby?.state?.crewCount === 3, null, { timeout: TIMEOUT_MS });
   const lobbyCrew = await page.evaluate(() => (window as any).__lobby.state);
   assert(lobbyCrew.player && lobbyCrew.crewCount === 3, `expected lobby player plus 3 NPC crew, got ${JSON.stringify(lobbyCrew)}`);
+  assert(lobbyCrew.boardingGuideCount > 0, `expected boarding guide lights in lobby, got ${JSON.stringify(lobbyCrew)}`);
+  assertPreloaded(lobbyCrew, '/pad', 'lobby preload');
   await page.goto(`${baseUrl}/lobby?flow=1&auto=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForSelector('#status', { state: 'attached', timeout: TIMEOUT_MS });
-  assertFlowSession(await page.evaluate(() => (window as any).__lobby.state), 'lobby', 'lobby flow');
+  const lobbyFlow = await page.evaluate(() => (window as any).__lobby.state);
+  assertFlowSession(lobbyFlow, 'lobby', 'lobby flow');
+  assertPreloaded(lobbyFlow, '/pad', 'lobby flow preload');
+  await page.waitForFunction(() => (window as any).__lobby.state.boardingProgress > 0.1, null, { timeout: TIMEOUT_MS });
   await page.waitForTimeout(12_000);
   assertFlowUrl(page.url(), '/pad', 'lobby handoff');
   await assertNoPageErrors(errors, 'lobby flow');
@@ -268,6 +282,7 @@ async function checkPadAscentHandoff(page: Page, baseUrl: string): Promise<void>
   await page.waitForFunction(() => Boolean((window as any).__pad?.state?.flowFast), null, { timeout: TIMEOUT_MS });
   const start = await page.evaluate(() => (window as any).__pad.state);
   assertFlowSession(start, 'launch', 'launch pad flow');
+  assertPreloaded(start, '/launch', 'launch pad preload');
   assert(start.crewSummary.remote === 1 && start.crewSummary.npc === 2, `expected launch pad to preserve 1 real player and 2 NPCs, got ${JSON.stringify(start.crewSummary)}`);
   assert(start.seatOwnership?.[1]?.station === 'pilot' && start.seatOwnership[1].name === 'CLIENT', `expected launch pad pilot ownership to be CLIENT, got ${JSON.stringify(start.seatOwnership)}`);
   await assertVoicePanel(page, start, 'launch pad voice');
@@ -298,6 +313,7 @@ async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<
   await page.waitForFunction(() => Boolean((window as any).__launch?.state?.flowFast), null, { timeout: TIMEOUT_MS });
   const start = await page.evaluate(() => (window as any).__launch.state);
   assertFlowSession(start, 'capsule', 'capsule flow');
+  assertPreloaded(start, '/dock', 'capsule preload');
   assert(start.crewCount === 3, `expected capsule transit to seat 3 support crew, got ${start.crewCount}`);
   assert(start.crewSummary.remote === 1 && start.crewSummary.npc === 2, `expected capsule to preserve 1 real player and 2 NPCs, got ${JSON.stringify(start.crewSummary)}`);
   assert(start.seatSummary?.local === 1 && start.seatSummary?.remote === 1 && start.seatSummary?.npc === 2, `expected capsule seat summary to preserve typed crew, got ${JSON.stringify(start.seatSummary)}`);
@@ -305,6 +321,7 @@ async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<
   assert(start.seatAssignments?.[1]?.station === 'pilot' && start.seatAssignments[1].name === 'CLIENT' && start.seatAssignments[1].kind === 'remote', `expected pilot seat to hold CLIENT, got ${JSON.stringify(start.seatAssignments)}`);
   assert(start.seatAssignments?.[2]?.kind === 'npc' && start.seatAssignments?.[3]?.kind === 'npc', `expected remaining seats to stay NPC fallback, got ${JSON.stringify(start.seatAssignments)}`);
   assert(start.seatOwnership?.[1]?.station === 'pilot' && start.seatOwnership[1].name === 'CLIENT' && start.seatOwnership[1].canOwnControls === true, `expected pilot seat ownership to belong to CLIENT, got ${JSON.stringify(start.seatOwnership)}`);
+  assert(start.seatHarnessCount >= 4 && start.seatHarnessPulse > 0, `expected animated seat harnesses, got ${JSON.stringify(start)}`);
   await assertVoicePanel(page, start, 'capsule voice');
   await page.waitForTimeout(7_000);
   const transit = await page.evaluate(() => (window as any).__launch.state);
@@ -323,9 +340,11 @@ async function checkDockingHandoff(page: Page, baseUrl: string): Promise<void> {
   await page.waitForFunction(() => Boolean((window as any).__dock?.state?.auto), null, { timeout: TIMEOUT_MS });
   const dockStart = await page.evaluate(() => (window as any).__dock.state);
   assertFlowSession(dockStart, 'docking', 'docking flow');
+  assertPreloaded(dockStart, '/game', 'docking preload');
   assert(dockStart.crewCount === 3, `expected docking transfer to keep 3 support crew, got ${dockStart.crewCount}`);
   assert(dockStart.crewSummary.remote === 1 && dockStart.crewSummary.npc === 2, `expected docking to preserve 1 real player and 2 NPCs, got ${JSON.stringify(dockStart.crewSummary)}`);
   assert(dockStart.pilotSeat?.name === 'CLIENT' && dockStart.pilotSeat?.canOwnControls === true, `expected docking pilot seat owner to be CLIENT, got ${JSON.stringify(dockStart.pilotSeat)}`);
+  assert(String(dockStart.pilotPanelText).includes('CLIENT'), `expected docking pilot console to name CLIENT, got ${dockStart.pilotPanelText}`);
   await assertVoicePanel(page, dockStart, 'docking voice');
   await page.waitForFunction(() => {
     const state = (window as any).__dock?.state?.state;
@@ -349,15 +368,28 @@ async function checkDockingOwnership(browser: Browser, baseUrl: string, signalUr
   await client.goto(`${baseUrl}/dock?${qs}&name=client`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await host.waitForFunction(() => (window as any).__dock?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
   await client.waitForFunction(() => (window as any).__dock?.state?.multiplayer?.peers === 1, null, { timeout: TIMEOUT_MS });
+  const pages = [
+    { name: 'HOST', page: host },
+    { name: 'CLIENT', page: client },
+  ];
+  const authority = (await host.evaluate(() => (window as any).__dock.state.multiplayer.isHost)) ? pages[0]! : pages[1]!;
+  const observer = authority.page === host ? pages[1]! : pages[0]!;
 
   await client.click('#pilot');
   try {
-    await host.waitForFunction(() => {
+    await Promise.all(pages.map(({ page }) => page.waitForFunction(() => (window as any).__dock.state.pilotName === 'CLIENT', null, { timeout: TIMEOUT_MS })));
+    await client.waitForFunction(() => {
       const state = (window as any).__dock.state;
-      return state.pilotName === 'CLIENT' && state.canSteer === false && state.ownsDockState === true;
+      return state.pilotName === 'CLIENT' && state.canSteer === true;
+    }, null, { timeout: TIMEOUT_MS });
+    await authority.page.waitForFunction(() => (window as any).__dock.state.ownsDockState === true, null, { timeout: TIMEOUT_MS });
+    await observer.page.waitForFunction(() => {
+      const state = (window as any).__dock.state;
+      return state.ownsDockState === false && state.lastDockReceive > 0;
     }, null, { timeout: TIMEOUT_MS });
   } catch (err) {
     const states = {
+      authority: authority.name,
       host: await host.evaluate(() => (window as any).__dock.state),
       client: await client.evaluate(() => (window as any).__dock.state),
       hostButton: await host.locator('#pilot').textContent(),
@@ -365,23 +397,22 @@ async function checkDockingOwnership(browser: Browser, baseUrl: string, signalUr
     };
     throw new Error(`timed out waiting for client pilot grant: ${JSON.stringify(states)}\n${String(err)}`);
   }
-  await client.waitForFunction(() => {
-    const state = (window as any).__dock.state;
-    return state.pilotName === 'CLIENT' && state.canSteer === true && state.ownsDockState === false && state.lastDockReceive > 0;
-  }, null, { timeout: TIMEOUT_MS });
 
-  const hostPilotActiveAt = await host.evaluate(() => (window as any).__dock.state.pilotLastActiveAt);
+  const authorityPilotActiveAt = await authority.page.evaluate(() => (window as any).__dock.state.pilotLastActiveAt);
   await client.keyboard.down('Space');
   await client.waitForTimeout(220);
   await client.keyboard.up('Space');
-  await host.waitForFunction((baseline) => (window as any).__dock.state.pilotLastActiveAt > baseline, hostPilotActiveAt, { timeout: TIMEOUT_MS });
+  await authority.page.waitForFunction((baseline) => (window as any).__dock.state.pilotLastActiveAt > baseline, authorityPilotActiveAt, { timeout: TIMEOUT_MS });
 
   await client.click('#pilot');
-  await host.waitForFunction(() => (window as any).__dock.state.pilotId === '', null, { timeout: TIMEOUT_MS });
-  await client.waitForFunction(() => (window as any).__dock.state.pilotId === '', null, { timeout: TIMEOUT_MS });
+  await Promise.all(pages.map(({ page }) => page.waitForFunction(() => (window as any).__dock.state.pilotId === '', null, { timeout: TIMEOUT_MS })));
 
   await client.click('#pilot');
-  await host.waitForFunction(() => (window as any).__dock.state.pilotName === 'CLIENT', null, { timeout: TIMEOUT_MS });
+  await Promise.all(pages.map(({ page }) => page.waitForFunction(() => (window as any).__dock.state.pilotName === 'CLIENT', null, { timeout: TIMEOUT_MS })));
+  if (authority.page !== host) {
+    await client.click('#pilot');
+    await Promise.all(pages.map(({ page }) => page.waitForFunction(() => (window as any).__dock.state.pilotId === '', null, { timeout: TIMEOUT_MS })));
+  }
   await host.click('#pilot');
   await host.waitForFunction(() => (window as any).__dock.state.pilotName === 'HOST' && (window as any).__dock.state.canSteer === true, null, { timeout: TIMEOUT_MS });
   await client.waitForFunction(() => (window as any).__dock.state.pilotName === 'HOST' && (window as any).__dock.state.canSteer === false, null, { timeout: TIMEOUT_MS });
@@ -476,10 +507,14 @@ async function checkStationSideBranchWork(page: Page, baseUrl: string): Promise<
   const errors = collectPageErrors(page);
   await page.goto(`${baseUrl}/game?smoke=1`, { waitUntil: 'commit', timeout: TIMEOUT_MS });
   await page.waitForFunction(() => Boolean((window as any).__chorus?.smoke), null, { timeout: TIMEOUT_MS });
-  const jobs = [
+  const jobs: Array<{ id: string; x: number; z: number; prompt: string }> = [
     { id: 'medical-cache', x: -6.02, z: -18.35, prompt: '[E] TAKE MED PATCH' },
     { id: 'bypass-winch', x: 7.18, z: -52.4, prompt: '[E] PRIME BYPASS WINCH' },
     { id: 'survey-tape', x: -6.1, z: -60.4, prompt: '[E] RECOVER SURVEY TAPE' },
+  ];
+  const rewardJobs: Array<{ id: string; x: number; z: number; prompt: string }> = [
+    { id: 'battery-pack', x: 6.95, z: -17.8, prompt: '[E] TAKE BATTERY PACK' },
+    { id: 'signal-booster', x: 6.3, z: -62.4, prompt: '[E] TAKE SIGNAL BOOSTER' },
   ];
   const interactBranchJob = async (job: typeof jobs[number]): Promise<void> => {
     await page.evaluate(({ x, z }) => (window as any).__chorus.smoke.moveTo(x, z), job);
@@ -499,12 +534,24 @@ async function checkStationSideBranchWork(page: Page, baseUrl: string): Promise<
     const state = (window as any).__chorus.state;
     return state.caught === false && state.medPatches === 0 && state.damageFeedback?.lastHitAt > 0;
   }, null, { timeout: TIMEOUT_MS });
+  await interactBranchJob(rewardJobs[0]);
+  await page.waitForFunction(() => (window as any).__chorus.state.batteryPacks === 1, null, { timeout: TIMEOUT_MS });
+  await page.evaluate(() => (window as any).__chorus.smoke.batteryStun());
+  await page.waitForFunction(() => {
+    const state = (window as any).__chorus.state;
+    return state.batteryPacks === 0 && state.damageFeedback?.lastBatteryStunAt > 0;
+  }, null, { timeout: TIMEOUT_MS });
   await unlockStationCommandRoute(page);
   await interactBranchJob(jobs[1]);
   await interactBranchJob(jobs[2]);
-  const sectionWork = await page.evaluate(() => (window as any).__chorus.state.sectionWork);
+  await interactBranchJob(rewardJobs[1]);
+  const rewardState = await page.evaluate(() => (window as any).__chorus.state);
+  const sectionWork = rewardState.sectionWork;
   assert(sectionWork.optionalTotal === jobs.length, `expected ${jobs.length} optional branch jobs, got ${JSON.stringify(sectionWork)}`);
   assert(sectionWork.optionalDone === jobs.length, `expected all optional branch jobs done, got ${JSON.stringify(sectionWork)}`);
+  assert(sectionWork.rewardTotal === rewardJobs.length, `expected ${rewardJobs.length} reward pickups, got ${JSON.stringify(sectionWork)}`);
+  assert(sectionWork.rewardDone === rewardJobs.length, `expected all reward pickups done, got ${JSON.stringify(sectionWork)}`);
+  assert(rewardState.optionalRewards?.signalBoost === true, `expected signal booster reward state, got ${JSON.stringify(rewardState.optionalRewards)}`);
   await assertNoPageErrors(errors, 'station side branches');
 }
 
