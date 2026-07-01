@@ -54,17 +54,29 @@ export class NetStats {
 
   view(now: number): NetStatsView {
     this.trim(now);
-    const recentSnaps = this.snaps.filter((s) => s.t > now - WINDOW_MS);
-    const recentInputs = this.inputs.filter((t) => t > now - WINDOW_MS);
-    const bytesAvg = recentSnaps.length
-      ? recentSnaps.reduce((sum, s) => sum + s.bytes, 0) / recentSnaps.length
-      : 0;
+    const cutoff = now - WINDOW_MS;
+    let snapshotCount = 0;
+    let inputCount = 0;
+    let bytesSum = 0;
+    let minTick = Infinity;
+    let maxTick = -Infinity;
+    for (const snap of this.snaps) {
+      if (snap.t <= cutoff) continue;
+      snapshotCount += 1;
+      bytesSum += snap.bytes;
+      if (snap.tick < minTick) minTick = snap.tick;
+      if (snap.tick > maxTick) maxTick = snap.tick;
+    }
+    for (const t of this.inputs) {
+      if (t > cutoff) inputCount += 1;
+    }
+    const bytesAvg = snapshotCount ? bytesSum / snapshotCount : 0;
     return {
       rttMs: Math.round(this.rtt),
-      lossPct: this.computeLoss(recentSnaps),
+      lossPct: this.computeLoss(snapshotCount, minTick, maxTick),
       snapshotBytesAvg: Math.round(bytesAvg),
-      snapshotHz: recentSnaps.length,
-      inputHz: recentInputs.length,
+      snapshotHz: snapshotCount,
+      inputHz: inputCount,
       tickDriftMs: Math.round(this.tickDrift),
       selectedPair: this.selectedPair,
       bufferedSnapshots: this.buffered,
@@ -73,16 +85,18 @@ export class NetStats {
 
   private trim(now: number): void {
     const cut = now - 2 * WINDOW_MS;
-    while (this.snaps.length && this.snaps[0]!.t < cut) this.snaps.shift();
-    while (this.inputs.length && this.inputs[0]! < cut) this.inputs.shift();
+    let snapTrim = 0;
+    while (snapTrim < this.snaps.length && this.snaps[snapTrim]!.t < cut) snapTrim++;
+    if (snapTrim > 0) this.snaps.splice(0, snapTrim);
+    let inputTrim = 0;
+    while (inputTrim < this.inputs.length && this.inputs[inputTrim]! < cut) inputTrim++;
+    if (inputTrim > 0) this.inputs.splice(0, inputTrim);
   }
 
-  private computeLoss(recent: Array<{ tick: number }>): number {
-    if (recent.length < 2) return 0;
-    const ticks = recent.map((s) => s.tick).sort((a, b) => a - b);
-    const span = ticks[ticks.length - 1]! - ticks[0]!;
+  private computeLoss(received: number, minTick: number, maxTick: number): number {
+    if (received < 2 || !Number.isFinite(minTick) || !Number.isFinite(maxTick)) return 0;
+    const span = maxTick - minTick;
     const expected = Math.floor(span / SNAPSHOT_TICK_STEP) + 1;
-    const received = recent.length;
     return expected <= received ? 0 : Math.round(((expected - received) / expected) * 100);
   }
 }

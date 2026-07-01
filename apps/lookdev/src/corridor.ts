@@ -1,4 +1,16 @@
-import { BoxGeometry, InstancedMesh, Matrix4, Mesh, PlaneGeometry, PointLight, Scene } from 'three';
+import {
+  BoxGeometry,
+  CanvasTexture,
+  InstancedMesh,
+  LinearFilter,
+  Matrix4,
+  Mesh,
+  PlaneGeometry,
+  PointLight,
+  Scene,
+  Sprite,
+  SpriteMaterial,
+} from 'three';
 import { LOOK, applyLookdevAtmosphere, createDustField, createIndustrialMaterials } from './look';
 
 /** Grid unit used by the greybox ship generator. */
@@ -305,11 +317,42 @@ export function buildCorridor(scene: Scene, level = createCorridorLevel()): Corr
     panel.receiveShadow = false;
     scene.add(panel);
   };
+  const addSign = (label: string, x: number, y: number, z: number, color = '#7fd2ff'): void => {
+    if (typeof document === 'undefined') return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = 'rgba(3, 8, 12, 0.9)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 7;
+    ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+    ctx.fillStyle = color;
+    ctx.font = 'bold 44px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, canvas.width / 2, canvas.height / 2 + 2);
+    const texture = new CanvasTexture(canvas);
+    texture.minFilter = LinearFilter;
+    texture.magFilter = LinearFilter;
+    const material = new SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+    const sign = new Sprite(material);
+    sign.position.set(x, y, z);
+    sign.scale.set(1.16, 0.29, 1);
+    scene.add(sign);
+  };
   addPanel(1.88, 1.42, 8.1, materials.amberLight);
   addPanel(-1.88, 1.3, -6.5, materials.cyanLight);
   addPanel(7.88, 1.52, -12.0, materials.amberLight);
   addPanel(-7.88, 1.78, -21.3, materials.cyanLight);
   addPanel(1.88, 1.52, -38.4, materials.amberLight);
+  addSign('AIRLOCK', -1.1, 2.05, 13.65, '#9fd0ff');
+  addSign('STORAGE', -5.9, 2.0, 1.3, '#e8a33d');
+  addSign('MED BAY', -6.0, 2.0, -6.2, '#6eff9c');
+  addSign('ENGINEERING', 8.2, 2.1, -10.6, '#ffbe4d');
+  addSign('COMMS', 0.0, 2.18, -34.9, '#7fd2ff');
 
   const addProp = (
     size: readonly [number, number, number],

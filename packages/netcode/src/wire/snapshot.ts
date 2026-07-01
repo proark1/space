@@ -157,12 +157,15 @@ export function encodeDelta(
   });
   w.u32(base.tick);
 
-  const baseById = new Map<number, EntitySnapshot>(
-    base.entities.map((e): [number, EntitySnapshot] => [e.id, e]),
-  );
-  const currentIds = new Set(current.entities.map((e) => e.id));
+  const baseById = new Map<number, EntitySnapshot>();
+  for (const e of base.entities) baseById.set(e.id, e);
+  const currentIds = new Set<number>();
+  for (const e of current.entities) currentIds.add(e.id);
 
-  const removed = base.entities.filter((e) => !currentIds.has(e.id)).map((e) => e.id);
+  const removed: number[] = [];
+  for (const e of base.entities) {
+    if (!currentIds.has(e.id)) removed.push(e.id);
+  }
   w.u16(removed.length);
   for (const id of removed) w.u16(id);
 
@@ -207,9 +210,8 @@ export function decodeDelta(bytes: Uint8Array): SnapshotDelta {
 
 /** Apply a decoded delta onto a base world, producing the reconstructed current world. */
 export function applyDelta(base: WorldSnapshot, delta: SnapshotDelta): WorldSnapshot {
-  const map = new Map<number, EntitySnapshot>(
-    base.entities.map((e): [number, EntitySnapshot] => [e.id, { ...e }]),
-  );
+  const map = new Map<number, EntitySnapshot>();
+  for (const e of base.entities) map.set(e.id, { ...e });
   for (const id of delta.removed) map.delete(id);
   for (const c of delta.changed) {
     const existing = map.get(c.id);
@@ -231,5 +233,7 @@ export function applyDelta(base: WorldSnapshot, delta: SnapshotDelta): WorldSnap
       });
     }
   }
-  return { tick: delta.tick, entities: [...map.values()] };
+  const entities: EntitySnapshot[] = [];
+  for (const entity of map.values()) entities.push(entity);
+  return { tick: delta.tick, entities };
 }

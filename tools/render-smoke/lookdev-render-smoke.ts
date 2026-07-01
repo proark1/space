@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createServer as createTcpServer, type AddressInfo } from 'node:net';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inflateSync } from 'node:zlib';
@@ -38,7 +39,8 @@ interface CanvasProbe {
   readonly midtoneRatio: number;
 }
 
-const LOOKDEV_PORT = Number(process.env.LOOKDEV_RENDER_SMOKE_PORT ?? 4178);
+const LOOKDEV_PORT_ENV = process.env.LOOKDEV_RENDER_SMOKE_PORT;
+const DEFAULT_LOOKDEV_PORT = 4178;
 const TIMEOUT_MS = Number(process.env.LOOKDEV_RENDER_SMOKE_TIMEOUT_MS ?? 60_000);
 const FRAMES = Number(process.env.LOOKDEV_RENDER_SMOKE_FRAMES ?? 300);
 const SCENE = process.env.LOOKDEV_RENDER_SMOKE_SCENE ?? 'corridor';
@@ -54,6 +56,9 @@ const MIN_NONBLACK_RATIO = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_NONBLACK_
 const MIN_AVG_LUMA = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_AVG_LUMA ?? 10);
 const MIN_LUMA_RANGE = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_LUMA_RANGE ?? 8);
 const MIN_MIDTONE_RATIO = Number(process.env.LOOKDEV_RENDER_SMOKE_MIN_MIDTONE_RATIO ?? 0.04);
+const PNPM_COMMAND = process.platform === 'win32' ? 'cmd.exe' : 'pnpm';
+const PNPM_ARGS = process.platform === 'win32' ? ['/d', '/s', '/c', 'pnpm'] : [];
+const EXTERNAL_BASE_URL = process.env.LOOKDEV_RENDER_SMOKE_BASE_URL ?? process.env.LOOKDEV_SMOKE_BASE_URL;
 
 async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
@@ -69,10 +74,33 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`timed out waiting for ${url}`);
 }
 
-function startLookdev(): ChildProcessWithoutNullStreams {
+async function availablePort(preferred: number): Promise<number> {
+  return new Promise((resolve) => {
+    const server = createTcpServer();
+    server.unref();
+    server.once('error', () => {
+      const fallback = createTcpServer();
+      fallback.unref();
+      fallback.listen(0, '127.0.0.1', () => {
+        const address = fallback.address() as AddressInfo;
+        fallback.close(() => resolve(address.port));
+      });
+    });
+    server.listen(preferred, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo;
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+
+async function lookdevPort(): Promise<number> {
+  return LOOKDEV_PORT_ENV ? Number(LOOKDEV_PORT_ENV) : availablePort(DEFAULT_LOOKDEV_PORT);
+}
+
+function startLookdev(port: number): ChildProcessWithoutNullStreams {
   const child = spawn(
-    'pnpm',
-    ['-F', '@sl/lookdev', 'exec', 'vite', '--host', '127.0.0.1', '--port', String(LOOKDEV_PORT), '--strictPort'],
+    PNPM_COMMAND,
+    [...PNPM_ARGS, '-F', '@sl/lookdev', 'exec', 'vite', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
     {
       cwd: process.cwd(),
       detached: true,
@@ -88,6 +116,10 @@ function startLookdev(): ChildProcessWithoutNullStreams {
 function stopLookdev(child: ChildProcessWithoutNullStreams | undefined): void {
   if (!child || child.killed) return;
   if (child.pid) {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+      return;
+    }
     try {
       process.kill(-child.pid, 'SIGTERM');
       return;
@@ -250,8 +282,9 @@ async function main(): Promise<void> {
   let vite: ChildProcessWithoutNullStreams | undefined;
   let browser: Browser | undefined;
   try {
-    vite = startLookdev();
-    const baseUrl = `http://127.0.0.1:${LOOKDEV_PORT}`;
+    const port = await lookdevPort();
+    if (!EXTERNAL_BASE_URL) vite = startLookdev(port);
+    const baseUrl = EXTERNAL_BASE_URL ?? `http://127.0.0.1:${port}`;
     await waitForHttp(baseUrl, TIMEOUT_MS);
 
     browser = await chromium.launch({

@@ -63,6 +63,16 @@ const SLICK_ZONES = [
   { x: 8.7, z: -13.2, radius: 4.7, label: 'slick engineering deck' },
   { x: -0.9, z: -36.8, radius: 3.6, label: 'wet comms deck' },
 ] as const;
+const NAV_DIRECTIONS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
+const CELL_COORD_OFFSET = 2048;
+const CELL_COORD_STRIDE = 4096;
+const HUD_UPDATE_INTERVAL = 1 / 12;
+const MONSTER_SENSE_INTERVAL = 0.1;
 
 export interface WalkSceneOptions {
   readonly thirdPerson?: boolean;
@@ -245,14 +255,50 @@ interface MonsterState {
   mode: MonsterMode;
   patrolIndex: number;
   path: Vector3[];
+  pathIndex: number;
   repathIn: number;
   attackCooldown: number;
   attackWindup: number;
   stunTimer: number;
-  investigateTarget: Vector3 | null;
+  readonly investigateTarget: Vector3;
+  hasInvestigateTarget: boolean;
   lostSightSeconds: number;
   footstepMeters: number;
   yaw: number;
+}
+
+interface NavRuntime {
+  readonly cells: readonly ShipCell[];
+  readonly indexByCoord: Map<number, number>;
+  readonly centers: readonly Vector3[];
+  readonly neighbors: readonly number[][];
+  readonly doorEdges: Array<{ readonly door: ShipDoor; readonly edge: number }>;
+  readonly blockedEdges: Set<number>;
+  readonly queue: number[];
+  readonly cameFrom: Int32Array;
+  readonly visited: Uint32Array;
+  blockedMask: number;
+  searchStamp: number;
+  searches: number;
+  lineOfSightChecks: number;
+  nearestFallbacks: number;
+}
+
+interface WalkPerfView {
+  readonly navSearches: number;
+  readonly lineOfSightChecks: number;
+  readonly nearestFallbacks: number;
+  readonly hudUpdates: number;
+  readonly hudDomWrites: number;
+  readonly monsterSenseChecks: number;
+  readonly remoteVisuals: number;
+}
+
+interface MonsterSense {
+  visibility: { score: number; range: number; beamHit: boolean; canSee: boolean };
+  heardPlayer: boolean;
+  lightAttracted: boolean;
+  playerSafe: boolean;
 }
 
 /** Internal hook surface for headless verification (player position + the controls + grounded state). */
@@ -265,6 +311,7 @@ export interface WalkSceneHandle extends HarnessScene {
   runState(): WalkRunStateView;
   monsterState(): MonsterStateView;
   uiFeedback(): WalkUiFeedbackView;
+  performance(): WalkPerfView;
   setPlayerPoseForSmoke(pose: SmokePose): void;
   setMonsterPoseForSmoke(pose: SmokePose): void;
   setRemotePoseForSmoke(pose: SmokeRemotePose): void;
@@ -288,8 +335,8 @@ function dist2d(a: { readonly x: number; readonly z: number }, b: { readonly x: 
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
-function forwardFromYaw(yaw: number): Vector3 {
-  return new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+function writeForwardFromYaw(yaw: number, out: Vector3): Vector3 {
+  return out.set(-Math.sin(yaw), 0, -Math.cos(yaw));
 }
 
 function slicknessAt(pos: { readonly x: number; readonly z: number }): { amount: number; label: string | null } {
@@ -315,34 +362,97 @@ function voiceLevelFromNoise(noise: number, soundPressure: number): VoiceLevel {
   return 'silent';
 }
 
-function cellKey(ix: number, iz: number): string {
-  return `${ix},${iz}`;
+function cellCoordId(ix: number, iz: number): number {
+  return (ix + CELL_COORD_OFFSET) * CELL_COORD_STRIDE + iz + CELL_COORD_OFFSET;
 }
 
-function edgeKey(a: { readonly ix: number; readonly iz: number }, b: { readonly ix: number; readonly iz: number }): string {
-  const ak = cellKey(a.ix, a.iz);
-  const bk = cellKey(b.ix, b.iz);
-  return ak < bk ? `${ak}|${bk}` : `${bk}|${ak}`;
+function navEdgeId(aIndex: number, bIndex: number, cellCount: number): number {
+  const low = Math.min(aIndex, bIndex);
+  const high = Math.max(aIndex, bIndex);
+  return low * cellCount + high;
 }
 
-function cellCenter(cell: ShipCell): Vector3 {
-  return new Vector3(cell.ix * SHIP_CELL_SIZE, 1, cell.iz * SHIP_CELL_SIZE);
+function navEdgeIdForCoords(
+  nav: Pick<NavRuntime, 'indexByCoord' | 'cells'>,
+  a: { readonly ix: number; readonly iz: number },
+  b: { readonly ix: number; readonly iz: number },
+): number | null {
+  const aIndex = nav.indexByCoord.get(cellCoordId(a.ix, a.iz));
+  const bIndex = nav.indexByCoord.get(cellCoordId(b.ix, b.iz));
+  if (aIndex === undefined || bIndex === undefined) return null;
+  return navEdgeId(aIndex, bIndex, nav.cells.length);
 }
 
-function nearestCell(level: CorridorLevel, pos: { readonly x: number; readonly z: number }): ShipCell {
-  let best = level.cells[0];
+function createNavRuntime(level: CorridorLevel): NavRuntime {
+  const indexByCoord = new Map<number, number>();
+  const centers: Vector3[] = [];
+  for (let i = 0; i < level.cells.length; i++) {
+    const cell = level.cells[i]!;
+    indexByCoord.set(cellCoordId(cell.ix, cell.iz), i);
+    centers.push(new Vector3(cell.ix * SHIP_CELL_SIZE, 1, cell.iz * SHIP_CELL_SIZE));
+  }
+
+  const neighbors = level.cells.map((cell) => {
+    const result: number[] = [];
+    for (const [dx, dz] of NAV_DIRECTIONS) {
+      const index = indexByCoord.get(cellCoordId(cell.ix + dx, cell.iz + dz));
+      if (index !== undefined) result.push(index);
+    }
+    return result;
+  });
+
+  const nav: NavRuntime = {
+    cells: level.cells,
+    indexByCoord,
+    centers,
+    neighbors,
+    doorEdges: [],
+    blockedEdges: new Set<number>(),
+    queue: [],
+    cameFrom: new Int32Array(level.cells.length),
+    visited: new Uint32Array(level.cells.length),
+    blockedMask: -1,
+    searchStamp: 0,
+    searches: 0,
+    lineOfSightChecks: 0,
+    nearestFallbacks: 0,
+  };
+  nav.doorEdges.push(
+    ...level.doors.flatMap((door) => {
+      const edge = doorEdgeId(nav, door);
+      return edge === null ? [] : [{ door, edge }];
+    }),
+  );
+  return nav;
+}
+
+function nearestCellIndex(nav: NavRuntime, pos: { readonly x: number; readonly z: number }): number {
+  const roundedIx = Math.round(pos.x / SHIP_CELL_SIZE);
+  const roundedIz = Math.round(pos.z / SHIP_CELL_SIZE);
+  const direct = nav.indexByCoord.get(cellCoordId(roundedIx, roundedIz));
+  if (direct !== undefined) return direct;
+
+  let bestIndex = 0;
+  let best = nav.cells[0];
   if (!best) throw new Error('ship level has no nav cells');
   let bestD = Infinity;
-  for (const cell of level.cells) {
+  nav.nearestFallbacks += 1;
+  for (let i = 0; i < nav.cells.length; i++) {
+    const cell = nav.cells[i]!;
     const dx = cell.ix * SHIP_CELL_SIZE - pos.x;
     const dz = cell.iz * SHIP_CELL_SIZE - pos.z;
     const d = dx * dx + dz * dz;
     if (d < bestD) {
       best = cell;
+      bestIndex = i;
       bestD = d;
     }
   }
-  return best;
+  return bestIndex;
+}
+
+function nearestCell(nav: NavRuntime, pos: { readonly x: number; readonly z: number }): ShipCell {
+  return nav.cells[nearestCellIndex(nav, pos)]!;
 }
 
 function mulberry32(seed: number): () => number {
@@ -364,16 +474,16 @@ function createRunSeed(): number {
   return values[0] ?? 1;
 }
 
-function doorEdge(door: ShipDoor): string {
+function doorEdgeId(nav: Pick<NavRuntime, 'indexByCoord' | 'cells'>, door: ShipDoor): number | null {
   if (door.half[0] < door.half[2]) {
     const iz = Math.round(door.pos[2] / SHIP_CELL_SIZE);
     const leftIx = Math.round((door.pos[0] - SHIP_CELL_SIZE / 2) / SHIP_CELL_SIZE);
-    return edgeKey({ ix: leftIx, iz }, { ix: leftIx + 1, iz });
+    return navEdgeIdForCoords(nav, { ix: leftIx, iz }, { ix: leftIx + 1, iz });
   }
 
   const ix = Math.round(door.pos[0] / SHIP_CELL_SIZE);
   const lowIz = Math.round((door.pos[2] - SHIP_CELL_SIZE / 2) / SHIP_CELL_SIZE);
-  return edgeKey({ ix, iz: lowIz }, { ix, iz: lowIz + 1 });
+  return navEdgeIdForCoords(nav, { ix, iz: lowIz }, { ix, iz: lowIz + 1 });
 }
 
 function isDoorUnlocked(door: ShipDoor, run: RunState): boolean {
@@ -382,68 +492,94 @@ function isDoorUnlocked(door: ShipDoor, run: RunState): boolean {
   return run.stage === 'extract' || run.stage === 'won';
 }
 
-function closedDoorEdges(level: CorridorLevel, run: RunState): Set<string> {
-  const blocked = new Set<string>();
-  for (const door of level.doors) {
-    if (!isDoorUnlocked(door, run)) blocked.add(doorEdge(door));
+function refreshBlockedDoorEdges(nav: NavRuntime, run: RunState): Set<number> {
+  let mask = 0;
+  let overflow = false;
+  for (let i = 0; i < nav.doorEdges.length; i++) {
+    if (isDoorUnlocked(nav.doorEdges[i]!.door, run)) continue;
+    if (i < 30) mask |= 1 << i;
+    else overflow = true;
   }
-  return blocked;
+  if (!overflow && mask === nav.blockedMask) return nav.blockedEdges;
+
+  nav.blockedEdges.clear();
+  for (const { door, edge } of nav.doorEdges) {
+    if (!isDoorUnlocked(door, run)) nav.blockedEdges.add(edge);
+  }
+  nav.blockedMask = overflow ? -1 : mask;
+  return nav.blockedEdges;
 }
 
-function findPath(level: CorridorLevel, from: Vector3, to: Vector3, blockedEdges: Set<string>): Vector3[] {
-  const occupied = new Set(level.cells.map((cell) => cellKey(cell.ix, cell.iz)));
-  const byKey = new Map(level.cells.map((cell) => [cellKey(cell.ix, cell.iz), cell] as const));
-  const start = nearestCell(level, from);
-  const goal = nearestCell(level, to);
-  const startKey = cellKey(start.ix, start.iz);
-  const goalKey = cellKey(goal.ix, goal.iz);
-  if (startKey === goalKey) return [to.clone()];
+function findPath(nav: NavRuntime, from: Vector3, to: Vector3, blockedEdges: Set<number>): Vector3[] {
+  nav.searches += 1;
+  const start = nearestCellIndex(nav, from);
+  const goal = nearestCellIndex(nav, to);
+  if (start === goal) return [to.clone()];
 
-  const queue = [start];
-  const cameFrom = new Map<string, string | null>([[startKey, null]]);
+  nav.searchStamp += 1;
+  if (nav.searchStamp === 0xffffffff) {
+    nav.visited.fill(0);
+    nav.searchStamp = 1;
+  }
+  const stamp = nav.searchStamp;
+  const queue = nav.queue;
+  queue.length = 0;
+  queue.push(start);
+  nav.visited[start] = stamp;
+  nav.cameFrom[start] = -1;
+
   for (let qi = 0; qi < queue.length; qi++) {
     const current = queue[qi]!;
-    if (cellKey(current.ix, current.iz) === goalKey) break;
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const next = { ix: current.ix + dx, iz: current.iz + dz };
-      const nextKey = cellKey(next.ix, next.iz);
-      if (!occupied.has(nextKey) || cameFrom.has(nextKey)) continue;
-      if (blockedEdges.has(edgeKey(current, next))) continue;
-      cameFrom.set(nextKey, cellKey(current.ix, current.iz));
-      const nextCell = byKey.get(nextKey);
-      if (nextCell) queue.push(nextCell);
+    if (current === goal) break;
+    for (const next of nav.neighbors[current]!) {
+      if (nav.visited[next] === stamp) continue;
+      if (blockedEdges.has(navEdgeId(current, next, nav.cells.length))) continue;
+      nav.visited[next] = stamp;
+      nav.cameFrom[next] = current;
+      queue.push(next);
     }
   }
 
-  if (!cameFrom.has(goalKey)) return [];
-  const reversed: ShipCell[] = [];
-  let key: string | null = goalKey;
-  while (key && key !== startKey) {
-    const cell = byKey.get(key);
-    if (cell) reversed.push(cell);
-    key = cameFrom.get(key) ?? null;
+  if (nav.visited[goal] !== stamp) return [];
+  const reversed: number[] = [];
+  let cursor = goal;
+  while (cursor !== start) {
+    reversed.push(cursor);
+    cursor = nav.cameFrom[cursor]!;
+    if (cursor < 0) return [];
   }
-  reversed.reverse();
-  const path = reversed.map(cellCenter);
+
+  const path: Vector3[] = [];
+  for (let i = reversed.length - 1; i >= 0; i--) {
+    path.push(nav.centers[reversed[i]!]!);
+  }
   path.push(to.clone());
   return path;
 }
 
-function hasGridLineOfSight(level: CorridorLevel, run: RunState, a: Vector3, b: Vector3): boolean {
-  const ac = nearestCell(level, a);
-  const bc = nearestCell(level, b);
+function hasGridLineOfSight(nav: NavRuntime, run: RunState, a: Vector3, b: Vector3): boolean {
+  nav.lineOfSightChecks += 1;
+  const aIndex = nearestCellIndex(nav, a);
+  const bIndex = nearestCellIndex(nav, b);
+  const ac = nav.cells[aIndex]!;
+  const bc = nav.cells[bIndex]!;
   if (ac.ix !== bc.ix && ac.iz !== bc.iz) return dist2d(a, b) < 3.2;
 
-  const occupied = new Set(level.cells.map((cell) => cellKey(cell.ix, cell.iz)));
-  const blocked = closedDoorEdges(level, run);
+  const blocked = refreshBlockedDoorEdges(nav, run);
   const stepIx = Math.sign(bc.ix - ac.ix);
   const stepIz = Math.sign(bc.iz - ac.iz);
-  let cursor = { ix: ac.ix, iz: ac.iz };
-  while (cursor.ix !== bc.ix || cursor.iz !== bc.iz) {
-    const next = { ix: cursor.ix + stepIx, iz: cursor.iz + stepIz };
-    if (!occupied.has(cellKey(next.ix, next.iz))) return false;
-    if (blocked.has(edgeKey(cursor, next))) return false;
-    cursor = next;
+  let cursorIndex = aIndex;
+  let ix = ac.ix;
+  let iz = ac.iz;
+  while (ix !== bc.ix || iz !== bc.iz) {
+    const nextIx = ix + stepIx;
+    const nextIz = iz + stepIz;
+    const nextIndex = nav.indexByCoord.get(cellCoordId(nextIx, nextIz));
+    if (nextIndex === undefined) return false;
+    if (blocked.has(navEdgeId(cursorIndex, nextIndex, nav.cells.length))) return false;
+    cursorIndex = nextIndex;
+    ix = nextIx;
+    iz = nextIz;
   }
   return true;
 }
@@ -478,6 +614,25 @@ function objectiveText(run: RunState, activeFuse: ShipPickup): string {
   }
 }
 
+function objectiveDetailText(run: RunState, activeFuse: ShipPickup): string {
+  switch (run.stage) {
+    case 'restorePower':
+      return 'Follow amber panels to the engineering breaker. Use E on the console.';
+    case 'findFuse':
+      return `The comms fuse is somewhere in the ${fuseHint(activeFuse)}. Listen, move quiet, keep light in bursts.`;
+    case 'installFuse':
+      return 'Return to the comms relay. The door is unlocked, but the ship is awake now.';
+    case 'holdout':
+      return 'Hold the relay. Stun the CHORUS, cut light when it searches, use the med bay as relief.';
+    case 'extract':
+      return 'Signal is live. Backtrack to the airlock and cycle the clamp.';
+    case 'won':
+      return 'Comms are restored. This is the part that should feel comforting and does not.';
+    case 'dead':
+      return 'The ship goes quiet. Next run: move with the dark, not against it.';
+  }
+}
+
 function statusText(run: RunState, monster: MonsterState, grounded: boolean): string {
   if (run.statusUntil > run.simTime) return run.statusMessage;
   const footing = run.inSlickZone ? 'slick' : 'dry';
@@ -485,8 +640,8 @@ function statusText(run: RunState, monster: MonsterState, grounded: boolean): st
   return `${grounded ? 'grounded' : 'airborne'} · ${run.flashlightOn ? 'light' : 'dark'} · sound ${voice} · ${footing} · monster ${monster.mode}`;
 }
 
-function isSafeRoom(level: CorridorLevel, pos: { readonly x: number; readonly z: number }): boolean {
-  return nearestCell(level, pos).zone === SAFE_ROOM_ZONE;
+function isSafeRoom(nav: NavRuntime, pos: { readonly x: number; readonly z: number }): boolean {
+  return nearestCell(nav, pos).zone === SAFE_ROOM_ZONE;
 }
 
 function commsCharge(run: RunState): number {
@@ -512,6 +667,7 @@ export async function createWalkScene(
   const scene = new Scene();
   const corridor = buildCorridor(scene);
   const { colliders, level } = corridor;
+  const nav = createNavRuntime(level);
   const monsterUnitFactory = await loadMonsterUnitFactory();
   const playerUnitFactory = await loadPlayerUnitFactory();
   const seed = createRunSeed();
@@ -519,6 +675,7 @@ export async function createWalkScene(
   const fuseOptions = level.pickups.filter((pickup) => pickup.variantGroup === 'fuse');
   const activeFuse = fuseOptions[Math.floor(rng() * fuseOptions.length)];
   if (!activeFuse) throw new Error('ship level needs at least one fuse pickup');
+  const patrolTargets = level.patrolNodes.map((node) => new Vector3(node.pos[0], node.pos[1], node.pos[2]));
 
   // Shared game root. Spawn in the docking bay, facing -Z into the ship.
   const spawn = level.playerSpawn;
@@ -604,6 +761,22 @@ export async function createWalkScene(
   const commsFillEl = document.getElementById('commsFill');
   const commsMeterEl = document.getElementById('commsMeter');
   const micStatusEl = document.getElementById('micStatus');
+  const healthFillEl = document.getElementById('healthFill');
+  const resolveFillEl = document.getElementById('resolveFill');
+  const batteryFillEl = document.getElementById('batteryFill');
+  const objectiveTextEl = document.getElementById('objectiveText');
+  const objectiveDetailEl = document.getElementById('objectiveDetail');
+  const dangerBadgeEl = document.getElementById('dangerBadge');
+  const stunTextEl = document.getElementById('stunText');
+  const threatCueEl = document.getElementById('threatCue');
+  const tutorialCardEl = document.getElementById('tutorialCard');
+  const tutorialSteps = {
+    move: document.querySelector<HTMLElement>('[data-step="move"]'),
+    light: document.querySelector<HTMLElement>('[data-step="light"]'),
+    voice: document.querySelector<HTMLElement>('[data-step="voice"]'),
+    interact: document.querySelector<HTMLElement>('[data-step="interact"]'),
+    stun: document.querySelector<HTMLElement>('[data-step="stun"]'),
+  };
   const encounterFlashEl = document.getElementById('encounterFlash');
   const damageFlashEl = document.getElementById('damageFlash');
   const scareBurstEl = document.getElementById('scareBurst');
@@ -643,13 +816,35 @@ export async function createWalkScene(
     heardCrewShadow: false,
     heardWetDeckWarning: false,
     heardMicStatus: false,
+    heardBatteryFumble: false,
   };
+  const tutorial = {
+    move: false,
+    light: false,
+    voice: false,
+    interact: false,
+    stun: false,
+  };
+  let tutorialMask = -1;
+  let tutorialHidden: boolean | null = null;
   let audioContext: AudioContext | null = null;
+  let dreadOsc: OscillatorNode | null = null;
+  let dreadGain: GainNode | null = null;
+  const nightAudioScale = (): number => (document.documentElement.dataset.nightAudio === '1' ? 0.55 : 1);
   const ensureAudio = (): AudioContext | null => {
     if (typeof AudioContext === 'undefined') return null;
     try {
       audioContext ??= new AudioContext();
       if (audioContext.state === 'suspended') void audioContext.resume();
+      if (!dreadOsc || !dreadGain) {
+        dreadOsc = audioContext.createOscillator();
+        dreadGain = audioContext.createGain();
+        dreadOsc.type = 'sine';
+        dreadOsc.frequency.value = 34;
+        dreadGain.gain.value = 0.0001;
+        dreadOsc.connect(dreadGain).connect(audioContext.destination);
+        dreadOsc.start();
+      }
       return audioContext;
     } catch {
       return null;
@@ -663,12 +858,20 @@ export async function createWalkScene(
     const gain = ctx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, start);
+    const scaledVolume = volume * nightAudioScale();
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, scaledVolume), start + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     osc.connect(gain).connect(ctx.destination);
     osc.start(start);
     osc.stop(start + duration + 0.02);
+  };
+  const updateAudioMix = (): void => {
+    if (!audioContext || !dreadGain) return;
+    const predator = monster.mode === 'chase' || monster.mode === 'attack' ? 0.018 : monster.mode === 'investigate' ? 0.006 : 0;
+    const silenceCut = run.scarePhase === 'build' ? 0.44 : run.scarePhase === 'peak' ? 0.28 : 1;
+    const target = (0.002 + (run.tension / 100) * 0.026 + predator) * silenceCut * nightAudioScale();
+    dreadGain.gain.setTargetAtTime(target, audioContext.currentTime, 0.18);
   };
   const playCue = (cue: AudioCue): void => {
     if (cue === 'pickup') playTone(880, 0.12, 0.04, 'triangle');
@@ -729,6 +932,10 @@ export async function createWalkScene(
   const fuseMat = new MeshStandardMaterial({ color: 0x9fd0ff, emissive: 0x65b7ff, emissiveIntensity: 1.25, roughness: 0.4 });
   const monsterMat = new MeshStandardMaterial({ color: 0x20181a, emissive: 0x6b1111, emissiveIntensity: 0.8, roughness: 0.8 });
   const monsterEyeMat = new MeshStandardMaterial({ color: 0xffc36a, emissive: 0xff5f33, emissiveIntensity: 2.2, roughness: 0.3 });
+  const doorGeo = new BoxGeometry(1, 1, 1);
+  const stationGeo = new BoxGeometry(0.52, 0.9, 0.26);
+  const pickupGeo = new BoxGeometry(0.42, 0.42, 0.42);
+  const monsterEyeGeo = new BoxGeometry(0.09, 0.07, 0.06);
   const stunBeamMat = new MeshBasicMaterial({
     color: 0x9fdfff,
     transparent: true,
@@ -745,8 +952,9 @@ export async function createWalkScene(
   let monsterHitFlash = 0;
 
   const doorMeshes = level.doors.map((door) => {
-    const mesh = new Mesh(new BoxGeometry(door.half[0] * 2, door.half[1] * 2, door.half[2] * 2), doorMat);
+    const mesh = new Mesh(doorGeo, doorMat);
     mesh.position.set(door.pos[0], door.pos[1], door.pos[2]);
+    mesh.scale.set(door.half[0] * 2, door.half[1] * 2, door.half[2] * 2);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
@@ -754,7 +962,7 @@ export async function createWalkScene(
   });
 
   const stationMeshes = level.stations.map((station) => {
-    const mesh = new Mesh(new BoxGeometry(0.52, 0.9, 0.26), stationMat);
+    const mesh = new Mesh(stationGeo, stationMat);
     mesh.position.set(station.pos[0], station.pos[1], station.pos[2]);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -765,7 +973,7 @@ export async function createWalkScene(
   const collectedPickups = new Set<string>();
   const pickupMeshes = level.pickups.map((pickup) => {
     const material = pickup.kind === 'fuse' ? fuseMat : pickupMat;
-    const mesh = new Mesh(new BoxGeometry(0.42, 0.42, 0.42), material);
+    const mesh = new Mesh(pickupGeo, material);
     mesh.position.set(pickup.pos[0], pickup.pos[1], pickup.pos[2]);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -782,7 +990,7 @@ export async function createWalkScene(
   monsterBody.receiveShadow = true;
   monsterRoot.add(monsterBody);
   for (const x of [-0.15, 0.15]) {
-    const eye = new Mesh(new BoxGeometry(0.09, 0.07, 0.06), monsterEyeMat);
+    const eye = new Mesh(monsterEyeGeo, monsterEyeMat);
     eye.position.set(x, 0.85, -0.42);
     monsterRoot.add(eye);
   }
@@ -794,11 +1002,13 @@ export async function createWalkScene(
     mode: 'patrol',
     patrolIndex: Math.floor(rng() * level.patrolNodes.length),
     path: [],
+    pathIndex: 0,
     repathIn: 0,
     attackCooldown: 0,
     attackWindup: 0,
     stunTimer: 0,
-    investigateTarget: null,
+    investigateTarget: new Vector3(),
+    hasInvestigateTarget: false,
     lostSightSeconds: 0,
     footstepMeters: 0,
     yaw: 0,
@@ -811,13 +1021,64 @@ export async function createWalkScene(
   let localMoving = false;
   let lastLocalX = Transform.x[playerEid] ?? spawn.x;
   let lastLocalZ = Transform.z[playerEid] ?? spawn.z;
+  const perf = { hudUpdates: 0, hudDomWrites: 0, monsterSenseChecks: 0 };
+  const scratchPlayerPos = new Vector3();
+  const scratchBeforePos = new Vector3();
+  const scratchStepPos = new Vector3();
+  const scratchHudPos = new Vector3();
+  const scratchRemotePos = new Vector3();
+  const scratchLocalPos = new Vector3();
+  const scratchToTarget = new Vector3();
+  const scratchForward = new Vector3();
+  const scratchBeamStart = new Vector3();
+  const scratchBeamEnd = new Vector3();
+  const scratchBeamMiss = new Vector3();
+  const scratchDelta = new Vector3();
+  const monsterSense: MonsterSense = {
+    visibility: { score: 0, range: 0, beamHit: false, canSee: false },
+    heardPlayer: false,
+    lightAttracted: false,
+    playerSafe: false,
+  };
+  let monsterSenseIn = 0;
 
   const flashStatus = (message: string, seconds = 2): void => {
     run.statusMessage = message;
     run.statusUntil = run.simTime + seconds;
   };
 
-  const playerPos = (): Vector3 => new Vector3(Transform.x[playerEid]!, Transform.y[playerEid]!, Transform.z[playerEid]!);
+  const readPlayerPos = (out: Vector3): Vector3 => out.set(Transform.x[playerEid]!, Transform.y[playerEid]!, Transform.z[playerEid]!);
+  const setMonsterInvestigateTarget = (target: { readonly x: number; readonly y?: number; readonly z: number }): void => {
+    monster.investigateTarget.set(target.x, target.y ?? monster.pos.y, target.z);
+    monster.hasInvestigateTarget = true;
+  };
+  const clearMonsterInvestigateTarget = (): void => {
+    monster.hasInvestigateTarget = false;
+  };
+  const clearMonsterPath = (): void => {
+    monster.path.length = 0;
+    monster.pathIndex = 0;
+  };
+  const setText = (el: HTMLElement | null, text: string): boolean => {
+    if (!el || el.textContent === text) return false;
+    el.textContent = text;
+    return true;
+  };
+  const setWidth = (el: HTMLElement | null, width: string): boolean => {
+    if (!el || el.style.width === width) return false;
+    el.style.width = width;
+    return true;
+  };
+  const setOpacity = (el: HTMLElement | null, opacity: string): boolean => {
+    if (!el || el.style.opacity === opacity) return false;
+    el.style.opacity = opacity;
+    return true;
+  };
+  const setTransform = (el: HTMLElement | null, transform: string): boolean => {
+    if (!el || el.style.transform === transform) return false;
+    el.style.transform = transform;
+    return true;
+  };
 
   const radioSay = (message: string, seconds = 4.2): void => {
     radioText = message;
@@ -828,8 +1089,8 @@ export async function createWalkScene(
   const updateRadioLine = (): void => {
     if (!radioLineEl) return;
     const visible = run.simTime < radioUntil && radioText.length > 0;
-    radioLineEl.textContent = visible ? radioText : '';
-    radioLineEl.style.opacity = visible ? '1' : '0';
+    if (setText(radioLineEl, visible ? radioText : '')) perf.hudDomWrites += 1;
+    if (setOpacity(radioLineEl, visible ? '1' : '0')) perf.hudDomWrites += 1;
   };
 
   const setFlashlightOn = (on: boolean, status = true): void => {
@@ -837,6 +1098,7 @@ export async function createWalkScene(
     if (run.flashlightOn === next) return;
     run.flashlightOn = next;
     flashlight.setOn(next);
+    tutorial.light = true;
     run.lightExposure = clamp(run.lightExposure + LIGHT_TOGGLE_EXPOSURE, 0, 1);
     if (status) flashStatus(next ? 'flashlight on - light is bait' : 'flashlight off - moving dark', 1.8);
     playTone(next ? 520 : 180, 0.07, 0.035, 'square');
@@ -849,6 +1111,7 @@ export async function createWalkScene(
   const applyVoiceSignal = (signal: VoiceSignal, pos: Vector3, dt = 0): number => {
     if (signal.level === 'silent') return 0;
 
+    tutorial.voice = true;
     const voiceLevel = signal.level;
     const continuous = signal.source === 'mic';
     const effect = continuous ? Math.max(0, dt) : 1;
@@ -857,7 +1120,7 @@ export async function createWalkScene(
     run.voiceSource = signal.source;
     if (signal.source !== 'remote') run.localVoicePressure = Math.max(run.localVoicePressure, signal.pressure);
     run.voiceTimer = continuous ? 0.24 : voiceLevel === 'scream' ? 1.25 : voiceLevel === 'shout' ? 1.05 : voiceLevel === 'talk' ? 0.95 : 0.7;
-    const playerSafe = isSafeRoom(level, pos);
+    const playerSafe = isSafeRoom(nav, pos);
     const crewClose = run.nearbyCrew > 0;
 
     if (voiceLevel === 'whisper') {
@@ -903,7 +1166,7 @@ export async function createWalkScene(
       if (!playerSafe && run.stage !== 'dead' && run.stage !== 'won' && run.simTime - lastVoiceAttractionAt > 0.85) {
         lastVoiceAttractionAt = run.simTime;
         monster.mode = 'investigate';
-        monster.investigateTarget = pos.clone();
+        setMonsterInvestigateTarget(pos);
         monster.repathIn = 0;
       }
       if (!storyFlags.heardSoundWarning) {
@@ -928,13 +1191,13 @@ export async function createWalkScene(
     }
     if (!playerSafe && run.stage !== 'dead' && run.stage !== 'won') {
       monster.mode = 'chase';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
       monster.repathIn = 0;
       monster.lostSightSeconds = 0;
       if (screamCueReady) playCue('monster');
     } else if (playerSafe) {
       monster.mode = 'investigate';
-      monster.investigateTarget = SAFE_ROOM_GUARD;
+      setMonsterInvestigateTarget(SAFE_ROOM_GUARD);
       monster.repathIn = 0;
     }
     return continuous ? Math.max(signal.pressure * 1.18, 0.86) : 1.18;
@@ -945,11 +1208,11 @@ export async function createWalkScene(
     run.remoteVoicePressure = Math.max(run.remoteVoicePressure, signal.pressure);
     if (signal.level === 'silent') return 0;
 
-    const remotePos = new Vector3(Transform.x[eid] ?? 0, Transform.y[eid] ?? 1, Transform.z[eid] ?? 0);
-    const localPos = playerPos();
+    const remotePos = scratchRemotePos.set(Transform.x[eid] ?? 0, Transform.y[eid] ?? 1, Transform.z[eid] ?? 0);
+    const localPos = readPlayerPos(scratchLocalPos);
     const crewDistance = dist2d(remotePos, localPos);
     const nearby = crewDistance <= DARK_CREW_OUTLINE_RANGE;
-    const remoteSafe = isSafeRoom(level, remotePos);
+    const remoteSafe = isSafeRoom(nav, remotePos);
     run.soundPressure = clamp(run.soundPressure + signal.pressure * (nearby ? 0.045 : 0.032), 0, 1);
 
     if (nearby && (signal.level === 'whisper' || signal.level === 'talk')) {
@@ -976,7 +1239,7 @@ export async function createWalkScene(
       }
       if (!remoteSafe && run.stage !== 'dead' && run.stage !== 'won') {
         monster.mode = 'investigate';
-        monster.investigateTarget = remotePos;
+        setMonsterInvestigateTarget(remotePos);
         monster.repathIn = 0;
         monster.lostSightSeconds = 0;
       }
@@ -988,13 +1251,13 @@ export async function createWalkScene(
 
   const flashlightBeamHitsMonster = (pos: Vector3): boolean => {
     if (!run.flashlightOn) return false;
-    const toMonster = monster.pos.clone().sub(pos);
+    const toMonster = scratchToTarget.copy(monster.pos).sub(pos);
     const range = Math.hypot(toMonster.x, toMonster.z);
     if (range > 17 || range < 0.001) return false;
-    const forward = forwardFromYaw(controls.yaw);
+    const forward = writeForwardFromYaw(controls.yaw, scratchForward);
     toMonster.y = 0;
     toMonster.normalize();
-    return forward.dot(toMonster) > 0.72 && hasGridLineOfSight(level, run, pos, monster.pos);
+    return forward.dot(toMonster) > 0.72 && hasGridLineOfSight(nav, run, pos, monster.pos);
   };
 
   const playerVisibilityToMonster = (pos: Vector3, distance: number): { score: number; range: number; beamHit: boolean; canSee: boolean } => {
@@ -1011,7 +1274,7 @@ export async function createWalkScene(
       score,
       range,
       beamHit,
-      canSee: hasGridLineOfSight(level, run, monster.pos, pos) && distance < range,
+      canSee: hasGridLineOfSight(nav, run, monster.pos, pos) && distance < range,
     };
   };
 
@@ -1085,22 +1348,22 @@ export async function createWalkScene(
     visual.silhouetteMat.dispose();
   };
   const applyRemoteVisibility = (visual: RemotePlayerVisual, x: number, y: number, z: number): number => {
-    const local = playerPos();
-    const remote = new Vector3(x, y, z);
+    const local = readPlayerPos(scratchLocalPos);
+    const remote = scratchRemotePos.set(x, y, z);
     const distance = dist2d(local, remote);
-    const toRemote = remote.clone().sub(local);
+    const toRemote = scratchToTarget.copy(remote).sub(local);
     toRemote.y = 0;
     if (toRemote.lengthSq() > 0.0001) toRemote.normalize();
     const litByBeam = run.flashlightOn
       && distance < 12
-      && forwardFromYaw(controls.yaw).dot(toRemote) > 0.68
-      && hasGridLineOfSight(level, run, local, remote);
+      && writeForwardFromYaw(controls.yaw, scratchForward).dot(toRemote) > 0.68
+      && hasGridLineOfSight(nav, run, local, remote);
 
     let visibility = 0;
     if (distance <= DARK_CREW_FULL_RANGE) visibility = 0.68;
     else if (distance <= DARK_CREW_OUTLINE_RANGE) visibility = 0.14 + (1 - (distance - DARK_CREW_FULL_RANGE) / (DARK_CREW_OUTLINE_RANGE - DARK_CREW_FULL_RANGE)) * 0.36;
     if (litByBeam) visibility = Math.max(visibility, 0.88);
-    if (isSafeRoom(level, local)) visibility = Math.max(visibility, distance < 7 ? 0.58 : visibility);
+    if (isSafeRoom(nav, local)) visibility = Math.max(visibility, distance < 7 ? 0.58 : visibility);
     visibility = clamp(visibility, 0, 1);
 
     visual.visibility = visibility;
@@ -1217,15 +1480,15 @@ export async function createWalkScene(
 
     const pickup = nearestVisiblePickup(pos);
     if (pickup) return `${pickup.label} +${pickup.amount}`;
-    if (isSafeRoom(level, pos)) return 'Safe room - monster will not enter';
+    if (isSafeRoom(nav, pos)) return 'Safe room - monster will not enter';
     return null;
   };
 
   const updatePrompt = (pos: Vector3): void => {
     if (!promptEl) return;
     const prompt = promptFor(pos);
-    promptEl.textContent = prompt ?? '';
-    promptEl.style.opacity = prompt ? '1' : '0';
+    if (setText(promptEl, prompt ?? '')) perf.hudDomWrites += 1;
+    if (setOpacity(promptEl, prompt ? '1' : '0')) perf.hudDomWrites += 1;
   };
 
   const updateEndScreen = (): void => {
@@ -1238,16 +1501,16 @@ export async function createWalkScene(
     if (lastEndStage === run.stage) return;
     lastEndStage = run.stage;
     const won = run.stage === 'won';
-    endTitleEl.textContent = won ? 'Signal Restored' : 'Crew Lost';
-    endDetailEl.textContent = won
+    if (setText(endTitleEl, won ? 'Signal Restored' : 'Crew Lost')) perf.hudDomWrites += 1;
+    if (setText(endDetailEl, won
       ? 'The transmitter is live. You made it back to the airlock.'
-      : 'The ship goes quiet again. Restart the run and use the med bay as a safe room.';
+      : 'The ship goes quiet again. Restart the run and use the med bay as a safe room.')) perf.hudDomWrites += 1;
     endScreenEl.classList.add('visible');
     playCue(won ? 'win' : 'dead');
   };
 
   const showStunBeam = (from: Vector3, to: Vector3): void => {
-    const delta = to.clone().sub(from);
+    const delta = scratchDelta.copy(to).sub(from);
     const length = delta.length();
     if (length <= 0.01) return;
     stunBeam.position.copy(from).addScaledVector(delta, 0.5);
@@ -1266,7 +1529,7 @@ export async function createWalkScene(
     run.tension = Math.max(run.tension, 44);
     encounterFlash = 0.9;
     monster.pos.copy(FIRST_ENCOUNTER_START);
-    monster.path = [];
+    clearMonsterPath();
     monster.repathIn = 0;
     monster.attackWindup = 0;
     monster.mode = 'investigate';
@@ -1277,7 +1540,7 @@ export async function createWalkScene(
   const updateFirstEncounter = (dt: number, pos: Vector3): boolean => {
     if (!encounterActive(run)) return false;
     run.encounterTimer = Math.max(0, run.encounterTimer - dt);
-    monster.path = [];
+    clearMonsterPath();
     monster.attackWindup = 0;
     monster.mode = 'investigate';
 
@@ -1301,7 +1564,7 @@ export async function createWalkScene(
       if (run.encounterTimer <= 0) {
         run.encounterPhase = 'recover';
         run.encounterTimer = 1.05;
-        monster.investigateTarget = pos.clone();
+        setMonsterInvestigateTarget(pos);
       }
       return true;
     }
@@ -1312,7 +1575,7 @@ export async function createWalkScene(
       run.encounterPhase = 'done';
       run.encounterTimer = 0;
       monster.mode = 'investigate';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
       monster.repathIn = 0;
       flashStatus('find the comms fuse', 2.4);
     }
@@ -1321,18 +1584,19 @@ export async function createWalkScene(
 
   const updateTension = (dt: number, pos: Vector3): void => {
     const monsterDistance = dist2d(monster.pos, pos);
+    const playerSafe = isSafeRoom(nav, pos);
     let target = 10;
-    if (isSafeRoom(level, pos)) target = 4;
+    if (playerSafe) target = 4;
     if (run.stage === 'holdout') target = Math.max(target, 56 + commsCharge(run) * 22);
     if (encounterActive(run)) target = Math.max(target, 72);
     if (monster.mode === 'investigate') target = Math.max(target, 34);
     if (monster.mode === 'chase') target = Math.max(target, 78);
     if (monster.mode === 'attack') target = Math.max(target, 96);
-    if (monsterDistance < 8 && !isSafeRoom(level, pos)) target = Math.max(target, 70 + (8 - monsterDistance) * 4);
+    if (monsterDistance < 8 && !playerSafe) target = Math.max(target, 70 + (8 - monsterDistance) * 4);
     if (run.stage === 'dead') target = 100;
     if (run.stage === 'won') target = 0;
 
-    const rate = target > run.tension ? 54 : isSafeRoom(level, pos) ? 32 : 14;
+    const rate = target > run.tension ? 54 : playerSafe ? 32 : 14;
     run.tension += clamp(target - run.tension, -rate * dt, rate * dt);
     run.tension = clamp(run.tension, 0, 100);
 
@@ -1444,7 +1708,7 @@ export async function createWalkScene(
       return;
     }
 
-    if (!run.powered || encounterActive(run) || isSafeRoom(level, pos) || run.simTime < run.nextScareAt) return;
+    if (!run.powered || encounterActive(run) || isSafeRoom(nav, pos) || run.simTime < run.nextScareAt) return;
     const threat = run.tension / 100 + run.lightExposure * 0.36 + run.soundPressure * 0.32 + (playerNoise > 0.55 ? 0.18 : 0);
     if (threat < 0.48) return;
 
@@ -1468,16 +1732,84 @@ export async function createWalkScene(
     return 'idle';
   };
 
+  const dangerBadge = (): { text: string; tone: 'quiet' | 'warn' | 'danger' } => {
+    if (run.stage === 'dead') return { text: 'Lost', tone: 'danger' };
+    if (run.stage === 'won') return { text: 'Clear', tone: 'quiet' };
+    if (monster.mode === 'attack') return { text: 'Strike', tone: 'danger' };
+    if (monster.mode === 'chase') return { text: 'Hunted', tone: 'danger' };
+    if (run.tension > 72) return { text: 'Close', tone: 'danger' };
+    if (monster.mode === 'investigate') return { text: 'Heard', tone: 'warn' };
+    if (run.lightExposure > 0.55) return { text: 'Visible', tone: 'warn' };
+    if (run.soundPressure > 0.42) return { text: 'Noisy', tone: 'warn' };
+    return { text: 'Quiet', tone: 'quiet' };
+  };
+
+  const threatCueText = (): string | null => {
+    if (run.stage === 'dead' || run.stage === 'won') return null;
+    if (monster.attackWindup > 0) return 'Attack windup - backpedal or stun';
+    if (monster.mode === 'chase') return run.flashlightOn ? 'Chase - cut light and break sight' : 'Chase - keep moving, find a door or safe room';
+    if (monster.mode === 'investigate' && run.lightExposure > 0.48) return 'Beam seen - kill the flashlight';
+    if (run.soundPressure > 0.65) return 'Too loud - it is tracking the noise';
+    if (run.resolve < 28) return 'Resolve failing - regroup or reach the med bay';
+    return null;
+  };
+
+  const updateThreatCue = (): void => {
+    if (!threatCueEl) return;
+    const text = threatCueText();
+    if (setText(threatCueEl, text ?? '')) perf.hudDomWrites += 1;
+    if (setOpacity(threatCueEl, text ? '1' : '0')) perf.hudDomWrites += 1;
+    if (setTransform(threatCueEl, text ? 'translateX(-50%) scale(1.01)' : 'translateX(-50%) scale(0.98)')) perf.hudDomWrites += 1;
+  };
+
+  const updateTutorial = (): void => {
+    const mask = (tutorial.move ? 1 : 0)
+      | (tutorial.light ? 2 : 0)
+      | (tutorial.voice ? 4 : 0)
+      | (tutorial.interact ? 8 : 0)
+      | (tutorial.stun ? 16 : 0);
+    if (mask !== tutorialMask) {
+      tutorialMask = mask;
+      tutorialSteps.move?.classList.toggle('done', tutorial.move);
+      tutorialSteps.light?.classList.toggle('done', tutorial.light);
+      tutorialSteps.voice?.classList.toggle('done', tutorial.voice);
+      tutorialSteps.interact?.classList.toggle('done', tutorial.interact);
+      tutorialSteps.stun?.classList.toggle('done', tutorial.stun);
+      perf.hudDomWrites += 5;
+    }
+    const complete = mask === 31 || run.stage !== 'restorePower';
+    if (tutorialHidden !== complete) {
+      tutorialHidden = complete;
+      tutorialCardEl?.classList.toggle('hidden', complete);
+      perf.hudDomWrites += 1;
+    }
+  };
+
   const updateRunMeters = (): void => {
-    if (tensionFillEl) tensionFillEl.style.width = `${Math.round(run.tension)}%`;
+    perf.hudUpdates += 1;
+    if (setWidth(healthFillEl, `${Math.round(run.health)}%`)) perf.hudDomWrites += 1;
+    if (setWidth(resolveFillEl, `${Math.round(run.resolve)}%`)) perf.hudDomWrites += 1;
+    if (setWidth(batteryFillEl, `${Math.round(run.battery)}%`)) perf.hudDomWrites += 1;
+    if (setText(objectiveTextEl, objectiveText(run, activeFuse))) perf.hudDomWrites += 1;
+    if (setText(objectiveDetailEl, objectiveDetailText(run, activeFuse))) perf.hudDomWrites += 1;
+    if (setText(stunTextEl, `${run.ammoMag} cells`)) perf.hudDomWrites += 1;
+    if (dangerBadgeEl) {
+      const badge = dangerBadge();
+      if (setText(dangerBadgeEl, badge.text)) perf.hudDomWrites += 1;
+      dangerBadgeEl.classList.toggle('warn', badge.tone === 'warn');
+      dangerBadgeEl.classList.toggle('danger', badge.tone === 'danger');
+    }
+    if (setWidth(tensionFillEl, `${Math.round(run.tension)}%`)) perf.hudDomWrites += 1;
     const voice = voiceMeterValue();
-    if (voiceFillEl) voiceFillEl.style.width = `${Math.round(voice * 100)}%`;
-    if (soundFillEl) soundFillEl.style.width = `${Math.round(run.soundPressure * 100)}%`;
-    if (lightFillEl) lightFillEl.style.width = `${Math.round(run.lightExposure * 100)}%`;
-    if (micStatusEl) micStatusEl.textContent = micStatusText();
+    if (setWidth(voiceFillEl, `${Math.round(voice * 100)}%`)) perf.hudDomWrites += 1;
+    if (setWidth(soundFillEl, `${Math.round(run.soundPressure * 100)}%`)) perf.hudDomWrites += 1;
+    if (setWidth(lightFillEl, `${Math.round(run.lightExposure * 100)}%`)) perf.hudDomWrites += 1;
+    if (setText(micStatusEl, micStatusText())) perf.hudDomWrites += 1;
     const charge = commsCharge(run);
-    if (commsFillEl) commsFillEl.style.width = `${Math.round(charge * 100)}%`;
-    if (commsMeterEl) commsMeterEl.style.opacity = run.stage === 'holdout' || charge > 0 ? '1' : '0.35';
+    if (setWidth(commsFillEl, `${Math.round(charge * 100)}%`)) perf.hudDomWrites += 1;
+    if (setOpacity(commsMeterEl, run.stage === 'holdout' || charge > 0 ? '1' : '0.35')) perf.hudDomWrites += 1;
+    updateThreatCue();
+    updateTutorial();
   };
 
   const addPickup = (pickup: ShipPickup): void => {
@@ -1488,13 +1820,24 @@ export async function createWalkScene(
       flashStatus('fuse acquired - comms door unlocked', 3);
     } else if (pickup.kind === 'battery') {
       run.battery = clamp(run.battery + pickup.amount, 0, 100);
-      flashStatus('battery recovered', 2);
+      run.soundPressure = clamp(run.soundPressure + (run.inSlickZone ? 0.46 : 0.26), 0, 1);
+      flashStatus(run.inSlickZone ? 'battery slid across the slick deck' : 'battery recovered - loud carry', 2);
+      if (!storyFlags.heardBatteryFumble) {
+        storyFlags.heardBatteryFumble = true;
+        radioSay('VESTA: Heavy objects are useful. Heavy objects are also announcements.');
+      }
+      if (monster.mode !== 'chase' && monster.mode !== 'attack') {
+        monster.mode = 'investigate';
+        setMonsterInvestigateTarget(readPlayerPos(scratchPlayerPos));
+        monster.repathIn = 0;
+      }
     } else if (pickup.kind === 'medkit') {
       run.health = clamp(run.health + pickup.amount, 0, 100);
       flashStatus('med kit used', 2);
     } else {
       run.ammoMag = clamp(run.ammoMag + pickup.amount, 0, 9);
-      flashStatus('stun cells loaded', 2);
+      run.soundPressure = clamp(run.soundPressure + 0.18, 0, 1);
+      flashStatus('stun cells loaded - they clattered', 2);
     }
   };
 
@@ -1527,7 +1870,7 @@ export async function createWalkScene(
       run.powered = true;
       run.stage = 'findFuse';
       monster.mode = 'investigate';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
       monster.repathIn = 0;
       startFirstEncounter();
       radioSay('VESTA: Auxiliary power is live. The ship can hear us again.');
@@ -1565,26 +1908,27 @@ export async function createWalkScene(
     }
     run.ammoMag -= 1;
     playCue('stun');
-    const toMonster = monster.pos.clone().sub(pos);
+    const toMonster = scratchToTarget.copy(monster.pos).sub(pos);
     const range = Math.hypot(toMonster.x, toMonster.z);
-    const forward = forwardFromYaw(controls.yaw);
+    const forward = writeForwardFromYaw(controls.yaw, scratchForward);
     toMonster.y = 0;
     if (range > 0.001) toMonster.normalize();
-    const hit = range < 8.5 && forward.dot(toMonster) > 0.68 && hasGridLineOfSight(level, run, pos, monster.pos);
-    const beamStart = pos.clone().setY(pos.y + EYE_OFFSET);
-    const beamEnd = monster.pos.clone().setY(monster.pos.y + 0.85);
-    showStunBeam(beamStart, hit ? beamEnd : beamStart.clone().addScaledVector(forward, 7.5));
+    const hit = range < 8.5 && forward.dot(toMonster) > 0.68 && hasGridLineOfSight(nav, run, pos, monster.pos);
+    const beamStart = scratchBeamStart.copy(pos).setY(pos.y + EYE_OFFSET);
+    const beamEnd = scratchBeamEnd.copy(monster.pos).setY(monster.pos.y + 0.85);
+    const missEnd = scratchBeamMiss.copy(beamStart).addScaledVector(forward, 7.5);
+    showStunBeam(beamStart, hit ? beamEnd : missEnd);
     if (hit) {
       monster.mode = 'stunned';
       monster.stunTimer = 3.2;
-      monster.path = [];
+      clearMonsterPath();
       monster.repathIn = 0;
       monsterHitFlash = 0.28;
       flashStatus('monster stunned', 2.2);
     } else {
       flashStatus('stun pulse missed', 1.2);
       monster.mode = 'investigate';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
     }
     return 1.2;
   };
@@ -1592,13 +1936,14 @@ export async function createWalkScene(
   const moveMonster = (dt: number, target: Vector3, speed: number): number => {
     monster.repathIn -= dt;
     if (monster.repathIn <= 0) {
-      monster.path = findPath(level, monster.pos, target, closedDoorEdges(level, run));
+      monster.path = findPath(nav, monster.pos, target, refreshBlockedDoorEdges(nav, run));
+      monster.pathIndex = 0;
       monster.repathIn = monster.mode === 'chase' ? 0.22 : 0.45;
     }
-    let waypoint = monster.path[0] ?? target;
-    if (dist2d(monster.pos, waypoint) < 0.35 && monster.path.length > 0) {
-      monster.path.shift();
-      waypoint = monster.path[0] ?? target;
+    let waypoint = monster.path[monster.pathIndex] ?? target;
+    if (dist2d(monster.pos, waypoint) < 0.35 && monster.pathIndex < monster.path.length) {
+      monster.pathIndex += 1;
+      waypoint = monster.path[monster.pathIndex] ?? target;
     }
 
     const dx = waypoint.x - monster.pos.x;
@@ -1635,6 +1980,23 @@ export async function createWalkScene(
     }
   };
 
+  const refreshMonsterSense = (dt: number, pos: Vector3, distance: number, playerNoise: number): MonsterSense => {
+    monsterSenseIn -= dt;
+    const urgent = distance < 2.25 || playerNoise > 0.58 || run.stage === 'holdout' || monster.attackWindup > 0;
+    if (monsterSenseIn > 0 && !urgent) return monsterSense;
+
+    monsterSenseIn = MONSTER_SENSE_INTERVAL;
+    perf.monsterSenseChecks += 1;
+    monsterSense.visibility = playerVisibilityToMonster(pos, distance);
+    monsterSense.heardPlayer = playerNoise > 0 && distance < 7 + (playerNoise + run.soundPressure * 0.5) * 15;
+    monsterSense.lightAttracted = run.lightExposure > 0.18
+      && distance < 18.5
+      && run.simTime - lastLightAttractionAt > 0.7
+      && hasGridLineOfSight(nav, run, monster.pos, pos);
+    monsterSense.playerSafe = isSafeRoom(nav, pos);
+    return monsterSense;
+  };
+
   const updateMonster = (dt: number, pos: Vector3, playerNoise: number): void => {
     if (run.stage === 'won' || run.stage === 'dead') return;
 
@@ -1647,39 +2009,34 @@ export async function createWalkScene(
       monsterMat.emissiveIntensity = 1.4 + Math.sin(run.simTime * 34) * 0.4;
       if (monster.stunTimer <= 0) {
         monster.mode = 'investigate';
-        monster.investigateTarget = pos.clone();
+        setMonsterInvestigateTarget(pos);
       }
       return;
     }
     monsterMat.emissiveIntensity = monster.mode === 'chase' || monster.mode === 'attack' ? 1.35 : 0.75;
 
     const distance = dist2d(monster.pos, pos);
-    const visibility = playerVisibilityToMonster(pos, distance);
-    const heardPlayer = playerNoise > 0 && distance < 7 + (playerNoise + run.soundPressure * 0.5) * 15;
-    const lightAttracted = run.lightExposure > 0.18
-      && distance < 18.5
-      && run.simTime - lastLightAttractionAt > 0.7
-      && hasGridLineOfSight(level, run, monster.pos, pos);
-    const playerSafe = isSafeRoom(level, pos);
+    const sense = refreshMonsterSense(dt, pos, distance, playerNoise);
+    const { visibility, heardPlayer, lightAttracted, playerSafe } = sense;
     if (visibility.beamHit) run.lightExposure = clamp(run.lightExposure + dt * 0.5, 0, 1);
 
     if (playerSafe) {
       monster.mode = 'investigate';
       monster.attackWindup = 0;
-      monster.investigateTarget = SAFE_ROOM_GUARD;
+      setMonsterInvestigateTarget(SAFE_ROOM_GUARD);
       trackMonsterStep(moveMonster(dt, SAFE_ROOM_GUARD, 1.65), distance);
       return;
     }
 
     if (run.stage === 'holdout') {
       monster.mode = distance < 1.35 ? 'attack' : 'chase';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
     } else if (visibility.canSee) {
       monster.mode = distance < 1.35 ? 'attack' : 'chase';
       monster.lostSightSeconds = 0;
     } else if (lightAttracted) {
       monster.mode = 'investigate';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
       monster.repathIn = 0;
       lastLightAttractionAt = run.simTime;
       flashStatus('the chorus saw the beam', 1.4);
@@ -1691,12 +2048,12 @@ export async function createWalkScene(
       monster.lostSightSeconds += dt;
       if (monster.lostSightSeconds > 4) {
         monster.mode = 'investigate';
-        monster.investigateTarget = pos.clone();
+        setMonsterInvestigateTarget(pos);
         monster.lostSightSeconds = 0;
       }
     } else if (heardPlayer) {
       monster.mode = 'investigate';
-      monster.investigateTarget = pos.clone();
+      setMonsterInvestigateTarget(pos);
       monster.repathIn = 0;
       if (run.soundPressure > 0.5 && !storyFlags.heardSoundWarning) {
         storyFlags.heardSoundWarning = true;
@@ -1736,18 +2093,17 @@ export async function createWalkScene(
       return;
     }
 
-    if (monster.mode === 'investigate' && monster.investigateTarget) {
+    if (monster.mode === 'investigate' && monster.hasInvestigateTarget) {
       trackMonsterStep(moveMonster(dt, monster.investigateTarget, 1.75), distance);
       if (dist2d(monster.pos, monster.investigateTarget) < 0.7) {
         monster.mode = 'patrol';
-        monster.investigateTarget = null;
+        clearMonsterInvestigateTarget();
       }
       return;
     }
 
-    const patrol = level.patrolNodes[monster.patrolIndex % level.patrolNodes.length];
-    if (!patrol) return;
-    const target = new Vector3(patrol.pos[0], patrol.pos[1], patrol.pos[2]);
+    const target = patrolTargets[monster.patrolIndex % patrolTargets.length];
+    if (!target) return;
     trackMonsterStep(moveMonster(dt, target, 1.1), distance);
     if (dist2d(monster.pos, target) < 0.7) {
       monster.patrolIndex = (monster.patrolIndex + 1) % level.patrolNodes.length;
@@ -1763,8 +2119,12 @@ export async function createWalkScene(
     PlayerState.ammoMag[playerEid] = run.ammoMag;
     PlayerState.ammoReserve[playerEid] = run.ammoReserve;
   };
-  const syncHudState = (): void => {
-    updatePrompt(playerPos());
+  let nextHudUpdateAt = -Infinity;
+  const syncHudState = (force = false): void => {
+    if (!force && run.simTime < nextHudUpdateAt) return;
+    nextHudUpdateAt = run.simTime + HUD_UPDATE_INTERVAL;
+    const pos = readPlayerPos(scratchHudPos);
+    updatePrompt(pos);
     updateEndScreen();
     updateRunMeters();
     updateRadioLine();
@@ -1791,7 +2151,7 @@ export async function createWalkScene(
     holdoutSeconds: run.holdoutSeconds,
     simTime: run.simTime,
     status: statusText(run, monster, game.playerController.isGrounded),
-    inSafeRoom: isSafeRoom(level, playerPos()),
+    inSafeRoom: isSafeRoom(nav, readPlayerPos(scratchHudPos)),
     tension: run.tension,
     commsCharge: commsCharge(run),
     lightExposure: run.lightExposure,
@@ -1839,33 +2199,50 @@ export async function createWalkScene(
     attackWindup: monster.attackWindup,
     stunTimer: monster.stunTimer,
   });
-  const uiFeedbackView = (): WalkUiFeedbackView => ({
-    promptText: promptEl?.textContent ?? '',
-    promptVisible: promptEl?.style.opacity === '1',
-    damageFlash,
-    damageFlashOpacity: Number(damageFlashEl?.style.opacity || 0),
-    endVisible: endScreenEl?.classList.contains('visible') ?? false,
-    endTitle: endTitleEl?.textContent ?? '',
-    endDetail: endDetailEl?.textContent ?? '',
-    stunBeamVisible: stunBeam.visible,
-    monsterHitFlash,
-    radioText: radioLineEl?.textContent ?? '',
-    radioVisible: radioLineEl?.style.opacity === '1',
-    lightExposure: run.lightExposure,
-    soundPressure: run.soundPressure,
-    scarePhase: run.scarePhase,
-    lastScareKind,
-    scareBurstIntensity: scareBurstIntensity(),
-    activeVoice: run.activeVoice,
-    voiceSource: run.voiceSource,
-    micVoiceStatus: micVoice.status,
-    micStatusText: micStatusText(),
-    voiceMeter: voiceMeterValue(),
-    remoteVoicePressure: run.remoteVoicePressure,
-    inSlickZone: run.inSlickZone,
-    nearestRemoteVisibility: Math.max(0, ...[...remoteVisuals.values()].map((visual) => visual.visibility)),
-    remoteVisibleCount: [...remoteVisuals.values()].filter((visual) => visual.visibility > 0.05).length,
+  const performanceView = (): WalkPerfView => ({
+    navSearches: nav.searches,
+    lineOfSightChecks: nav.lineOfSightChecks,
+    nearestFallbacks: nav.nearestFallbacks,
+    hudUpdates: perf.hudUpdates,
+    hudDomWrites: perf.hudDomWrites,
+    monsterSenseChecks: perf.monsterSenseChecks,
+    remoteVisuals: remoteVisuals.size,
   });
+  const uiFeedbackView = (): WalkUiFeedbackView => {
+    let nearestRemoteVisibility = 0;
+    let remoteVisibleCount = 0;
+    for (const visual of remoteVisuals.values()) {
+      if (visual.visibility > nearestRemoteVisibility) nearestRemoteVisibility = visual.visibility;
+      if (visual.visibility > 0.05) remoteVisibleCount += 1;
+    }
+    return {
+      promptText: promptEl?.textContent ?? '',
+      promptVisible: promptEl?.style.opacity === '1',
+      damageFlash,
+      damageFlashOpacity: Number(damageFlashEl?.style.opacity || 0),
+      endVisible: endScreenEl?.classList.contains('visible') ?? false,
+      endTitle: endTitleEl?.textContent ?? '',
+      endDetail: endDetailEl?.textContent ?? '',
+      stunBeamVisible: stunBeam.visible,
+      monsterHitFlash,
+      radioText: radioLineEl?.textContent ?? '',
+      radioVisible: radioLineEl?.style.opacity === '1',
+      lightExposure: run.lightExposure,
+      soundPressure: run.soundPressure,
+      scarePhase: run.scarePhase,
+      lastScareKind,
+      scareBurstIntensity: scareBurstIntensity(),
+      activeVoice: run.activeVoice,
+      voiceSource: run.voiceSource,
+      micVoiceStatus: micVoice.status,
+      micStatusText: micStatusText(),
+      voiceMeter: voiceMeterValue(),
+      remoteVoicePressure: run.remoteVoicePressure,
+      inSlickZone: run.inSlickZone,
+      nearestRemoteVisibility,
+      remoteVisibleCount,
+    };
+  };
   const setPlayerPoseForSmoke = (pose: SmokePose): void => {
     game.setControlledPlayerPose(playerEid, {
       x: pose.x,
@@ -1875,17 +2252,19 @@ export async function createWalkScene(
     });
     lastLocalX = pose.x;
     lastLocalZ = pose.z;
+    monsterSenseIn = 0;
     placeCamera();
-    syncHudState();
+    syncHudState(true);
   };
   const setMonsterPoseForSmoke = (pose: SmokePose): void => {
     monster.pos.set(pose.x, pose.y ?? monster.pos.y, pose.z);
-    monster.path = [];
+    clearMonsterPath();
     monster.repathIn = 0;
     monster.attackWindup = 0;
     monster.attackCooldown = 0;
     monster.stunTimer = 0;
     monster.mode = 'patrol';
+    monsterSenseIn = 0;
     if (pose.yaw !== undefined) monster.yaw = pose.yaw;
   };
   const setRemotePoseForSmoke = (pose: SmokeRemotePose): void => {
@@ -1899,12 +2278,12 @@ export async function createWalkScene(
     });
     remoteWorld = game.world;
     syncRemoteMarkers();
-    syncHudState();
+    syncHudState(true);
   };
   const setFlashlightForSmoke = (on: boolean): void => {
     setFlashlightOn(on, false);
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
   };
   const forceScareForSmoke = (kind: ScareKind = 'scrape'): void => {
     run.scarePhase = 'peak';
@@ -1913,49 +2292,56 @@ export async function createWalkScene(
     encounterFlash = Math.max(encounterFlash, 0.75);
     if (kind === 'blackout') blackoutTimer = 1.15;
     showScareBurst(kind);
-    syncHudState();
+    syncHudState(true);
   };
   const voiceForSmoke = (command: VoiceCommand): number => {
-    const noise = applyVoiceSignal(voiceSignalFromCommand(command, 'smoke'), playerPos());
+    const noise = applyVoiceSignal(voiceSignalFromCommand(command, 'smoke'), readPlayerPos(scratchPlayerPos));
     run.soundPressure = clamp(run.soundPressure + noise * 0.58, 0, 1);
     run.voiceLevel = run.activeVoice ?? voiceLevelFromNoise(noise, run.soundPressure);
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
     return noise;
   };
   const voicePressureForSmoke = (pressure: number): number => {
     const signal = voiceSignalFromPressure(pressure, 'smoke');
-    const noise = applyVoiceSignal(signal, playerPos());
+    const noise = applyVoiceSignal(signal, readPlayerPos(scratchPlayerPos));
     run.soundPressure = clamp(run.soundPressure + noise * 0.58, 0, 1);
     run.voiceLevel = run.activeVoice ?? voiceLevelFromNoise(noise, run.soundPressure);
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
     return noise;
   };
   const remoteVoicePressureForSmoke = (pressure: number, netId = SMOKE_REMOTE_NET_ID): number => {
-    const eid = [...queryRemotePlayers(game.world)].find((candidate) => NetworkId.id[candidate] === netId);
+    let eid: number | undefined;
+    for (const candidate of queryRemotePlayers(game.world)) {
+      if (NetworkId.id[candidate] !== netId) continue;
+      eid = candidate;
+      break;
+    }
     const noise = eid === undefined ? 0 : applyRemoteVoiceSignal(eid, pressure);
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
     return noise;
   };
   const applyRemoteVoicePressure = (eid: number, pressure: number): number => {
     const noise = applyRemoteVoiceSignal(eid, pressure);
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
     return noise;
   };
   const voicePressureForNetwork = (): number => run.localVoicePressure;
   const interactForSmoke = (): number => {
-    const noise = handleInteract(playerPos());
+    tutorial.interact = true;
+    const noise = handleInteract(readPlayerPos(scratchPlayerPos));
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
     return noise;
   };
   const fireForSmoke = (): number => {
-    const noise = handleFire(playerPos());
+    tutorial.stun = true;
+    const noise = handleFire(readPlayerPos(scratchPlayerPos));
     syncRunToEcs();
-    syncHudState();
+    syncHudState(true);
     return noise;
   };
 
@@ -1980,6 +2366,7 @@ export async function createWalkScene(
     runState: runStateView,
     monsterState: monsterStateView,
     uiFeedback: uiFeedbackView,
+    performance: performanceView,
     setPlayerPoseForSmoke,
     setMonsterPoseForSmoke,
     setRemotePoseForSmoke,
@@ -1999,7 +2386,7 @@ export async function createWalkScene(
         radioSay('VESTA: Sound is the monster. Talk to survive, whisper to hide. Light is bait.');
       }
       let playerNoise = 0;
-      const before = playerPos();
+      const before = readPlayerPos(scratchBeforePos);
       const active = run.stage !== 'dead' && run.stage !== 'won';
       run.localVoicePressure = 0;
       run.remoteVoicePressure = Math.max(0, run.remoteVoicePressure - dt * 1.8);
@@ -2048,11 +2435,11 @@ export async function createWalkScene(
       });
       game.stepFixed(dt);
 
-      let pos = playerPos();
+      const pos = readPlayerPos(scratchStepPos);
       for (const door of level.doors) {
         if (isDoorUnlocked(door, run) || !playerInDoor(door, pos)) continue;
         game.setControlledPlayerPose(playerEid, { x: before.x, y: before.y, z: before.z, yaw: controls.yaw });
-        pos = before.clone();
+        pos.copy(before);
         flashStatus(`${door.label} locked`, 1.2);
         if (run.simTime - lastDoorCueAt > 0.45) {
           lastDoorCueAt = run.simTime;
@@ -2062,6 +2449,7 @@ export async function createWalkScene(
       }
 
       localMoving = Math.hypot(Transform.x[playerEid]! - lastLocalX, Transform.z[playerEid]! - lastLocalZ) > 0.001;
+      if (localMoving) tutorial.move = true;
       lastLocalX = Transform.x[playerEid]!;
       lastLocalZ = Transform.z[playerEid]!;
 
@@ -2082,7 +2470,7 @@ export async function createWalkScene(
       }
 
       const monsterDistance = dist2d(monster.pos, pos);
-      const safeRoom = isSafeRoom(level, pos);
+      const safeRoom = isSafeRoom(nav, pos);
       run.resolve = clamp(
         run.resolve
           + (safeRoom ? 4.2 : run.flashlightOn ? 0.55 : run.nearbyCrew > 0 ? 0.22 : -0.4) * dt
@@ -2094,8 +2482,14 @@ export async function createWalkScene(
       );
 
       collectPickups(pos);
-      if (active && controls.consumeInteract()) playerNoise += handleInteract(pos);
-      if (active && controls.consumeFire()) playerNoise += handleFire(pos);
+      if (active && controls.consumeInteract()) {
+        tutorial.interact = true;
+        playerNoise += handleInteract(pos);
+      }
+      if (active && controls.consumeFire()) {
+        tutorial.stun = true;
+        playerNoise += handleFire(pos);
+      }
       const micSignal = active ? micVoice.update() : voiceSignalFromPressure(0, 'mic');
       if (micSignal.level !== 'silent') playerNoise += applyVoiceSignal(micSignal, pos, dt);
       const voice = active ? controls.consumeVoiceCommand() : null;
@@ -2119,6 +2513,7 @@ export async function createWalkScene(
       updateMonster(dt, pos, playerNoise);
       updateTension(dt, pos);
       updateScareDirector(dt, pos, playerNoise);
+      updateAudioMix();
       syncRunToEcs();
       syncHudState();
     },
@@ -2219,19 +2614,20 @@ export async function createWalkScene(
       for (const visual of remoteVisuals.values()) removeRemoteVisual(visual);
       for (const { mesh } of doorMeshes) {
         scene.remove(mesh);
-        mesh.geometry.dispose();
       }
       for (const { mesh } of stationMeshes) {
         scene.remove(mesh);
-        mesh.geometry.dispose();
       }
       for (const { mesh } of pickupMeshes) {
         scene.remove(mesh);
-        mesh.geometry.dispose();
       }
       if (!monsterUnit) scene.remove(monsterRoot);
       scene.remove(stunBeam);
       scene.remove(stunLight);
+      doorGeo.dispose();
+      stationGeo.dispose();
+      pickupGeo.dispose();
+      monsterEyeGeo.dispose();
       monsterBody.geometry.dispose();
       stunBeam.geometry.dispose();
       stunBeamMat.dispose();

@@ -92,7 +92,7 @@ export class InputSendBuffer {
   push(cmd: Omit<InputCmd, 'seq'>): InputCmd {
     const full: InputCmd = { ...cmd, seq: ++this.seq };
     this.cmds.push(full);
-    if (this.cmds.length > 64) this.cmds.shift();
+    if (this.cmds.length > 64) this.cmds.splice(0, this.cmds.length - 64);
     return full;
   }
 
@@ -115,9 +115,11 @@ export class InputReceiver {
 
   apply(bytes: Uint8Array): InputCmd[] {
     const { cmds } = decodeInputPacket(bytes);
-    const fresh = cmds
-      .filter((c) => c.seq > this._lastProcessedSeq)
-      .sort((a, b) => a.seq - b.seq);
+    const fresh: InputCmd[] = [];
+    for (const c of cmds) {
+      if (c.seq <= this._lastProcessedSeq) continue;
+      fresh.push(c);
+    }
     for (const c of fresh) {
       c.dtMs = clampDt(c.dtMs);
       this._lastProcessedSeq = c.seq;

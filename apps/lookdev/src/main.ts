@@ -4,15 +4,12 @@
 // ?scene=corridor is the look-only auto-cam variant; ?scene=chaos is the Phase B perf probe (`n`
 // dynamic Rapier boxes, 300 by default). ?thirdPerson=1 shows the local astronaut unit. ?gl=2
 // forces the WebGL2 floor; ?tier=low|mid|high|ultra.
-import { BudgetMonitor, createRenderer, createPostStack, GpuTimer, type RenderBudgetView } from '@sl/render';
+import { BudgetMonitor, createRenderer, createPostStack, GpuTimer, type RenderBudgetView, type RenderProfile } from '@sl/render';
 import { createGameplaySession, GameLoop, type GameplayNetDriver } from '@sl/engine';
 import { buildIceServers, Buttons, fetchTurnIceEnv, generateRoomCode, isValidRoomCode, type NetStatsView } from '@sl/netcode';
 import { useHudStore } from '@sl/ui';
 import { queryRemotePlayers, Transform, type GameWorld } from '@sl/ecs';
-import { createChaosScene } from './chaosScene';
-import { createCorridorScene } from './corridorScene';
 import { configureLookdevPost } from './look';
-import { createWalkScene } from './walkScene';
 import type { HarnessScene } from './scene';
 import type { ScareKind, WalkSceneHandle } from './walkScene';
 
@@ -41,6 +38,65 @@ function iceTransportPolicy(): RTCIceTransportPolicy | undefined {
   return raw === 'all' ? 'all' : undefined;
 }
 
+function setupComfortControls(): void {
+  const root = document.documentElement;
+  const panel = document.getElementById('accessPanel');
+  const toggle = document.getElementById('accessToggle') as HTMLButtonElement | null;
+  const reduceFlashes = document.getElementById('reduceFlashes') as HTMLInputElement | null;
+  const reduceMotion = document.getElementById('reduceMotion') as HTMLInputElement | null;
+  const nightMode = document.getElementById('nightMode') as HTMLInputElement | null;
+  const brightness = document.getElementById('brightnessControl') as HTMLInputElement | null;
+  const hudScale = document.getElementById('hudScaleControl') as HTMLSelectElement | null;
+
+  const read = (key: string, fallback: string): string => {
+    try {
+      return localStorage.getItem(key) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const write = (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Comfort controls are best-effort in private or locked-down browser contexts.
+    }
+  };
+  const apply = (): void => {
+    const flashes = reduceFlashes?.checked ?? false;
+    const motion = reduceMotion?.checked ?? false;
+    const night = nightMode?.checked ?? false;
+    const brightnessValue = brightness?.value || '1';
+    const hudScaleValue = hudScale?.value || '1';
+    root.classList.toggle('reduce-flashes', flashes);
+    root.classList.toggle('reduce-motion', motion);
+    root.dataset.nightAudio = night ? '1' : '0';
+    root.style.setProperty('--sl-brightness', brightnessValue);
+    root.style.setProperty('--sl-hud-scale', hudScaleValue);
+    write('sl.reduceFlashes', flashes ? '1' : '0');
+    write('sl.reduceMotion', motion ? '1' : '0');
+    write('sl.nightAudio', night ? '1' : '0');
+    write('sl.brightness', brightnessValue);
+    write('sl.hudScale', hudScaleValue);
+  };
+
+  if (reduceFlashes) reduceFlashes.checked = read('sl.reduceFlashes', '0') === '1';
+  if (reduceMotion) reduceMotion.checked = read('sl.reduceMotion', '0') === '1';
+  if (nightMode) nightMode.checked = read('sl.nightAudio', '0') === '1';
+  if (brightness) brightness.value = read('sl.brightness', '1');
+  if (hudScale) hudScale.value = read('sl.hudScale', '1');
+  apply();
+
+  for (const el of [reduceFlashes, reduceMotion, nightMode, brightness, hudScale]) {
+    el?.addEventListener('input', apply);
+    el?.addEventListener('change', apply);
+  }
+  toggle?.addEventListener('click', () => {
+    const open = panel?.classList.toggle('closed') === false;
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+}
+
 function buttonsFromMove(move: { x: number; z: number }): number {
   let buttons = 0;
   if (move.z > 0) buttons |= Buttons.Fwd;
@@ -54,17 +110,46 @@ function isWalkScene(scene: HarnessScene): scene is WalkSceneHandle {
   return 'game' in scene && 'controls' in scene && 'setRemoteWorld' in scene;
 }
 
+async function createHarnessScene(
+  sceneParam: string | null,
+  count: number,
+  profile: RenderProfile,
+  canvas: HTMLCanvasElement,
+  thirdPerson: boolean,
+): Promise<HarnessScene> {
+  if (sceneParam === 'chaos') {
+    const { createChaosScene } = await import('./chaosScene');
+    return createChaosScene(count);
+  }
+  if (sceneParam === 'corridor') {
+    const { createCorridorScene } = await import('./corridorScene');
+    return createCorridorScene(profile);
+  }
+  const { createWalkScene } = await import('./walkScene');
+  return createWalkScene(profile, canvas, { thirdPerson });
+}
+
 function remotePlayerPositions(world: GameWorld | undefined): Array<{ x: number; y: number; z: number }> {
   if (!world) return [];
-  return [...queryRemotePlayers(world)].map((eid) => ({
-    x: Transform.x[eid] ?? 0,
-    y: Transform.y[eid] ?? 0,
-    z: Transform.z[eid] ?? 0,
-  }));
+  const positions: Array<{ x: number; y: number; z: number }> = [];
+  for (const eid of queryRemotePlayers(world)) {
+    positions.push({
+      x: Transform.x[eid] ?? 0,
+      y: Transform.y[eid] ?? 0,
+      z: Transform.z[eid] ?? 0,
+    });
+  }
+  return positions;
 }
 
 async function main(): Promise<void> {
   const params = new URLSearchParams(location.search);
+  const debugOverlay = params.get('debug') === '1';
+  setupComfortControls();
+  if (hud && !debugOverlay) hud.style.display = 'none';
+  if (netPanel && !debugOverlay && !params.has('host') && !params.has('join') && !params.has('code') && !params.has('room')) {
+    netPanel.dataset.hidden = 'true';
+  }
   const forceBackend = params.get('gl') === '2' ? 'webgl2' : undefined;
   const tier = (['low', 'mid', 'high', 'ultra'] as const).find((t) => t === params.get('tier'));
   const count = Math.max(1, Math.min(2000, Math.floor(Number(params.get('n')) || 300)));
@@ -72,12 +157,7 @@ async function main(): Promise<void> {
   const renderer = await createRenderer({ canvas, forceBackend, tier });
   const sceneParam = params.get('scene');
   const thirdPerson = params.get('thirdPerson') === '1' || params.get('camera') === 'third' || params.get('avatar') === '1';
-  const harness: HarnessScene =
-    sceneParam === 'chaos'
-      ? await createChaosScene(count)
-      : sceneParam === 'corridor'
-        ? createCorridorScene(renderer.profile)
-        : await createWalkScene(renderer.profile, canvas, { thirdPerson });
+  const harness = await createHarnessScene(sceneParam, count, renderer.profile, canvas, thirdPerson);
   const post = createPostStack(renderer, harness.scene, harness.camera, renderer.profile);
   configureLookdevPost(post.uniforms);
   let netDriver: GameplayNetDriver | undefined;
@@ -173,9 +253,13 @@ async function main(): Promise<void> {
         localGame: mode === 'client' ? harness.game : undefined,
         onHostInput: (peerId, cmds, meta) => {
           const stats = hostInputStats.get(peerId) ?? { packets: 0, cmds: 0, fwd: 0, voiceMax: 0 };
+          let fwd = 0;
+          for (const cmd of cmds) {
+            if ((cmd.buttons & Buttons.Fwd) !== 0) fwd += 1;
+          }
           stats.packets += 1;
           stats.cmds += cmds.length;
-          stats.fwd += cmds.filter((cmd) => (cmd.buttons & Buttons.Fwd) !== 0).length;
+          stats.fwd += fwd;
           stats.voiceMax = Math.max(stats.voiceMax, meta.voicePressure);
           hostInputStats.set(peerId, stats);
           if (meta.voicePressure > 0.04) harness.applyRemoteVoicePressure(meta.playerEid, meta.voicePressure);
@@ -208,7 +292,7 @@ async function main(): Promise<void> {
   };
 
   if (netPanel && isWalkScene(harness)) {
-    const paramsCode = params.get('code')?.trim().toUpperCase();
+    const paramsCode = (params.get('code') ?? params.get('room'))?.trim().toUpperCase();
     const initialCode = paramsCode && isValidRoomCode(paramsCode) ? paramsCode : generateRoomCode();
     netPanel.innerHTML = `
       <button id="netToggle" type="button" aria-expanded="false" aria-label="Network controls">NET</button>
@@ -319,6 +403,7 @@ async function main(): Promise<void> {
       backend: renderer.backend,
       profile: renderer.profile,
       fps,
+      walkPerformance: isWalkScene(harness) ? harness.performance() : null,
       budget: latestRenderBudget,
       info: {
         drawCalls: renderer.three.info.render.drawCalls,

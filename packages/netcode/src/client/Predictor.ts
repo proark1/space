@@ -41,13 +41,19 @@ export class Predictor {
   predict(cmd: InputCmd): CapsuleState {
     this.state = applyInput(this.state, cmd);
     this.pending.push(cmd);
-    if (this.pending.length > 256) this.pending.shift();
+    if (this.pending.length > 256) this.pending.splice(0, this.pending.length - 256);
     return this.state;
   }
 
   /** Rebase onto the host's authoritative state at `ackedSeq`, then replay unacked inputs. */
   reconcile(authoritative: CapsuleState, ackedSeq: number): CapsuleState {
-    this.pending = this.pending.filter((c) => c.seq > ackedSeq);
+    let keep = 0;
+    for (let i = 0; i < this.pending.length; i++) {
+      const cmd = this.pending[i]!;
+      if (cmd.seq <= ackedSeq) continue;
+      this.pending[keep++] = cmd;
+    }
+    this.pending.length = keep;
     let corrected: CapsuleState = { ...authoritative };
     for (const c of this.pending) corrected = applyInput(corrected, c);
 

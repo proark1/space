@@ -1,5 +1,6 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
+import { createServer as createTcpServer, type AddressInfo } from 'node:net';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -39,7 +40,8 @@ interface SignalMsg {
   readonly data?: unknown;
 }
 
-const LOOKDEV_PORT = Number(process.env.LOOKDEV_SMOKE_PORT ?? 4177);
+const LOOKDEV_PORT_ENV = process.env.LOOKDEV_SMOKE_PORT;
+const DEFAULT_LOOKDEV_PORT = 4177;
 const ROOM_CODE = process.env.LOOKDEV_SMOKE_CODE ?? 'K7M2QX';
 const TIMEOUT_MS = Number(process.env.LOOKDEV_SMOKE_TIMEOUT_MS ?? 75_000);
 const CLIENT_COUNT = Math.max(1, Math.min(3, Math.floor(Number(process.env.LOOKDEV_SMOKE_CLIENTS ?? 1))));
@@ -52,6 +54,9 @@ const EXPECT_TURN = process.env.LOOKDEV_SMOKE_EXPECT_TURN === '1';
 const MAX_SNAPSHOT_BYTES = Number(process.env.LOOKDEV_SMOKE_MAX_SNAPSHOT_BYTES ?? 400);
 const MAX_LOSS_PCT = Number(process.env.LOOKDEV_SMOKE_MAX_LOSS_PCT ?? 5);
 const EXPECTED_ICE_PAIR = process.env.LOOKDEV_SMOKE_EXPECT_ICE_PAIR;
+const PNPM_COMMAND = process.platform === 'win32' ? 'cmd.exe' : 'pnpm';
+const PNPM_ARGS = process.platform === 'win32' ? ['/d', '/s', '/c', 'pnpm'] : [];
+const EXTERNAL_BASE_URL = process.env.LOOKDEV_NET_SMOKE_BASE_URL ?? process.env.LOOKDEV_SMOKE_BASE_URL;
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, OPTIONS',
@@ -185,10 +190,33 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`timed out waiting for ${url}`);
 }
 
-function startLookdev(signalingUrl: string): ChildProcessWithoutNullStreams {
+async function availablePort(preferred: number): Promise<number> {
+  return new Promise((resolve) => {
+    const server = createTcpServer();
+    server.unref();
+    server.once('error', () => {
+      const fallback = createTcpServer();
+      fallback.unref();
+      fallback.listen(0, '127.0.0.1', () => {
+        const address = fallback.address() as AddressInfo;
+        fallback.close(() => resolve(address.port));
+      });
+    });
+    server.listen(preferred, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo;
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+
+async function lookdevPort(): Promise<number> {
+  return LOOKDEV_PORT_ENV ? Number(LOOKDEV_PORT_ENV) : availablePort(DEFAULT_LOOKDEV_PORT);
+}
+
+function startLookdev(signalingUrl: string, port: number): ChildProcessWithoutNullStreams {
   const child = spawn(
-    'pnpm',
-    ['-F', '@sl/lookdev', 'exec', 'vite', '--host', '127.0.0.1', '--port', String(LOOKDEV_PORT), '--strictPort'],
+    PNPM_COMMAND,
+    [...PNPM_ARGS, '-F', '@sl/lookdev', 'exec', 'vite', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
     {
       cwd: process.cwd(),
       detached: true,
@@ -204,6 +232,10 @@ function startLookdev(signalingUrl: string): ChildProcessWithoutNullStreams {
 function stopLookdev(child: ChildProcessWithoutNullStreams | undefined): void {
   if (!child || child.killed) return;
   if (child.pid) {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+      return;
+    }
     try {
       process.kill(-child.pid, 'SIGTERM');
       return;
@@ -434,8 +466,9 @@ async function main(): Promise<void> {
   let browser: Browser | undefined;
   const signaling = await startLocalSignaling();
   try {
-    vite = startLookdev(signaling.baseUrl);
-    const baseUrl = `http://127.0.0.1:${LOOKDEV_PORT}`;
+    const port = await lookdevPort();
+    if (!EXTERNAL_BASE_URL) vite = startLookdev(signaling.baseUrl, port);
+    const baseUrl = EXTERNAL_BASE_URL ?? `http://127.0.0.1:${port}`;
     await waitForHttp(baseUrl, TIMEOUT_MS);
 
     const launchOptions = {

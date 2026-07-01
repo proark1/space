@@ -30,6 +30,14 @@ import { MsgType } from '@sl/shared-types';
 import type { Game } from '../Game';
 import type { MoveInput } from '../player/PlayerController';
 
+type MutableMoveInput = {
+  moveX: number;
+  moveZ: number;
+  yaw: number;
+  jump?: boolean;
+  speedMultiplier?: number;
+};
+
 export interface ClientInputIntent {
   readonly buttons: number;
   readonly yaw?: number;
@@ -68,13 +76,12 @@ export interface CreateGameplaySessionOptions extends GameplayNetDriverOptions {
   readonly now?: () => number;
 }
 
-function inputFromButtons(cmd: InputCmd): MoveInput {
-  return {
-    moveX: (cmd.buttons & Buttons.Right ? 1 : 0) - (cmd.buttons & Buttons.Left ? 1 : 0),
-    moveZ: (cmd.buttons & Buttons.Fwd ? 1 : 0) - (cmd.buttons & Buttons.Back ? 1 : 0),
-    yaw: cmd.moveYaw,
-    jump: (cmd.buttons & Buttons.Jump) !== 0,
-  };
+function writeInputFromButtons(cmd: InputCmd, out: MutableMoveInput): MoveInput {
+  out.moveX = (cmd.buttons & Buttons.Right ? 1 : 0) - (cmd.buttons & Buttons.Left ? 1 : 0);
+  out.moveZ = (cmd.buttons & Buttons.Fwd ? 1 : 0) - (cmd.buttons & Buttons.Back ? 1 : 0);
+  out.yaw = cmd.moveYaw;
+  out.jump = (cmd.buttons & Buttons.Jump) !== 0;
+  return out;
 }
 
 function packetType(data: ArrayBuffer): number | undefined {
@@ -146,17 +153,11 @@ function applyPose(eid: number, entity: EntitySnapshot): void {
   writeYawQuat(eid, entity.yaw);
 }
 
-function interpolatePose(a: EntitySnapshot, b: EntitySnapshot, t: number): EntitySnapshot {
-  return {
-    id: b.id,
-    type: b.type,
-    x: lerp(a.x, b.x, t),
-    y: lerp(a.y, b.y, t),
-    z: lerp(a.z, b.z, t),
-    yaw: lerpAngle(a.yaw, b.yaw, t),
-    anim: b.anim,
-    hp: b.hp,
-  };
+function applyInterpolatedPose(eid: number, a: EntitySnapshot, b: EntitySnapshot, t: number): void {
+  Transform.x[eid] = lerp(a.x, b.x, t);
+  Transform.y[eid] = lerp(a.y, b.y, t);
+  Transform.z[eid] = lerp(a.z, b.z, t);
+  writeYawQuat(eid, lerpAngle(a.yaw, b.yaw, t));
 }
 
 /**
@@ -175,6 +176,10 @@ export class GameplayNetDriver {
   private readonly peerSlots = new Map<string, number>();
   private readonly peerSlotAnnounceAt = new Map<string, number>();
   private readonly interpSamples = new Map<number, PoseSample[]>();
+  private readonly seenRemoteIds = new Set<number>();
+  private readonly sampledRemoteEids: number[] = [];
+  private readonly replayScratch: Array<{ input: MutableMoveInput; dt: number }> = [];
+  private readonly hostInputScratch: MutableMoveInput = { moveX: 0, moveZ: 0, yaw: 0 };
   private pendingLocalInputs: InputCmd[] = [];
   private readonly now: () => number;
   private readonly maxPeerSlots: number;
@@ -207,7 +212,7 @@ export class GameplayNetDriver {
       const cmds = receiver.apply(new Uint8Array(data));
       if (cmds.length > 0) PlayerInput.seq[player] = receiver.lastProcessedSeq;
       for (const cmd of cmds) {
-        this.opts.hostGame.stepControlledPlayer(player, inputFromButtons(cmd), cmd.dtMs / 1000, cmd.clientTick);
+        this.opts.hostGame.stepControlledPlayer(player, writeInputFromButtons(cmd, this.hostInputScratch), cmd.dtMs / 1000, cmd.clientTick);
       }
       this.opts.onHostInput?.(peerId, cmds, {
         ownerSlot,
@@ -236,9 +241,14 @@ export class GameplayNetDriver {
     const localEntity = this.findLocalEntity(snapshot);
     if (localEntity) this.reconcileLocalPlayer(localEntity);
 
-    const remoteSnapshot = localEntity
-      ? { tick: snapshot.tick, entities: snapshot.entities.filter((entity) => entity.id !== localEntity.id) }
-      : snapshot;
+    let remoteSnapshot = snapshot;
+    if (localEntity) {
+      const entities: EntitySnapshot[] = [];
+      for (const entity of snapshot.entities) {
+        if (entity.id !== localEntity.id) entities.push(entity);
+      }
+      remoteSnapshot = { tick: snapshot.tick, entities };
+    }
     const result = applySnapshotToEcs(this.clientWorld, remoteSnapshot, this.netIdToEid, { despawnMissing: true });
     this.bufferRemoteSnapshot(remoteSnapshot, this.now());
     this.session.sendReliable(peerId, encodeAck(snapshot.tick, { senderSlot: this.senderSlot() }));
@@ -272,7 +282,7 @@ export class GameplayNetDriver {
       voicePressure: intent.voicePressure ?? 0,
     });
     this.pendingLocalInputs.push(cmd);
-    if (this.pendingLocalInputs.length > 256) this.pendingLocalInputs.shift();
+    if (this.pendingLocalInputs.length > 256) this.pendingLocalInputs.splice(0, this.pendingLocalInputs.length - 256);
     const packet = new Uint8Array(this.inputSend.packet({ senderSlot: this.senderSlot() }));
     this.session.broadcastUnreliable(packet);
   }
@@ -309,7 +319,8 @@ export class GameplayNetDriver {
   sampleRemoteEntities(nowMs: number = this.now()): number[] {
     if (this.session.isHost) return [];
     const renderTime = nowMs - REMOTE_INTERP_DELAY_MS;
-    const updated: number[] = [];
+    const updated = this.sampledRemoteEids;
+    updated.length = 0;
 
     for (const [netId, samples] of this.interpSamples) {
       const eid = this.netIdToEid.get(netId);
@@ -322,14 +333,13 @@ export class GameplayNetDriver {
         if (sample.timeMs >= renderTime && !b) b = sample;
       }
 
-      let pose: EntitySnapshot;
       if (a && b && a !== b) {
         const span = b.timeMs - a.timeMs;
-        pose = span > REMOTE_FREEZE_GAP_MS ? a.entity : interpolatePose(a.entity, b.entity, (renderTime - a.timeMs) / span);
+        if (span > REMOTE_FREEZE_GAP_MS) applyPose(eid, a.entity);
+        else applyInterpolatedPose(eid, a.entity, b.entity, (renderTime - a.timeMs) / span);
       } else {
-        pose = (a ?? b)!.entity;
+        applyPose(eid, (a ?? b)!.entity);
       }
-      applyPose(eid, pose);
       updated.push(eid);
     }
 
@@ -341,17 +351,25 @@ export class GameplayNetDriver {
   }
 
   private bufferRemoteSnapshot(snapshot: WorldSnapshot, timeMs: number): void {
-    const seen = new Set<number>();
+    const seen = this.seenRemoteIds;
+    seen.clear();
     for (const entity of snapshot.entities) {
       seen.add(entity.id);
       const samples = this.interpSamples.get(entity.id) ?? [];
-      samples.push({ timeMs, entity: { ...entity } });
-      samples.sort((a, b) => a.timeMs - b.timeMs);
+      const sample = { timeMs, entity: { ...entity } };
+      let insertAt = samples.length;
+      while (insertAt > 0 && samples[insertAt - 1]!.timeMs > timeMs) {
+        samples[insertAt] = samples[insertAt - 1]!;
+        insertAt--;
+      }
+      samples[insertAt] = sample;
       const cutoff = timeMs - 1000;
-      while (samples.length > 2 && samples[0]!.timeMs < cutoff) samples.shift();
+      let trim = 0;
+      while (samples.length - trim > 2 && samples[trim]!.timeMs < cutoff) trim++;
+      if (trim > 0) samples.splice(0, trim);
       this.interpSamples.set(entity.id, samples);
     }
-    for (const netId of [...this.interpSamples.keys()]) {
+    for (const netId of this.interpSamples.keys()) {
       if (!seen.has(netId) && !this.netIdToEid.has(netId)) this.interpSamples.delete(netId);
     }
   }
@@ -368,12 +386,31 @@ export class GameplayNetDriver {
     const inputAck = entity.inputAck ?? 0;
     if (inputAck < this.lastLocalInputAck) return;
     this.lastLocalInputAck = inputAck;
-    this.pendingLocalInputs = this.pendingLocalInputs.filter((cmd) => cmd.seq > inputAck);
+    let keep = 0;
+    for (let i = 0; i < this.pendingLocalInputs.length; i++) {
+      const cmd = this.pendingLocalInputs[i]!;
+      if (cmd.seq <= inputAck) continue;
+      this.pendingLocalInputs[keep++] = cmd;
+    }
+    this.pendingLocalInputs.length = keep;
     const before = game.controlledPlayerPosition(game.playerEid);
+    const replay = this.replayScratch;
+    let replayCount = 0;
+    for (const cmd of this.pendingLocalInputs) {
+      let step = replay[replayCount];
+      if (!step) {
+        step = { input: { moveX: 0, moveZ: 0, yaw: 0 }, dt: 0 };
+        replay[replayCount] = step;
+      }
+      writeInputFromButtons(cmd, step.input);
+      step.dt = cmd.dtMs / 1000;
+      replayCount += 1;
+    }
+    replay.length = replayCount;
     game.reconcileControlledPlayer(
       game.playerEid,
       { x: entity.x, y: entity.y, z: entity.z, yaw: entity.yaw },
-      this.pendingLocalInputs.map((cmd) => ({ input: inputFromButtons(cmd), dt: cmd.dtMs / 1000 })),
+      replay,
     );
     const after = game.controlledPlayerPosition(game.playerEid);
     this.opts.onLocalReconcile?.({
@@ -399,7 +436,7 @@ export class GameplayNetDriver {
 
   private announcePeerSlots(nowMs: number): void {
     const active = new Set(this.session.peerIds);
-    for (const peerId of [...this.peerSlots.keys()]) {
+    for (const peerId of this.peerSlots.keys()) {
       if (active.has(peerId)) continue;
       this.peerSlots.delete(peerId);
       this.peerSlotAnnounceAt.delete(peerId);

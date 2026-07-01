@@ -131,10 +131,8 @@ export function LandingPage() {
   const art = useLandingArt();
   const heroSrc = art['landing-hero'] ?? heroImage;
   const [draft, setDraft] = useState('');
-  const [panicIndex, setPanicIndex] = useState(0);
-  const [shakeKey, setShakeKey] = useState(0);
   const live = status !== 'idle' && status !== 'failed';
-  const panicLine = PANIC_LINES[panicIndex] ?? PANIC_LINES[0];
+  const panicLine = PANIC_LINES[0];
   const artStyle = useMemo(() => ({ '--landing-art': `url(${heroSrc})` }) as CSSProperties, [heroSrc]);
 
   const startRoom = (): void => {
@@ -147,9 +145,8 @@ export function LandingPage() {
     scrollToLobby();
   };
 
-  const panic = (): void => {
-    setPanicIndex((current) => (current + 1) % PANIC_LINES.length);
-    setShakeKey((current) => current + 1);
+  const launchRoom = (): void => {
+    playNow(isHost ? { code, host: '1' } : { code, join: '1' });
   };
 
   return (
@@ -178,19 +175,12 @@ export function LandingPage() {
             incriminating, and the rescue signal is absolutely not asking nicely.
           </p>
           <div className="hero__actions" aria-label="Main actions">
-            <button className="button button--primary button--glitch" onClick={() => playNow()} data-text="Play now">Play now</button>
-            <button className="button button--ghost button--glitch" onClick={startRoom} data-text="Start a room">Start a room</button>
-            <button className="button button--ghost button--glitch" onClick={scrollToLobby} data-text="Join a crew">Join a crew</button>
+            <button className="button button--primary button--glitch" onClick={startRoom} data-text="Host room">Host room</button>
+            <button className="button button--ghost button--glitch" onClick={scrollToLobby} data-text="Join code">Join code</button>
+            <button className="button button--ghost button--glitch" onClick={() => playNow({ solo: '1' })} data-text="Solo run">Solo run</button>
           </div>
-          <div className="hero__panic" aria-label="Panic buttons">
-            <span className="hero__panic-label" aria-hidden="true">Bad idea buttons</span>
-            <button className="button button--danger button--glitch" onClick={panic} data-text="PANIC">PANIC</button>
-            <button className="button button--danger button--glitch" onClick={panic} data-text="SCREAM">SCREAM</button>
-            <button className="button button--danger button--glitch" onClick={panic} data-text="FLASHLIGHT">FLASHLIGHT</button>
-            <button className="button button--danger button--glitch" onClick={panic} data-text="BLAME DAVE">BLAME DAVE</button>
-          </div>
-          <div className="hero__readout" key={shakeKey}>
-            <span className="hero__readout-label">Live channel</span>
+          <div className="hero__readout">
+            <span className="hero__readout-label">Ship feed</span>
             <span>{panicLine}</span>
           </div>
           <div className="hero__metrics" aria-label="Game highlights">
@@ -274,13 +264,13 @@ export function LandingPage() {
               <span className="lobby-panel__label">{isHost ? 'Share this code' : 'Joined room'}</span>
               <div className="room-code">{code}</div>
               <p>{peers.length ? `${peers.length} peer connected` : 'NPC crew standing by.'}</p>
-              <button className="button button--primary" onClick={() => playNow({ room: code })}>Launch now</button>
+              <button className="button button--primary" onClick={launchRoom}>Launch now</button>
               <button className="button button--danger" onClick={leave}>Leave room</button>
             </div>
           ) : (
             <div className="lobby-panel__body">
-              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={() => playNow()} data-text="Play now">Play now</button>
-              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-host'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={startRoom} data-text="Start room">Start room</button>
+              <button className="button button--primary button--art" style={coverStyle(art['landing-btn-host'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={startRoom} data-text="Host room">Host room</button>
+              <button className="button button--ghost button--art" style={coverStyle(art['landing-btn-demo'], 'linear-gradient(90deg, rgba(5, 6, 7, 0.84), rgba(5, 6, 7, 0.4))')} onClick={() => playNow({ solo: '1' })} data-text="Solo run">Solo run</button>
               <div className="join-row">
                 <input
                   value={draft}

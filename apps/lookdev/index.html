@@ -30,6 +30,113 @@
         pointer-events: none;
         text-shadow: 0 1px 2px #000;
       }
+      #accessPanel {
+        position: fixed;
+        top: 12px;
+        right: 14px;
+        z-index: 6;
+        display: grid;
+        gap: 6px;
+        width: min(244px, calc(100vw - 28px));
+        color: #c8dce7;
+        font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+      #accessPanel button,
+      #accessPanel input,
+      #accessPanel select {
+        font: inherit;
+      }
+      #accessToggle {
+        justify-self: end;
+        min-width: 50px;
+        height: 30px;
+        border: 1px solid rgba(143, 212, 238, 0.42);
+        background: rgba(3, 8, 12, 0.76);
+        color: #d8edf5;
+        cursor: pointer;
+      }
+      #accessControls {
+        display: grid;
+        gap: 7px;
+        padding: 9px;
+        border: 1px solid rgba(91, 122, 147, 0.32);
+        background: rgba(3, 8, 12, 0.84);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.32);
+      }
+      #accessPanel.closed #accessControls {
+        display: none;
+      }
+      .accessRow {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px;
+        align-items: center;
+      }
+      .accessRow input[type="range"],
+      .accessRow select {
+        min-width: 0;
+        width: 100%;
+      }
+      #scene {
+        filter: brightness(var(--sl-brightness, 1));
+      }
+      #tutorialCard {
+        position: fixed;
+        top: 56px;
+        left: 14px;
+        z-index: 2;
+        width: min(360px, calc(100vw - 28px));
+        padding: 10px 11px;
+        border: 1px solid rgba(143, 212, 238, 0.26);
+        background: rgba(3, 8, 12, 0.7);
+        color: #9fc1d4;
+        font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        pointer-events: none;
+        transition: opacity 180ms ease-out, transform 180ms ease-out;
+      }
+      #tutorialCard.hidden {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+      #tutorialCard strong {
+        display: block;
+        margin-bottom: 7px;
+        color: #d8edf5;
+        font-size: 12px;
+      }
+      .tutorialSteps {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .tutorialSteps li {
+        display: grid;
+        grid-template-columns: 14px 1fr;
+        gap: 7px;
+        align-items: start;
+      }
+      .tutorialSteps i {
+        display: block;
+        width: 8px;
+        height: 8px;
+        margin-top: 3px;
+        border: 1px solid rgba(127, 210, 255, 0.5);
+        background: rgba(127, 210, 255, 0.08);
+      }
+      .tutorialSteps li.done {
+        color: #6eff9c;
+      }
+      .tutorialSteps li.done i {
+        border-color: rgba(110, 255, 156, 0.9);
+        background: rgba(110, 255, 156, 0.62);
+        box-shadow: 0 0 10px rgba(110, 255, 156, 0.35);
+      }
       #prompt {
         position: fixed;
         left: 50%;
@@ -70,28 +177,93 @@
         opacity: 0;
         transition: opacity 140ms ease-out;
       }
+      #threatCue {
+        position: fixed;
+        left: 50%;
+        top: 28%;
+        z-index: 3;
+        transform: translateX(-50%);
+        min-width: min(420px, calc(100vw - 36px));
+        padding: 9px 13px;
+        border: 1px solid rgba(255, 95, 51, 0.42);
+        background: rgba(18, 3, 2, 0.72);
+        color: #ffd8ce;
+        font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0;
+        text-align: center;
+        text-transform: uppercase;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 90ms ease-out, transform 90ms ease-out;
+      }
       #runMeters {
         position: fixed;
         left: 14px;
         bottom: 16px;
-        width: min(340px, calc(100vw - 28px));
+        width: min(390px, calc(100vw - 28px));
         display: grid;
-        gap: 7px;
-        padding: 10px 11px;
+        gap: 9px;
+        padding: 11px 12px;
         box-sizing: border-box;
         border: 1px solid rgba(91, 122, 147, 0.28);
-        background: rgba(3, 8, 12, 0.68);
+        background:
+          linear-gradient(180deg, rgba(8, 18, 24, 0.78), rgba(3, 8, 12, 0.72)),
+          rgba(3, 8, 12, 0.68);
         color: #8fb4c9;
         font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
         letter-spacing: 0;
         text-transform: uppercase;
         pointer-events: none;
+        transform: scale(var(--sl-hud-scale, 1));
+        transform-origin: bottom left;
+      }
+      .suitHud__top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+      }
+      #objectiveText {
+        color: #e7f6fb;
+        font-size: 13px;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+      #dangerBadge {
+        min-width: 68px;
+        padding: 5px 7px;
+        border: 1px solid rgba(127, 210, 255, 0.28);
+        color: #9fd0ff;
+        text-align: center;
+      }
+      #dangerBadge.warn {
+        border-color: rgba(232, 163, 61, 0.5);
+        color: #e8a33d;
+      }
+      #dangerBadge.danger {
+        border-color: rgba(212, 77, 66, 0.72);
+        color: #ff8a7b;
+        background: rgba(212, 77, 66, 0.12);
+      }
+      #objectiveDetail {
+        min-height: 16px;
+        color: #5f8298;
+        line-height: 1.35;
+      }
+      .meterGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px 10px;
       }
       .meterRow {
         display: grid;
-        grid-template-columns: 74px 1fr;
+        grid-template-columns: 72px 1fr;
         align-items: center;
         gap: 9px;
+      }
+      .meterRow--wide {
+        grid-column: 1 / -1;
       }
       .meterTrack {
         height: 7px;
@@ -104,6 +276,18 @@
         width: 0;
         background: #7fd2ff;
         box-shadow: 0 0 10px rgba(127, 210, 255, 0.45);
+      }
+      #healthFill {
+        background: #d44d42;
+        box-shadow: 0 0 12px rgba(212, 77, 66, 0.48);
+      }
+      #resolveFill {
+        background: #7fd2ff;
+        box-shadow: 0 0 10px rgba(127, 210, 255, 0.45);
+      }
+      #batteryFill {
+        background: #e8d36a;
+        box-shadow: 0 0 10px rgba(232, 211, 106, 0.42);
       }
       #tensionFill {
         background: #d44d42;
@@ -130,6 +314,10 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      #stunText {
+        color: #d8edf5;
+        text-align: right;
       }
       #encounterFlash {
         position: fixed;
@@ -276,7 +464,7 @@
       #net {
         position: fixed;
         right: 14px;
-        top: 12px;
+        top: 54px;
         display: flex;
         align-items: center;
         gap: 6px;
@@ -285,6 +473,9 @@
         border: 1px solid rgba(91, 122, 147, 0.35);
         font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #8fb4c9;
+      }
+      #net[data-hidden="true"] {
+        display: none;
       }
       #net button,
       #net input {
@@ -310,10 +501,39 @@
       #netToggle {
         display: none;
       }
+      html.reduce-flashes #encounterFlash,
+      html.reduce-flashes #damageFlash,
+      html.reduce-flashes #scareBurst {
+        mix-blend-mode: normal;
+        transition-duration: 180ms;
+      }
+      html.reduce-flashes #scareBurst i {
+        opacity: 0.62;
+      }
+      html.reduce-motion #scareBurst {
+        transform: none !important;
+      }
       @media (max-width: 680px) {
         #hud {
           right: 14px;
           font-size: 11px;
+        }
+        #accessPanel {
+          top: 8px;
+          right: 8px;
+        }
+        #tutorialCard {
+          top: 48px;
+          left: 8px;
+          width: min(330px, calc(100vw - 16px));
+        }
+        #runMeters {
+          left: 8px;
+          bottom: 64px;
+          width: calc(100vw - 16px);
+        }
+        .meterGrid {
+          grid-template-columns: 1fr;
         }
         #net {
           top: auto;
@@ -352,33 +572,77 @@
   </head>
   <body>
     <canvas id="scene"></canvas>
+    <div id="accessPanel" class="closed" aria-label="Comfort settings">
+      <button id="accessToggle" type="button" aria-expanded="false">A11Y</button>
+      <div id="accessControls">
+        <label class="accessRow"><input id="reduceFlashes" type="checkbox" /> Reduce flashes</label>
+        <label class="accessRow"><input id="reduceMotion" type="checkbox" /> Reduce motion</label>
+        <label class="accessRow"><input id="nightMode" type="checkbox" /> Night audio</label>
+        <label class="accessRow"><span>Brightness</span><input id="brightnessControl" type="range" min="0.72" max="1.35" step="0.01" value="1" /></label>
+        <label class="accessRow"><span>HUD scale</span><select id="hudScaleControl"><option value="0.9">Small</option><option value="1" selected>Normal</option><option value="1.15">Large</option></select></label>
+      </div>
+    </div>
+    <div id="tutorialCard" aria-live="polite">
+      <strong>Suit check</strong>
+      <ul class="tutorialSteps">
+        <li data-step="move"><i></i><span>Move and look around</span></li>
+        <li data-step="light"><i></i><span>Tap F: light saves you, then betrays you</span></li>
+        <li data-step="voice"><i></i><span>Speak or press Q/T/V to test voice noise</span></li>
+        <li data-step="interact"><i></i><span>Use E on panels, doors, and the airlock</span></li>
+        <li data-step="stun"><i></i><span>Click to fire a stun pulse</span></li>
+      </ul>
+    </div>
     <div id="hud">SIGNAL LOST — booting renderer…</div>
     <div id="radioLine" aria-live="polite"></div>
     <div id="prompt"></div>
+    <div id="threatCue" aria-live="polite"></div>
     <div id="runMeters">
-      <div class="meterRow">
-        <span>Tension</span>
-        <span class="meterTrack"><i id="tensionFill" class="meterFill"></i></span>
+      <div class="suitHud__top">
+        <span id="objectiveText">Restoring suit feed</span>
+        <strong id="dangerBadge">Quiet</strong>
       </div>
-      <div class="meterRow">
-        <span>Voice</span>
-        <span class="meterTrack"><i id="voiceFill" class="meterFill"></i></span>
-      </div>
-      <div class="meterRow">
-        <span>Sound</span>
-        <span class="meterTrack"><i id="soundFill" class="meterFill"></i></span>
-      </div>
-      <div class="meterRow">
-        <span>Light</span>
-        <span class="meterTrack"><i id="lightFill" class="meterFill"></i></span>
-      </div>
-      <div class="meterRow">
-        <span>Mic</span>
-        <span id="micStatus">idle</span>
-      </div>
-      <div id="commsMeter" class="meterRow">
-        <span>Comms</span>
-        <span class="meterTrack"><i id="commsFill" class="meterFill"></i></span>
+      <div id="objectiveDetail">Stand by for VESTA guidance.</div>
+      <div class="meterGrid">
+        <div class="meterRow">
+          <span>Health</span>
+          <span class="meterTrack"><i id="healthFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Resolve</span>
+          <span class="meterTrack"><i id="resolveFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Battery</span>
+          <span class="meterTrack"><i id="batteryFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Stun</span>
+          <span id="stunText">0</span>
+        </div>
+        <div class="meterRow">
+          <span>Threat</span>
+          <span class="meterTrack"><i id="tensionFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Voice</span>
+          <span class="meterTrack"><i id="voiceFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Noise</span>
+          <span class="meterTrack"><i id="soundFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Light</span>
+          <span class="meterTrack"><i id="lightFill" class="meterFill"></i></span>
+        </div>
+        <div class="meterRow">
+          <span>Mic</span>
+          <span id="micStatus">idle</span>
+        </div>
+        <div id="commsMeter" class="meterRow">
+          <span>Comms</span>
+          <span class="meterTrack"><i id="commsFill" class="meterFill"></i></span>
+        </div>
       </div>
     </div>
     <div id="encounterFlash"></div>

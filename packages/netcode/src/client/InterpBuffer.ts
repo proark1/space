@@ -39,10 +39,17 @@ export class InterpBuffer {
 
   /** Buffer a remote snapshot, timestamped on the local interpolation timeline. */
   push(time: number, state: CapsuleState): void {
-    this.samples.push({ time, state: { ...state } });
-    this.samples.sort((a, b) => a.time - b.time);
+    const sample = { time, state: { ...state } };
+    let insertAt = this.samples.length;
+    while (insertAt > 0 && this.samples[insertAt - 1]!.time > time) {
+      this.samples[insertAt] = this.samples[insertAt - 1]!;
+      insertAt--;
+    }
+    this.samples[insertAt] = sample;
     const cutoff = time - 1000;
-    while (this.samples.length > 2 && this.samples[0]!.time < cutoff) this.samples.shift();
+    let trim = 0;
+    while (this.samples.length - trim > 2 && this.samples[trim]!.time < cutoff) trim++;
+    if (trim > 0) this.samples.splice(0, trim);
   }
 
   /** Interpolated state at renderTime = now - delay, or null if the buffer is empty. */
