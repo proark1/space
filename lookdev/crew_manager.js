@@ -122,3 +122,18 @@ export function crewSummary(slots = buildCrewSlots()) {
     local: slots.filter(member => member.kind === 'local').length
   };
 }
+
+export function crewSeatOwnership(slots = buildCrewSlots()) {
+  const stations = ['commander', 'pilot', 'engineer', 'medic'];
+  return stations.map((station, index) => {
+    const slot = slots[index] || {};
+    return {
+      station,
+      slotNumber: slot.slotNumber || index + 1,
+      kind: slot.kind || (index === 0 ? 'local' : 'npc'),
+      name: slot.name || `NPC ${index}`,
+      role: slot.role || station.toUpperCase(),
+      canOwnControls: station === 'pilot' ? slot.kind !== 'npc' : slot.kind === 'local',
+    };
+  });
+}

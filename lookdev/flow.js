@@ -4,6 +4,7 @@
 export const FLOW = new URLSearchParams(location.search).has('flow');
 export const FLOW_ORDER = ['lobby', 'boardRocket', 'launch', 'capsule', 'docking', 'station', 'command', 'returnExtraction'];
 export const FLOW_ENDGAME = 'return-extraction';
+const FLOW_STORAGE_KEY = 'signal-lost-flow-session-v1';
 const FLOW_OBJECTIVES = {
   lobby: 'assemble crew',
   boardRocket: 'board the rocket',
@@ -39,6 +40,7 @@ export function goNext(url, params = {}) {
 export function flowSession(stage = 'unknown', params = {}) {
   const query = new URLSearchParams(location.search);
   applyParams(query, params);
+  const stored = readStoredSession(query);
   const name = cleanName(query.get('name') || localStorage.getItem('sl-player-name') || 'PLAYER');
   const crewSlots = slotsFrom(query);
   const roster = crewSlots.length ? crewSlots.map(slot => slot.name) : rosterFrom(query);
@@ -46,7 +48,9 @@ export function flowSession(stage = 'unknown', params = {}) {
   while (roster.length < 4) roster.push(`NPC ${roster.length}`);
   roster.length = Math.min(roster.length, 4);
   const stageIndex = FLOW_ORDER.indexOf(stage);
-  return {
+  const storedObjective = stored.objectives?.[stage] || (stored.stage === stage ? stored.currentObjective : '');
+  const objective = query.get('objective') || storedObjective || FLOW_OBJECTIVES[stage] || '';
+  const session = {
     active: query.has('flow'),
     stage,
     stageIndex,
@@ -60,9 +64,32 @@ export function flowSession(stage = 'unknown', params = {}) {
     crewSlots: crewSlots.length ? crewSlots : roster.map((slotName, index) => ({ kind: index === 0 ? 'local' : (slotName.startsWith('NPC ') ? 'npc' : 'remote'), name: slotName, slotNumber: index + 1 })),
     playerSlot: Math.max(0, roster.indexOf(name)),
     playerSlotNumber: Math.max(1, roster.indexOf(name) + 1),
-    objective: query.get('objective') || FLOW_OBJECTIVES[stage] || '',
+    objective,
     endgame: query.get('endgame') || FLOW_ENDGAME,
   };
+  session.persisted = persistFlowSession(query, session);
+  return session;
+}
+
+export function rememberFlowObjective(stage = 'unknown', objective = '', params = {}) {
+  const text = String(objective || '').trim();
+  if (!text) return null;
+  const query = new URLSearchParams(location.search);
+  applyParams(query, params);
+  const stored = readStoredSession(query);
+  const objectives = { ...(stored.objectives || {}), [stage]: text };
+  const payload = {
+    ...stored,
+    key: storageKey(query),
+    stage,
+    stageIndex: FLOW_ORDER.indexOf(stage),
+    currentObjective: text,
+    objectives,
+    endgame: query.get('endgame') || stored.endgame || FLOW_ENDGAME,
+    updatedAt: Date.now(),
+  };
+  writeStoredSession(query, payload);
+  return payload;
 }
 
 function withCrewParams(url, params = {}) {
@@ -120,4 +147,62 @@ function slotsFrom(query) {
     })
     .filter(Boolean)
     .slice(0, 4);
+}
+
+function storageKey(query) {
+  const room = (query.get('room') || query.get('code') || query.get('session') || 'solo').trim().toUpperCase();
+  const name = cleanName(query.get('name') || localStorage.getItem('sl-player-name') || 'PLAYER');
+  return `${room || 'solo'}:${name || 'PLAYER'}`;
+}
+
+function readFlowStore() {
+  try {
+    return JSON.parse(sessionStorage.getItem(FLOW_STORAGE_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFlowStore(store) {
+  try {
+    sessionStorage.setItem(FLOW_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Storage is best-effort; URLs still carry the critical live handoff.
+  }
+}
+
+function readStoredSession(query) {
+  return readFlowStore()[storageKey(query)] || {};
+}
+
+function writeStoredSession(query, session) {
+  const store = readFlowStore();
+  store[storageKey(query)] = session;
+  writeFlowStore(store);
+}
+
+function persistFlowSession(query, session) {
+  const previous = readStoredSession(query);
+  const objectives = { ...(previous.objectives || {}) };
+  if (session.objective) objectives[session.stage] = session.objective;
+  const persisted = {
+    ...previous,
+    key: storageKey(query),
+    active: session.active,
+    stage: session.stage,
+    stageIndex: session.stageIndex,
+    currentObjective: session.objective,
+    objectives,
+    roomCode: session.roomCode,
+    signal: session.signal,
+    name: session.name,
+    roster: session.roster,
+    crewSlots: session.crewSlots,
+    playerSlot: session.playerSlot,
+    playerSlotNumber: session.playerSlotNumber,
+    endgame: session.endgame,
+    updatedAt: Date.now(),
+  };
+  writeStoredSession(query, persisted);
+  return persisted;
 }

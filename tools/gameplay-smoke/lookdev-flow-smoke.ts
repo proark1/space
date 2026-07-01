@@ -19,6 +19,7 @@ function assertFlowSession(state: any, stage: string, label: string): void {
   assert(flow?.endgame === 'return-extraction', `${label}: expected return-extraction endgame, got ${JSON.stringify(flow)}`);
   assert(Array.isArray(flow?.roster) && flow.roster.length === 4, `${label}: expected four-slot roster, got ${JSON.stringify(flow)}`);
   assert(Array.isArray(flow?.crewSlots) && flow.crewSlots.length === 4, `${label}: expected four typed crew slots, got ${JSON.stringify(flow)}`);
+  assert(flow?.persisted?.currentObjective === flow.objective, `${label}: expected persisted objective to mirror flow objective, got ${JSON.stringify(flow)}`);
 }
 
 function assertFlowUrl(url: string, pathname: string, label: string): void {
@@ -267,6 +268,9 @@ async function checkPadAscentHandoff(page: Page, baseUrl: string): Promise<void>
   await page.waitForFunction(() => Boolean((window as any).__pad?.state?.flowFast), null, { timeout: TIMEOUT_MS });
   const start = await page.evaluate(() => (window as any).__pad.state);
   assertFlowSession(start, 'launch', 'launch pad flow');
+  assert(start.crewSummary.remote === 1 && start.crewSummary.npc === 2, `expected launch pad to preserve 1 real player and 2 NPCs, got ${JSON.stringify(start.crewSummary)}`);
+  assert(start.seatOwnership?.[1]?.station === 'pilot' && start.seatOwnership[1].name === 'CLIENT', `expected launch pad pilot ownership to be CLIENT, got ${JSON.stringify(start.seatOwnership)}`);
+  await assertVoicePanel(page, start, 'launch pad voice');
   assert(start.capsuleAttached === true && start.capsuleMountDelta > 30, `expected capsule to be mounted on rocket, got ${JSON.stringify(start)}`);
   await page.waitForFunction((baseline) => {
     const state = (window as any).__pad?.state;
@@ -300,6 +304,7 @@ async function checkCapsuleTransitHandoff(page: Page, baseUrl: string): Promise<
   assert(start.seatAssignments?.[0]?.name === 'HOST' && start.seatAssignments[0].kind === 'local', `expected commander seat to hold HOST, got ${JSON.stringify(start.seatAssignments)}`);
   assert(start.seatAssignments?.[1]?.station === 'pilot' && start.seatAssignments[1].name === 'CLIENT' && start.seatAssignments[1].kind === 'remote', `expected pilot seat to hold CLIENT, got ${JSON.stringify(start.seatAssignments)}`);
   assert(start.seatAssignments?.[2]?.kind === 'npc' && start.seatAssignments?.[3]?.kind === 'npc', `expected remaining seats to stay NPC fallback, got ${JSON.stringify(start.seatAssignments)}`);
+  assert(start.seatOwnership?.[1]?.station === 'pilot' && start.seatOwnership[1].name === 'CLIENT' && start.seatOwnership[1].canOwnControls === true, `expected pilot seat ownership to belong to CLIENT, got ${JSON.stringify(start.seatOwnership)}`);
   await assertVoicePanel(page, start, 'capsule voice');
   await page.waitForTimeout(7_000);
   const transit = await page.evaluate(() => (window as any).__launch.state);
@@ -320,6 +325,7 @@ async function checkDockingHandoff(page: Page, baseUrl: string): Promise<void> {
   assertFlowSession(dockStart, 'docking', 'docking flow');
   assert(dockStart.crewCount === 3, `expected docking transfer to keep 3 support crew, got ${dockStart.crewCount}`);
   assert(dockStart.crewSummary.remote === 1 && dockStart.crewSummary.npc === 2, `expected docking to preserve 1 real player and 2 NPCs, got ${JSON.stringify(dockStart.crewSummary)}`);
+  assert(dockStart.pilotSeat?.name === 'CLIENT' && dockStart.pilotSeat?.canOwnControls === true, `expected docking pilot seat owner to be CLIENT, got ${JSON.stringify(dockStart.pilotSeat)}`);
   await assertVoicePanel(page, dockStart, 'docking voice');
   await page.waitForFunction(() => {
     const state = (window as any).__dock?.state?.state;
@@ -487,6 +493,12 @@ async function checkStationSideBranchWork(page: Page, baseUrl: string): Promise<
     await page.waitForFunction((id) => (window as any).__chorus.state.sideDone.includes(id), job.id, { timeout: TIMEOUT_MS });
   };
   await interactBranchJob(jobs[0]);
+  await page.waitForFunction(() => (window as any).__chorus.state.medPatches === 1, null, { timeout: TIMEOUT_MS });
+  await page.evaluate(() => (window as any).__chorus.smoke.forceHit());
+  await page.waitForFunction(() => {
+    const state = (window as any).__chorus.state;
+    return state.caught === false && state.medPatches === 0 && state.damageFeedback?.lastHitAt > 0;
+  }, null, { timeout: TIMEOUT_MS });
   await unlockStationCommandRoute(page);
   await interactBranchJob(jobs[1]);
   await interactBranchJob(jobs[2]);
@@ -577,7 +589,9 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(6_800);
   const afterLogs = await page.locator('#obj').textContent();
-  assertFlowSession(await page.evaluate(() => (window as any).__chorus.state), 'command', 'station command flow');
+  const commandState = await page.evaluate(() => (window as any).__chorus.state);
+  assertFlowSession(commandState, 'command', 'station command flow');
+  assert(commandState.flowSession.persisted.objectives.command === commandState.flowSession.objective, `expected command objective to persist, got ${JSON.stringify(commandState.flowSession)}`);
   assert(afterLogs?.includes('COOLANT'), `expected coolant objective after logs, got ${afterLogs}`);
 
   await page.evaluate(() => (window as any).__chorus.smoke.moveTo(6.52, -35.9));
@@ -597,7 +611,9 @@ async function checkStationObjectivePath(page: Page, baseUrl: string): Promise<v
   await page.waitForTimeout(3_600);
   const afterBreaker = await page.locator('#obj').textContent();
   assert(afterBreaker?.includes('AIRLOCK'), `expected airlock extraction objective after breaker, got ${afterBreaker}`);
-  assertFlowSession(await page.evaluate(() => (window as any).__chorus.state), 'returnExtraction', 'station return extraction flow');
+  const extractionState = await page.evaluate(() => (window as any).__chorus.state);
+  assertFlowSession(extractionState, 'returnExtraction', 'station return extraction flow');
+  assert(extractionState.flowSession.persisted.objectives.returnExtraction === extractionState.flowSession.objective, `expected return extraction objective to persist, got ${JSON.stringify(extractionState.flowSession)}`);
 
   await page.evaluate(() => (window as any).__chorus.smoke.moveTo(0, -1.45));
   await page.waitForTimeout(400);

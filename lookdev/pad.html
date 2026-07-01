@@ -13,10 +13,25 @@
   #nav a{color:#9fd0ff;text-decoration:none;background:rgba(8,12,18,.7);border:1px solid #20303c;border-radius:6px;padding:6px 10px}
   #title{position:fixed;left:14px;top:12px;font:600 13px ui-monospace,monospace;letter-spacing:3px;color:#E8A33D;pointer-events:none}
   #phase{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);font:11px ui-monospace,monospace;color:#E8A33D;pointer-events:none;letter-spacing:3px;text-shadow:0 0 6px #000}
+  #voice{position:fixed;right:14px;bottom:13px;width:190px;background:rgba(6,10,16,.82);border:1px solid #20303c;border-radius:8px;padding:8px 9px;font:11px ui-monospace,monospace;color:#9fd0ff;display:flex;flex-direction:column;gap:6px}
+  #voiceTop{display:flex;align-items:center;gap:8px}
+  #micToggle{width:82px;background:#7dffb0;color:#04140a;border:0;border-radius:6px;padding:7px 8px;font:800 10px ui-monospace,monospace;letter-spacing:1px;cursor:pointer}
+  #micToggle.muted{background:#25313b;color:#cdd6e0;border:1px solid #40505b}
+  #micState{flex:1;color:#cdd6e0;text-align:right;white-space:nowrap}
+  #micMeter{height:5px;background:#111922;border:1px solid #20303c;border-radius:999px;overflow:hidden}
+  #micFill{display:block;width:100%;height:100%;background:#7dffb0;transform-origin:left center;transform:scaleX(.03)}
+  #voicePeers{display:flex;flex-wrap:wrap;gap:4px;min-height:14px}
+  #voicePeers span{border:1px solid #20303c;border-radius:5px;padding:2px 4px;color:#7b8894}
+  #voicePeers span.live{color:#7dffb0;border-color:#2c5a40}
+  #voicePeers span.remote{color:#9fd0ff}
+  #voicePeers span.npc{color:#667480}
+  #voicePeers b{color:#E8A33D;font-weight:800}
+  #voiceAudio{display:none}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="voice"><div id="voiceTop"><button id="micToggle" type="button">MIC</button><div id="micState">MIC OFF</div></div><div id="micMeter"><i id="micFill"></i></div><div id="voicePeers"><span>CREW COMMS</span></div><div id="voiceAudio"></div></div>
 <div id="title">SIGNAL&nbsp;LOST · LAUNCH</div>
 <div id="nav"><a href="/launch">▸ the capsule</a><a href="/exterior">▸ the derelict</a></div>
 <div id="hud"><b>drag</b> to orbit · <b>scroll</b> to zoom · she launches on a loop</div>
@@ -40,8 +55,16 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Mixer, noiseBed, tone, burst, blip, ClipBank } from './audio.js';
 import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
+import { buildCrewSlots, crewSummary, crewSeatOwnership } from './crew_manager.js';
+import { createLookdevMultiplayer } from './multiplayer.js';
+import { createLobbyVoiceChat } from './voice_chat.js';
 
 const canvas=document.getElementById('c');
+const CREW_SLOTS=buildCrewSlots({search: location.search});
+const CREW_SUMMARY=crewSummary(CREW_SLOTS);
+const SEAT_OWNERSHIP=crewSeatOwnership(CREW_SLOTS);
+const MULTI=createLookdevMultiplayer({scene:'pad'});
+const voice=createLobbyVoiceChat(MULTI,{button:document.getElementById('micToggle'),status:document.getElementById('micState'),meterFill:document.getElementById('micFill'),roster:document.getElementById('voicePeers'),audioRoot:document.getElementById('voiceAudio'),crewSlots:()=>CREW_SLOTS});
 const DPR=Math.min(window.devicePixelRatio||1,2);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -352,7 +375,7 @@ function startAudio(){ if(padAudio)return; try{
 }catch(e){} }
 addEventListener('pointerdown',startAudio);
 
-window.__pad={rocket,camera,controls,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); const crewArm=serviceArms.find(g=>g.userData.crew); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,serviceArmRetract:armRetract,crewArmRetract:crewArm?armRetract:0,serviceArmCount:serviceArms.length,capsuleAttached:true,capsuleMountDelta:CAPSULE_MOUNT_Y,capsuleWorldY:rocket.position.y+CAPSULE_MOUNT_Y,capsuleTopWorldY:rocket.position.y+CAPSULE_TOP_Y,crewBridgeConnected:armRetract<0.18,crewBridgeClear:armRetract>0.82,flowSession:flowSession('launch'),rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
+window.__pad={rocket,camera,controls,multiplayer:MULTI,voice,get state(){ const top=new THREE.Vector3(0,rocket.position.y+48,0).project(camera); const mid=new THREE.Vector3(0,rocket.position.y+24,0).project(camera); const crewArm=serviceArms.find(g=>g.userData.crew); return {rocketY:rocket.position.y,cameraY:camera.position.y,targetY:controls.target.y,flowFast:FLOW_FAST,serviceArmRetract:armRetract,crewArmRetract:crewArm?armRetract:0,serviceArmCount:serviceArms.length,capsuleAttached:true,capsuleMountDelta:CAPSULE_MOUNT_Y,capsuleWorldY:rocket.position.y+CAPSULE_MOUNT_Y,capsuleTopWorldY:rocket.position.y+CAPSULE_TOP_Y,crewBridgeConnected:armRetract<0.18,crewBridgeClear:armRetract>0.82,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,flowSession:flowSession('launch'),voice:voice.state(),multiplayer:MULTI.state(),rocketNdc:{topX:top.x,topY:top.y,midX:mid.x,midY:mid.y}}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>

@@ -70,7 +70,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { makeAstronaut } from './units_alpha.js?v=5';
 import { drawHeroPoster, drawHeroFramed, drawPlacard } from './hero.js';
 import { FLOW, fadeIn, goNext, flowSession } from './flow.js';
-import { buildCrewSlots, crewSummary } from './crew_manager.js';
+import { buildCrewSlots, crewSummary, crewSeatOwnership } from './crew_manager.js';
 import { createLookdevMultiplayer } from './multiplayer.js';
 import { attachAdminModel, applyMaterialTuning, finiteNumber, loadAdminScene } from './admincontent.js';
 
@@ -584,7 +584,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
   } else { for(const a of aiCrew) a.a.position.y=Math.sin(t*1.5+a.s)*0.012; }
   Grade.uniforms.uTime.value=t; composer.render();
 }
-window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); const crewSlots=lobbyCrewSlots(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:{total:crewSlots.length,local:1,remote:crewSlots.filter(c=>c.kind==='remote').length,npc:crewSlots.filter(c=>c.kind==='npc').length},crewSlots,flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:params}; }};
+window.__lobby={crewSummary:CREW_SUMMARY,multiplayer:MULTI,voice,get state(){ const params=launchFlowParams||currentFlowParams(); const crewSlots=lobbyCrewSlots(); return {player:!!player,crewCount:aiCrew.length,visibleCrew:aiCrew.filter(c=>c.a.visible).length,crewSummary:{total:crewSlots.length,local:1,remote:crewSlots.filter(c=>c.kind==='remote').length,npc:crewSlots.filter(c=>c.kind==='npc').length},crewSlots,seatOwnership:crewSeatOwnership(crewSlots),flowSession:flowSession('lobby',params),multiplayer:MULTI.state(),voice:voice.state(),readiness:readinessInfo(),phase,doorOpen,launchFlowParams:params}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
