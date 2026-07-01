@@ -26,6 +26,9 @@
   #crewline b{color:#E8A33D}
   #prompt{position:fixed;left:50%;bottom:42px;transform:translateX(-50%);font:11px ui-monospace,monospace;color:#8a97a4;letter-spacing:2px;text-shadow:0 0 6px #000;pointer-events:none}
   #prompt b{color:#E8A33D}
+  #pilot{position:fixed;right:14px;bottom:42px;background:rgba(8,12,18,.88);border:1px solid #2b4656;border-radius:7px;color:#9fd0ff;font:800 10px ui-monospace,monospace;letter-spacing:1px;padding:9px 11px;cursor:pointer}
+  #pilot.active{color:#04140a;background:#7dffb0;border-color:#7dffb0}
+  #pilot:disabled{cursor:default;opacity:.86}
   #assist{position:fixed;left:50%;top:calc(50% + 96px);transform:translateX(-50%);font:700 11px ui-monospace,monospace;letter-spacing:2px;color:#9fd0ff;text-shadow:0 0 8px #000;pointer-events:none}
   #assist.good{color:#7dffb0} #assist.warn{color:#ffcf50} #assist.bad{color:#ff6a5a}
   #result{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:12px;text-align:center}
@@ -43,6 +46,7 @@
 <div id="stats"><div>DIST <b id="sd">—</b></div><div>ALIGN <b id="sa">—</b></div><div>SPEED <b id="ss">—</b></div></div>
 <div id="crewline"></div>
 <div id="prompt"><b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow</div>
+<button id="pilot" type="button">TAKE PILOT</button>
 <div id="assist">WAITING FOR APPROACH VECTOR</div>
 <div id="result"><div id="rtxt"></div><a id="enter" href="/game">▸ STEP INTO THE SHIP</a><button id="retry">↻ RETRY APPROACH</button></div>
 
@@ -70,6 +74,7 @@ import { makeAstronaut, animateAstronaut } from './units_alpha.js?v=5';
 import { buildDockingBerthZ } from './station_parts.js';
 
 const canvas=document.getElementById('c');
+const pilotBtn=document.getElementById('pilot');
 const DPR=Math.min(window.devicePixelRatio||1,2);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(DPR); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -265,7 +270,7 @@ canvas.addEventListener('click',()=>{ if(state==='inside' && document.pointerLoc
 
 // ---- state / physics ----
 const TOL=0.72, SPEED_MAX=1.85, THR=3.4, CLOSE=3.0, DAMP=0.8;
-let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0,jumpY=0,jumpV=0; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
+let offX,offY,voffX,voffY,dist,vdist,driftP,state,boomT,shake=0,thrT=0,boardT=0,softT=0,stationQueued=false,yaw=0,pitch=0,apprT=0,apprX0=0,apprY0=0,apprXt=0,apprYt=0,jumpY=0,jumpV=0,pilotId='',pilotName=''; const pos=new THREE.Vector3(), _fw=new THREE.Vector3();
 const PROMPT_DOCK='<b>WASD / arrows</b> steer · <b>hold SPACE</b> to close · align the collar to the cross, come in slow';
 function reset(){ const sgn=(Math.random()<.5?-1:1); apprX0=4.2*sgn; apprY0=2.6; apprXt=2.0*sgn; apprYt=-0.9; offX=apprX0; offY=apprY0; voffX=voffY=0; dist=120; vdist=0; apprT=0; driftP=DOCK_AUTO?0:Math.random()*9; state='approach'; result.style.display='none'; enter.style.display='none'; renderer.toneMappingExposure=BASE_EXP; debris.material.opacity=0;
   softT=0; stationQueued=false; lastCrewHint=''; clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ; }); crewSay(crewLineFor(0,'visual on the collar. autopilot has us.'),2.8);
@@ -282,6 +287,45 @@ function setAssist(kind,text){
   assist.textContent=text;
   capture.className=kind||'';
 }
+function localPilotId(){ return MULTI.code?MULTI.selfId:'local'; }
+function cleanPilotName(value){ return String(value||MULTI.name||'PILOT').trim().replace(/\s+/g,' ').slice(0,18).toUpperCase(); }
+function canSteer(){ return DOCK_AUTO||!MULTI.code||pilotId===localPilotId(); }
+function updatePilotUi(){
+  if(!pilotBtn)return;
+  if(MULTI.code&&!MULTI.selfId){
+    pilotBtn.textContent='PILOT LINK';
+    pilotBtn.disabled=true;
+    pilotBtn.classList.remove('active');
+    return;
+  }
+  const local=!MULTI.code||pilotId===localPilotId();
+  if(!MULTI.code){
+    pilotBtn.textContent='PILOT: YOU';
+    pilotBtn.disabled=true;
+  } else if(!pilotId){
+    pilotBtn.textContent='TAKE PILOT';
+    pilotBtn.disabled=false;
+  } else {
+    pilotBtn.textContent=local?'PILOT: YOU':`PILOT: ${cleanPilotName(pilotName)}`;
+    pilotBtn.disabled=true;
+  }
+  pilotBtn.classList.toggle('active',local&&Boolean(pilotId||!MULTI.code));
+}
+function claimPilot(payload=null){
+  if(MULTI.code&&!MULTI.selfId&&!payload)return;
+  const id=payload?.id||localPilotId();
+  if(!id||pilotId&&pilotId!==id)return;
+  pilotId=id; pilotName=cleanPilotName(payload?.name||MULTI.name);
+  if(!payload&&MULTI.code)MULTI.broadcastTask('pilot-claim',{id:pilotId,name:pilotName});
+  updatePilotUi();
+}
+pilotBtn.onclick=()=>claimPilot();
+MULTI.onRoster(roster=>{
+  if(pilotId&&pilotId!==localPilotId()&&!roster.some(peer=>peer.id===pilotId)){ pilotId=''; pilotName=''; }
+  updatePilotUi();
+});
+MULTI.onTask(event=>{ if(event.type==='pilot-claim')claimPilot(event.payload||{}); });
+updatePilotUi();
 function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); const t=clock.elapsedTime;
   MULTI.publishPose({x:camera.position.x,y:camera.position.y,z:camera.position.z,yaw,hidden:false});
   if(A)A.approach(1-Math.min(1,Math.max(0,dist||0)/120),t);
@@ -294,15 +338,19 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     setAssist('warn','AUTOPILOT APPROACH · MANUAL CONTROL IMMINENT');
     ringLights.forEach((m,i)=>{ m.emissive.setHex(0xff5030); m.emissiveIntensity=1+1.6*Math.max(0,Math.sin(t*4-i*0.4)); });
     tgt.material.emissive.setHex(0xffcf50);
-    const grab=(DOCK_AUTO&&apprT>0.9)||(apprT>0.7 && (keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight));
+    const grab=(DOCK_AUTO&&apprT>0.9)||(canSteer()&&apprT>0.7 && (keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight));
     if(k>=1||grab){ if(k>=1){ dist=38; offX=apprXt; offY=apprYt; } if(DOCK_AUTO){ dist=10; offX=0.18; offY=-0.12; } state='align'; voffX=voffY=0; vdist=0; crewSay(crewLineFor(1,'manual control. keep the green dot inside the collar.'),3.2);
-      document.getElementById('prompt').innerHTML=PROMPT_DOCK; }
+      document.getElementById('prompt').innerHTML=canSteer()?PROMPT_DOCK:'<b>PILOT</b> claim control at the front console'; }
   } else if(state==='align'){
     const dfx=Math.sin(t*0.7+driftP)*0.9+Math.sin(t*1.7)*0.4, dfy=Math.cos(t*0.5+driftP)*0.8;   // wandering drift
     let ix=0,iy=0,iz=0, thrusting=false;
-    if(keys.ArrowLeft||keys.KeyA){ ix+=THR; thrusting=true; } if(keys.ArrowRight||keys.KeyD){ ix-=THR; thrusting=true; }
-    if(keys.ArrowUp||keys.KeyW){ iy-=THR; thrusting=true; } if(keys.ArrowDown||keys.KeyS){ iy+=THR; thrusting=true; }
-    if(keys.Space){ iz+=CLOSE; thrusting=true; }
+    const pilotCanSteer=canSteer();
+    document.getElementById('prompt').innerHTML=pilotCanSteer?PROMPT_DOCK:'<b>PILOT</b> claim control at the front console';
+    if(pilotCanSteer){
+      if(keys.ArrowLeft||keys.KeyA){ ix+=THR; thrusting=true; } if(keys.ArrowRight||keys.KeyD){ ix-=THR; thrusting=true; }
+      if(keys.ArrowUp||keys.KeyW){ iy-=THR; thrusting=true; } if(keys.ArrowDown||keys.KeyS){ iy+=THR; thrusting=true; }
+      if(keys.Space){ iz+=CLOSE; thrusting=true; }
+    }
     if(DOCK_AUTO){
       ix+=THREE.MathUtils.clamp(-offX*5-voffX*2-dfx,-THR,THR);
       iy+=THREE.MathUtils.clamp(-offY*5-voffY*2-dfy,-THR,THR);
@@ -322,6 +370,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
     const aligned=off<TOL;
     const tooFast=vdist>SPEED_MAX, near=dist<8;
     if(aligned&&!tooFast) setAssist('good',near?'CAPTURE ENVELOPE · HOLD STEADY':'CENTERED · CLOSE SLOW');
+    else if(!pilotCanSteer) setAssist('warn',pilotId?`PILOT CONTROL · ${cleanPilotName(pilotName)} STEERING`:'TAKE PILOT CONTROL');
     else if(tooFast) setAssist('bad','TOO FAST · RELEASE SPACE');
     else if(off>2.2) setAssist('bad','OUTSIDE CAPTURE CONE · TRANSLATE BACK');
     else setAssist('warn','DRIFTING · WALK THE DOT TO CENTER');
@@ -387,7 +436,7 @@ function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getD
 }
 function collarPulse(t){ ringLights.forEach(m=>{ m.emissive.setHex(0x35ff70); m.emissiveIntensity=2.6+Math.sin(t*5)*0.6; }); tgt.material.emissive.setHex(0x7dffb0); }
 function softPulse(t,k){ ringLights.forEach((m,i)=>{ m.emissive.setHex(k>0.8?0x35ff70:0xffcf50); m.emissiveIntensity=1.6+2.0*Math.max(0,Math.sin(t*6+i*0.45)); }); clampPivots.forEach(p=>{ if(p.userData.baseZ!==undefined)p.rotation.z=p.userData.baseZ+0.52*k; }); tgt.material.emissive.setHex(0x7dffb0); }
-window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),stationQueued}; }};
+window.__dock={crewSummary:CREW_SUMMARY,multiplayer:MULTI,claimPilot,get state(){ return {state,dist,off:Math.hypot(offX||0,offY||0),speed:vdist||0,auto:DOCK_AUTO,pilotId,pilotName,canSteer:canSteer(),crewCount:transferCrew.length,shipBeaconCount:shipBeacons.length,crewSummary:CREW_SUMMARY,multiplayer:MULTI.state(),stationQueued}; }};
 addEventListener('resize',resize); resize(); fadeIn(); animate();
 </script>
 </body>
