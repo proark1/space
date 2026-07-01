@@ -1,6 +1,6 @@
 import json, os, http.server, socketserver, urllib.parse
 
-DIR = "/Users/assaddar/Documents/GitHub/space/lookdev"
+DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8173
 os.chdir(DIR)
 
