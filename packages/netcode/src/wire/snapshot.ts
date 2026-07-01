@@ -219,7 +219,7 @@ export function applyDelta(base: WorldSnapshot, delta: SnapshotDelta): WorldSnap
       Object.assign(existing, c.fields);
       existing.type = c.type;
     } else {
-      map.set(c.id, {
+      const entity: EntitySnapshot = {
         id: c.id,
         type: c.type,
         x: c.fields.x ?? 0,
@@ -228,9 +228,10 @@ export function applyDelta(base: WorldSnapshot, delta: SnapshotDelta): WorldSnap
         yaw: c.fields.yaw ?? 0,
         anim: c.fields.anim ?? 0,
         hp: c.fields.hp ?? 0,
-        ownerSlot: c.fields.ownerSlot,
-        inputAck: c.fields.inputAck,
-      });
+      };
+      if (c.fields.ownerSlot !== undefined) entity.ownerSlot = c.fields.ownerSlot;
+      if (c.fields.inputAck !== undefined) entity.inputAck = c.fields.inputAck;
+      map.set(c.id, entity);
     }
   }
   const entities: EntitySnapshot[] = [];

@@ -21,7 +21,8 @@ export function quantizeYaw(rad: number): number {
 
 /** Inverse of {@link quantizeYaw}; returns radians in [0, TAU). */
 export function dequantizeYaw(q: number): number {
-  return (q / YAW_STEPS) * TAU;
+  const yaw = (q / YAW_STEPS) * TAU;
+  return yaw >= TAU ? 0 : yaw;
 }
 
 /** Quantize aim pitch (radians, clamped to ±π) to a signed int16. */
