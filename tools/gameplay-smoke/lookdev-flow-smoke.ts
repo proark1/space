@@ -467,6 +467,11 @@ async function checkStationHideMechanic(page: Page, baseUrl: string): Promise<vo
   }, null, { timeout: TIMEOUT_MS });
   await page.evaluate(() => (window as any).__chorus.smoke.forceSearchLocker());
   await page.waitForFunction(() => (window as any).__chorus.state.director.mode === 'search', null, { timeout: TIMEOUT_MS });
+  await page.evaluate(() => (window as any).__chorus.smoke.forceHit());
+  await page.waitForTimeout(1_000);
+  const protectedState = await page.evaluate(() => (window as any).__chorus.state);
+  assert(protectedState.hidden === true, `expected player to remain hidden under locker pressure, got ${JSON.stringify(protectedState)}`);
+  assert(protectedState.caught === false, `hidden player should not be killable, got ${JSON.stringify(protectedState)}`);
   await page.keyboard.press('KeyE');
   await page.waitForFunction(() => (window as any).__chorus.state.hidden === false, null, { timeout: TIMEOUT_MS });
   await assertNoPageErrors(errors, 'station hide');
@@ -535,11 +540,14 @@ async function checkStationSideBranchWork(page: Page, baseUrl: string): Promise<
     return state.caught === false && state.medPatches === 0 && state.damageFeedback?.lastHitAt > 0;
   }, null, { timeout: TIMEOUT_MS });
   await interactBranchJob(rewardJobs[0]);
-  await page.waitForFunction(() => (window as any).__chorus.state.batteryPacks === 1, null, { timeout: TIMEOUT_MS });
+  await page.waitForFunction(() => {
+    const state = (window as any).__chorus.state;
+    return state.batteryPacks === 1 && state.battery?.charges === 1 && state.battery?.ready === true;
+  }, null, { timeout: TIMEOUT_MS });
   await page.evaluate(() => (window as any).__chorus.smoke.batteryStun());
   await page.waitForFunction(() => {
     const state = (window as any).__chorus.state;
-    return state.batteryPacks === 0 && state.damageFeedback?.lastBatteryStunAt > 0;
+    return state.batteryPacks === 0 && state.battery?.charges === 0 && state.battery?.ready === false && state.damageFeedback?.lastBatteryStunAt > 0;
   }, null, { timeout: TIMEOUT_MS });
   await unlockStationCommandRoute(page);
   await interactBranchJob(jobs[1]);

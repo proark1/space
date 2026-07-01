@@ -2423,8 +2423,25 @@ export async function createWalkScene(
       }
 
       const slideMix = run.inSlickZone ? slick.amount * (controls.sprinting ? 0.52 : 0.34) : 0;
-      const moveX = mv.x * (1 - slideMix * 0.45) + slickMoveX * slideMix;
-      const moveZ = mv.z * (1 - slideMix * 0.45) + slickMoveZ * slideMix;
+      const desiredLen = Math.hypot(mv.x, mv.z);
+      if (desiredLen > 0 && slickMoveX * mv.x + slickMoveZ * mv.z < 0) {
+        const antiReverse = Math.max(0, 1 - dt * (controls.sprinting ? 6.8 : 5.4));
+        slickMoveX *= antiReverse;
+        slickMoveZ *= antiReverse;
+      }
+      let moveX = mv.x * (1 - slideMix * 0.45) + slickMoveX * slideMix;
+      let moveZ = mv.z * (1 - slideMix * 0.45) + slickMoveZ * slideMix;
+      if (desiredLen > 0) {
+        const inputX = mv.x / desiredLen;
+        const inputZ = mv.z / desiredLen;
+        const alongInput = moveX * inputX + moveZ * inputZ;
+        const minInput = controls.sprinting ? 0.22 : 0.3;
+        if (alongInput < minInput) {
+          const boost = minInput - alongInput;
+          moveX += inputX * boost;
+          moveZ += inputZ * boost;
+        }
+      }
       const speedMultiplier = (controls.crouching ? 0.55 : controls.sprinting ? 1.45 : 1) * (run.inSlickZone && !controls.crouching ? 0.93 : 1);
       game.setInput({
         moveX,

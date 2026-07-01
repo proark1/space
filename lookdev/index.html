@@ -788,7 +788,20 @@ controls.addEventListener('lock',()=>{ ui.style.display='none'; cross.style.disp
   if(FLOW_ARRIVAL&&!flowIntroPlayed){ flowIntroPlayed=true; setTimeout(()=>say(crewSayLine(0,'inner hatch is sealed. we are officially inside.'),3.0),500); setTimeout(()=>say(crewSayLine(1,'command center is past three sealed doors. side rooms first.'),3.2),3600); }
 });
 controls.addEventListener('unlock',()=>{ if(!caught&&!won) ui.style.display='flex'; cross.style.display='none'; });
-const keys={}; addEventListener('keydown',e=>{keys[e.code]=true; if(e.code==='Space'){jumpQueued=true; e.preventDefault();} if(e.code==='KeyF'&&!caught&&!won){flashes++; flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();} if(e.code==='KeyE') tryInteract(); if(e.code==='KeyR'&&(caught||won)) respawn();});
+const keys={}; addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.code==='Space'){jumpQueued=true; e.preventDefault();}
+  if(e.code==='KeyF'&&!caught&&!won){
+    if(hidden){
+      flashOn=false; lightStun=Math.max(lightStun,0.16);
+      if(!e.repeat) say(crewSayLine(1,'keep the light off in there. let it lose us.'),2.1);
+    } else {
+      flashes++; flashOn=!flashOn; if(!playClip('sfx-flashlight',0.8)) click();
+    }
+  }
+  if(e.code==='KeyE') tryInteract();
+  if(e.code==='KeyR'&&(caught||won)) respawn();
+});
 addEventListener('keyup',e=>{keys[e.code]=false;});
 
 // ---------- objective / interaction ----------
@@ -802,6 +815,7 @@ setObj('REACH COMMAND CENTER - RECOVER PHYSICAL TAPES');
 let restoredAt=0, needValve=false, valveDone=false, valveFixing=false, valveT=0, needBreaker=false, breakerDone=false, breakerFixing=false, breakerT=0, hidden=false, hiddenAt=0, activeHide=null, noisyUntil=0, readyToSend=false, readyToExtract=false, extracting=false, extractWarned=false, extractStart=0, extractedAt=0, transmitting=false, transmitWarned=false, transmitStart=0, sentAt=0, closest=Infinity, stepsTaken=0, flashes=0, longStares=0, mimicPlayed=false, flowIntroPlayed=false, runStarted=0, shareText='', talkHideAt=0, scarePulseT=0,jumpQueued=false,jumpY=0,jumpV=0,slickVX=0,slickVZ=0,slickLevel=0,slickWarnAt=0,gravityActive=false,gravityT=0,gravityLift=0,gravityTriggered=false,gravitySettledLine=false;
 let mechanicalFixed=false, passwordFound=false, passwordDoorOpen=false, laserDeactivated=false;
 let crawlerActive=false, crawlerTriggered=false, crawlerStrike=0, crawlerCooldown=0, crawlerT=0;
+const MAX_BATTERY_PACKS=2, BATTERY_STUN_COOLDOWN_MS=5000;
 let medPatches=0, batteryPacks=0, signalBoost=false, batteryStunReadyAt=0, lastBatteryStunAt=0, lastHitAt=0, patchConsumedAt=0;
 rememberStationObjective=(text)=>{
   const objective=String(text||'').trim();
@@ -985,12 +999,11 @@ function clampWalkable(p){ clampToStation(p,0.4); }
 function clampMonster(p){ clampToStation(p,0.35); }
 function useSideInteract(item){
   sideDone.add(item.id);
+  let line=item.line, screenLines=item.scr;
   shake=Math.max(shake,0.28);
   lightStun=Math.max(lightStun,0.18);
-  SCRL=item.scr; scrScroll=0; drawScreen();
   director.hear(item.pos,item.noise,item.id);
   MULTI.broadcastTask('noise',{x:item.pos.x,z:item.pos.z,amount:item.noise});
-  MULTI.broadcastTask('objective',{text:item.line});
   if(item.unlock==='mechanical'){
     mechanicalFixed=true;
     setRouteObjective();
@@ -1005,19 +1018,34 @@ function useSideInteract(item){
     medPatches=Math.min(1,medPatches+1);
     lastHitAt=0;
   } else if(item.id==='battery-pack'){
-    batteryPacks=Math.min(2,batteryPacks+1);
+    const before=batteryPacks;
+    batteryPacks=Math.min(MAX_BATTERY_PACKS,batteryPacks+1);
     flashes=Math.max(0,flashes-1);
+    line=batteryPacks>before
+      ? `battery pack armed: ${batteryPacks}/${MAX_BATTERY_PACKS} flashlight overdrive charge ready.`
+      : `battery rack already full: ${batteryPacks}/${MAX_BATTERY_PACKS} overdrive charges.`;
+    screenLines=['> BATTERY PACK','> overdrive cell: recovered',`> charges: ${batteryPacks}/${MAX_BATTERY_PACKS}`,'> auto-fires when beam pins the chorus'];
   } else if(item.id==='signal-booster'){
     signalBoost=true;
     setRouteObjective();
   }
+  SCRL=screenLines; scrScroll=0; drawScreen();
+  MULTI.broadcastTask('objective',{text:line});
   if(item.id==='motion'||(item.id==='badge'&&RUN_VARIANT===2)) scareBeat(item.id==='motion'?'vent':'voice');
   broadcastRoomState(true);
-  say(crewSayLine(item.id==='badge'?0:item.id==='relay'?1:2,item.line),3.0);
+  say(crewSayLine(item.id==='badge'?0:item.id==='relay'?1:2,line),3.0);
 }
 function enterHide(h){
   hidden=true; hiddenAt=performance.now(); activeHide=h; flashOn=false; lightStun=0.15; shake=0.08;
+  slickVX=0; slickVZ=0;
   camera.position.copy(h.pos);
+  if(director.mode!=='dormant'){
+    director.inspectHide=null;
+    director.lastKnown.copy(h.lure);
+    director.searchT=Math.max(director.searchT,2.4);
+    director.suspicion=Math.min(director.suspicion,42);
+    if(director.mode==='chase'||director.mode==='stalk') director.mode='search';
+  }
   say(crewSayLine(2,'great. four astronauts, one closet energy.'),2.7);
 }
 function exitHide(){
@@ -1149,8 +1177,10 @@ function batteryOverdrive(remote=false){
   if(batteryPacks<=0||caught||won)return false;
   const now=performance.now();
   if(now<batteryStunReadyAt)return false;
+  const dx=mob.position.x-camera.position.x, dz=mob.position.z-camera.position.z, dl=Math.hypot(dx,dz)||1;
+  if(!remote && (!mActive || hidden || dl>8.4)) return false;
   batteryPacks--;
-  batteryStunReadyAt=now+5000;
+  batteryStunReadyAt=now+BATTERY_STUN_COOLDOWN_MS;
   lastBatteryStunAt=now;
   shake=Math.max(shake,0.58);
   lightStun=Math.max(lightStun,0.42);
@@ -1158,11 +1188,10 @@ function batteryOverdrive(remote=false){
   noisyUntil=now+900;
   director.suspicion=Math.max(0,director.suspicion-38);
   director.mode=director.suspicion>44?'stalk':'investigate';
-  const dx=mob.position.x-camera.position.x, dz=mob.position.z-camera.position.z, dl=Math.hypot(dx,dz)||1;
   mob.position.x+=dx/dl*2.6;
   mob.position.z+=dz/dl*2.6;
   clampMonster(mob.position);
-  SCRL=['> BATTERY DISCHARGE','> flashlight overdrive','> chorus recoil: confirmed','> charge cell: spent'];
+  SCRL=['> BATTERY DISCHARGE','> flashlight overdrive','> chorus recoil: confirmed',`> charges left: ${batteryPacks}/${MAX_BATTERY_PACKS}`];
   scrScroll=0; drawScreen();
   if(!playClip('sfx-flashlight',1.0)) burst(0.22,2100,2,0.28,'highpass');
   MULTI.broadcastTask('objective',{text:'battery overdrive stunned the chorus.'});
@@ -1170,7 +1199,7 @@ function batteryOverdrive(remote=false){
   if(!remote) broadcastRoomState(true);
   return true;
 }
-function die(){ if(caught||won) return; if(absorbHit()) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
+function die(){ if(caught||won||hidden) return; if(absorbHit()) return; caught=true; sting(); shake=1.3; lightStun=0.5; playClip3D('crt-shriek',mob.position,1.0);
   mob.position.copy(camera.position).addScaledVector(fwd,0.7); mob.position.y=0.25; mThroat.material.emissiveIntensity=6; mGlow.intensity=3.4;
   showDebrief('death'); broadcastRoomState(true); }
 function respawn(){ caught=false; won=false; restored=false; needValve=false; valveDone=false; valveFixing=false; valveT=0; needBreaker=false; breakerDone=false; breakerFixing=false; breakerT=0; mechanicalFixed=false; passwordFound=false; passwordDoorOpen=false; laserDeactivated=false; hidden=false; hiddenAt=0; activeHide=null; noisyUntil=0; readyToSend=false; readyToExtract=false; extracting=false; extractWarned=false; extractedAt=0; extractStart=0; transmitting=false; transmitWarned=false; sentAt=0; transmitStart=0; enraged=false; mActive=false; lightFactor=1; flashOn=true; lightStun=0; stareHold=0; restoredAt=0; closest=Infinity; stepsTaken=0; flashes=0; longStares=0; mimicPlayed=false; runStarted=performance.now(); shareText=''; jumpQueued=false; jumpY=0; jumpV=0; slickVX=0; slickVZ=0; slickLevel=0; slickWarnAt=0; gravityActive=false; gravityT=0; gravityLift=0; gravityTriggered=false; gravitySettledLine=false; medPatches=0; batteryPacks=0; signalBoost=false; batteryStunReadyAt=0; lastBatteryStunAt=0; lastHitAt=0; patchConsumedAt=0; resetCeilingAmbusher();
@@ -1195,30 +1224,43 @@ const director={
   reset(){ this.mode='dormant'; this.suspicion=0; this.patrol=0; this.searchT=0; this.inspectHide=null; this.lastKnown.set(0,0,-18); this.reason=''; },
   wake(reason='signal'){ mActive=true; if(this.mode==='dormant')this.mode='patrol'; this.reason=reason; },
   hear(pos,amount=25,reason='noise'){ this.wake(reason); this.lastKnown.copy(pos); this.suspicion=Math.min(100,this.suspicion+amount); this.searchT=2.8; this.mode=this.suspicion>70?'chase':'investigate'; this.reason=reason; },
-  sawPlayer(){ this.wake('sight'); this.lastKnown.copy(camera.position); this.suspicion=Math.min(100,this.suspicion+38); this.mode=this.suspicion>55?'chase':'stalk'; },
+  sawPlayer(){ if(hidden)return; this.wake('sight'); this.lastKnown.copy(camera.position); this.suspicion=Math.min(100,this.suspicion+38); this.mode=this.suspicion>55?'chase':'stalk'; },
   chooseLocker(){
     let best=null, bd=99;
-    for(const h of hideSpots){ const d=Math.hypot(this.lastKnown.x-h.exit.x,this.lastKnown.z-h.exit.z); if(d<bd){bd=d; best=h;} }
+    for(const h of hideSpots){ if(hidden&&activeHide&&h===activeHide) continue; const d=Math.hypot(this.lastKnown.x-h.exit.x,this.lastKnown.z-h.exit.z); if(d<bd){bd=d; best=h;} }
     this.inspectHide=best;
     return best;
   },
   update(dt,{moving,running,lit,frozen}){
     if(!mActive||caught||won)return {target:mob.position, speed:0, mode:this.mode};
-    this.suspicion=Math.max(0,this.suspicion-dt*(hidden?1.1:4.2));
-    if(running&&!hidden){ this.hear(camera.position,dt*18,'running'); }
-    if(moving&&!hidden&&Math.random()<0.018){ this.lastKnown.copy(camera.position); this.suspicion=Math.min(100,this.suspicion+1.6); }
-    if(lit && !frozen) this.sawPlayer();
-    if(enraged||transmitting||extracting){ this.mode='chase'; this.lastKnown.copy(camera.position); this.suspicion=100; }
-    if(performance.now()<noisyUntil){ this.hear(noisyTarget(),dt*16,'task-noise'); }
-    if(hidden&&hiddenAt&&performance.now()-hiddenAt>4500){
-      this.suspicion=Math.min(100,this.suspicion+dt*5.5);
-      if(activeHide){ this.lastKnown.copy(activeHide.exit); if(this.suspicion>48){ this.inspectHide=activeHide; this.mode='search'; } }
+    if(hidden){
+      this.suspicion=Math.max(0,this.suspicion-dt*7);
+      this.inspectHide=null;
+      if(activeHide&&(this.mode==='chase'||this.mode==='stalk')){
+        this.mode='search';
+        this.lastKnown.copy(activeHide.lure);
+        this.searchT=Math.max(this.searchT,2.4);
+      }
+    } else {
+      this.suspicion=Math.max(0,this.suspicion-dt*4.2);
+      if(running){ this.hear(camera.position,dt*18,'running'); }
+      if(moving&&Math.random()<0.018){ this.lastKnown.copy(camera.position); this.suspicion=Math.min(100,this.suspicion+1.6); }
+      if(lit && !frozen) this.sawPlayer();
     }
+    if(enraged||transmitting||extracting){
+      if(hidden&&activeHide){
+        this.mode='search';
+        this.lastKnown.copy(activeHide.lure);
+        this.suspicion=Math.min(this.suspicion,54);
+      } else {
+        this.mode='chase'; this.lastKnown.copy(camera.position); this.suspicion=100;
+      }
+    }
+    if(performance.now()<noisyUntil){ this.hear(noisyTarget(),dt*16,'task-noise'); }
     for(const pose of Object.values(MULTI.remotePoses())){
       const d=Math.hypot(mob.position.x-pose.x,mob.position.z-pose.z);
       if(!pose.hidden && d<4.2 && Math.random()<0.02){ this.hear(new THREE.Vector3(pose.x,0,pose.z),16,'remote-footsteps'); break; }
     }
-    if(hidden&&activeHide&&this.suspicion>58&&!this.inspectHide){ this.inspectHide=activeHide; this.mode='search'; this.searchT=Math.max(this.searchT,3.4); this.lastKnown.copy(activeHide.exit); }
 
     let target=this.lastKnown, speed=1.3;
     if(this.mode==='dormant'){ target=MONSTER_PATROL[0]; speed=0; }
@@ -1233,26 +1275,21 @@ const director={
       if(this.suspicion>62)this.mode='chase';
     } else if(this.mode==='search'){
       const h=this.inspectHide||this.chooseLocker();
-      target=h?h.exit:this.lastKnown; speed=1.05; this.searchT-=dt;
-      if(hidden&&activeHide&&h===activeHide&&Math.hypot(mob.position.x-h.exit.x,mob.position.z-h.exit.z)<0.9){
-        this.suspicion=Math.min(100,this.suspicion+dt*28);
-        shake=Math.max(shake,0.3);
-        if(this.suspicion>82) die();
-      }
+      target=hidden&&activeHide?activeHide.lure:(h?h.exit:this.lastKnown); speed=hidden?0.72:1.05; this.searchT-=dt;
       if(this.searchT<=0){ this.inspectHide=null; this.mode=this.suspicion>35?'investigate':'patrol'; }
     } else if(this.mode==='stalk'){
       target=camera.position; speed=0.9;
       if(this.suspicion>70)this.mode='chase';
       if(Math.hypot(mob.position.x-camera.position.x,mob.position.z-camera.position.z)<6)this.suspicion+=dt*8;
     } else if(this.mode==='chase'){
-      target=hidden&&activeHide&&this.suspicion<78?activeHide.lure:camera.position;
-      speed=hidden?0.8:(breakerFixing||valveFixing?2.05:(enraged?2.95:2.15));
+      target=hidden&&activeHide?activeHide.lure:camera.position;
+      speed=hidden?0.72:(breakerFixing||valveFixing?2.05:(enraged?2.95:2.15));
     }
     if(frozen&&!enraged){ speed=0; this.suspicion=Math.max(0,this.suspicion-dt*7); if(this.mode==='chase'&&this.suspicion<46)this.mode='stalk'; }
     return {target, speed, mode:this.mode};
   }
 };
-function noisyTarget(){ if(valveFixing)return VALVE; if(breakerFixing)return BREAKER; return camera.position; }
+function noisyTarget(){ if(valveFixing)return VALVE; if(breakerFixing)return BREAKER; if(hidden&&activeHide)return activeHide.lure; return camera.position; }
 
 function roomSnapshot(){
   const transmitProgress=transmitting?Math.min(1,(performance.now()-transmitStart)/4300):0;
@@ -1494,10 +1531,19 @@ function animate(){ requestAnimationFrame(animate);
       const steer=running?2.05:1.18, damp=moving?0.98:0.58;
       slickVX+=(desiredVX-slickVX)*Math.min(1,dt*steer);
       slickVZ+=(desiredVZ-slickVZ)*Math.min(1,dt*steer);
+      if(il>0 && slickVX*ix+slickVZ*iz<0){
+        const anti=Math.max(0,1-dt*(running?7.2:5.8));
+        slickVX*=anti; slickVZ*=anti;
+      }
       if(!moving){ slickVX*=Math.max(0,1-dt*damp); slickVZ*=Math.max(0,1-dt*damp); }
       const mix=slickLevel*(running?0.66:0.45);
-      camera.position.x+=(desiredVX*(1-mix)+slickVX*mix)*dt;
-      camera.position.z+=(desiredVZ*(1-mix)+slickVZ*mix)*dt;
+      let moveVX=desiredVX*(1-mix)+slickVX*mix, moveVZ=desiredVZ*(1-mix)+slickVZ*mix;
+      if(il>0){
+        const along=moveVX*ix+moveVZ*iz, minAlong=speed*(running?0.24:0.34);
+        if(along<minAlong){ const boost=minAlong-along; moveVX+=ix*boost; moveVZ+=iz*boost; }
+      }
+      camera.position.x+=moveVX*dt;
+      camera.position.z+=moveVZ*dt;
       if(running&&moving&&slickLevel>0.32&&performance.now()>slickWarnAt){
         slickWarnAt=performance.now()+4200;
         shake=Math.max(shake,0.2+slickLevel*0.22);
@@ -1549,7 +1595,7 @@ function animate(){ requestAnimationFrame(animate);
   // flashlight (trailing)
   lightStun=Math.max(0,lightStun-dt);
   const restoreGlitch=restored?(Math.sin(t*22)>0.82||Math.random()<0.018):false;
-  flash.intensity = (flashOn && lightStun<=0 && !restoreGlitch) ? (SHOWCASE==='monster'?95:130) : 0;
+  flash.intensity = (flashOn && !hidden && lightStun<=0 && !restoreGlitch) ? (SHOWCASE==='monster'?95:130) : 0;
   flash.position.copy(camera.position);
   camera.getWorldDirection(fwd); want.copy(camera.position).add(fwd);
   fTarget.position.lerp(want, 1-Math.pow(0.0008,dt));
@@ -1618,10 +1664,10 @@ function animate(){ requestAnimationFrame(animate);
     const px=mob.position.x-camera.position.x, pz=mob.position.z-camera.position.z, pl=Math.hypot(px,pz)||1;
     camera.getWorldDirection(fwd);
     const facing=fwd.x*(px/pl)+fwd.z*(pz/pl);
-    const lit=flashOn && lightStun<=0 && facing>0.93 && dM<16;     // looking right at it, in the beam
+    const lit=!hidden && flashOn && lightStun<=0 && facing>0.93 && dM<16;     // looking right at it, in the beam
     const frozen=lit && !enraged;                                  // the light pins it — until the trap enrages it
     stareHold=frozen?stareHold+dt:0;
-    if(lit && !enraged && dM<7.8 && batteryPacks>0) batteryOverdrive();
+    if(!hidden && lit && !enraged && dM<7.8 && batteryPacks>0) batteryOverdrive();
     if(stareHold>1.9){ stareHold=0; longStares++; lightStun=0.75; shake=0.45; if(!playClip('sfx-flashlight',0.95)) burst(0.18,1900,2,0.22,'highpass'); }
     const plan=director.update(dt,{moving,running,lit,frozen});
     const targetPos=plan.target;
@@ -1648,7 +1694,8 @@ function animate(){ requestAnimationFrame(animate);
   if(mobUnit){
     mobUnit.update(dt);
     const dx=mob.position.x-_mpx, dz=mob.position.z-_mpz; _mpx=mob.position.x; _mpz=mob.position.z;
-    mobUnit.play((caught||won||enraged) ? 'attack' : (Math.hypot(dx,dz)>0.0025 ? 'run' : 'idle'));
+    const attackingAnim=caught||(!hidden&&mActive&&director.mode==='chase'&&dM<1.7);
+    mobUnit.play(attackingAnim ? 'attack' : (Math.hypot(dx,dz)>0.0025 ? 'run' : 'idle'));
   }
   // objective prompt + command-center interactions
   const nearConsole=camera.position.distanceTo(CONSOLE)<3.4;
@@ -1681,7 +1728,7 @@ function animate(){ requestAnimationFrame(animate);
 }
 window.__chorus={get unit(){return mobUnit;}, mob, scene, camera, THREE, crewSummary:CREW_SUMMARY, multiplayer:MULTI, voice, get crewCount(){return crewMates.length;},
   get audio(){return {clips:Object.keys(CLIPS).length, mood:musMood, music:!!musicBus, ctx:A&&A.ctx.state};},
-  get state(){const stage=(readyToExtract||extracting||won)?'returnExtraction':(restored?'command':'station'); const objective=routeObjectiveText()||(readyToExtract?'bring tapes to the airlock':extracting?'launch return capsule':restored?'secure tapes and restore extraction power':''); const work=sectionWorkState(); return {hidden,mActive,restored,enraged,mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,readyToExtract,extracting,extractWarned,extractedAt,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,slickLevel,gravityActive,gravityLift,gravityTriggered,medPatches,batteryPacks,signalBoost,optionalRewards:{medPatches,batteryPacks,signalBoost,rewardDone:work.rewardDone,rewardTotal:work.rewardTotal},damageFeedback:{lastHitAt,patchConsumedAt,lastBatteryStunAt,lastHitAgo:lastHitAt?performance.now()-lastHitAt:0,lastBatteryStunAgo:lastBatteryStunAt?performance.now()-lastBatteryStunAt:0,batteryStunCooldown:Math.max(0,batteryStunReadyAt-performance.now())},crawler:{active:crawlerActive,triggered:crawlerTriggered,strike:crawlerStrike,t:crawlerT,x:crawler.position.x,y:crawler.position.y,z:crawler.position.z},crewCount:crewMates.length,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,flowSession:flowSession(stage,{objective}),voice:voice.state(),sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],sectionWork:work,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
+  get state(){const stage=(readyToExtract||extracting||won)?'returnExtraction':(restored?'command':'station'); const objective=routeObjectiveText()||(readyToExtract?'bring tapes to the airlock':extracting?'launch return capsule':restored?'secure tapes and restore extraction power':''); const work=sectionWorkState(); const batteryCooldown=Math.max(0,batteryStunReadyAt-performance.now()); return {hidden,mActive,restored,enraged,mechanicalFixed,passwordFound,passwordDoorOpen,laserDeactivated,needValve,valveDone,valveFixing,needBreaker,breakerDone,readyToSend,readyToExtract,extracting,extractWarned,extractedAt,transmitting,won,caught,prompt:promptEl.textContent,scarePulse:scarePulseT,slickLevel,gravityActive,gravityLift,gravityTriggered,medPatches,batteryPacks,signalBoost,battery:{charges:batteryPacks,max:MAX_BATTERY_PACKS,ready:batteryPacks>0&&batteryCooldown<=0,cooldown:batteryCooldown,lastStunAt:lastBatteryStunAt},optionalRewards:{medPatches,batteryPacks,signalBoost,rewardDone:work.rewardDone,rewardTotal:work.rewardTotal},damageFeedback:{lastHitAt,patchConsumedAt,lastBatteryStunAt,lastHitAgo:lastHitAt?performance.now()-lastHitAt:0,lastBatteryStunAgo:lastBatteryStunAt?performance.now()-lastBatteryStunAt:0,batteryStunCooldown:batteryCooldown},crawler:{active:crawlerActive,triggered:crawlerTriggered,strike:crawlerStrike,t:crawlerT,x:crawler.position.x,y:crawler.position.y,z:crawler.position.z},crewCount:crewMates.length,crewSummary:CREW_SUMMARY,seatOwnership:SEAT_OWNERSHIP,flowSession:flowSession(stage,{objective}),voice:voice.state(),sideRoutes:SIDE_ROUTES.map(r=>r.id),sideDone:[...sideDone],sectionWork:work,liveCrew:crewMates.map(c=>({name:c.name,remote:!!c.livePeerId,peerId:c.livePeerId||''})),multiplayer:MULTI.state(),remotePoses:MULTI.remotePoses(),director:{mode:director.mode,suspicion:Math.round(director.suspicion),reason:director.reason}};},
   smoke:SMOKE_MODE?{
     forceThreat(){director.hear(camera.position,80,'smoke-threat'); mob.position.set(camera.position.x,0,camera.position.z-6); noisyUntil=performance.now()+2200;},
     forceSearchLocker(){const h=hideSpots[0]; if(!h)return; activeHide=h; hidden=true; camera.position.copy(h.pos); director.hear(h.exit,82,'smoke-locker'); director.inspectHide=h; director.mode='search'; director.searchT=2.8;},
