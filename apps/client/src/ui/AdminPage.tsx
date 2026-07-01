@@ -764,6 +764,9 @@ export function AdminPage() {
     : panelStats[tab] ?? { total: 0, approved: 0, generated: 0, missing: 0, stale: 0 };
   const currentTab = ADMIN_TABS.find((item) => item.id === tab) ?? ADMIN_TABS[0]!;
   const needsWork = visibleStats.missing + visibleStats.stale;
+  const sidebarSummary = assetTab
+    ? `${filtered.length} visible`
+    : `${visibleStats.approved} playable`;
 
   const updatePanelStats = useCallback((nextTab: AdminTab, stats: PanelStats): void => {
     setPanelStats((current) => ({ ...current, [nextTab]: stats }));
@@ -1119,13 +1122,13 @@ export function AdminPage() {
   return (
     <main className="admin">
       <aside className="admin-sidebar" aria-label="Admin navigation">
-        <div>
+        <div className="admin-sidebar__mast">
           <a className="admin-brand" href="/">
             <span className="nav__mark" aria-hidden="true" />
             SIGNAL LOST
           </a>
           <div className="admin-sidebar__title">
-            <span>Admin console</span>
+            <span>Admin</span>
             <strong>Forge Control</strong>
           </div>
         </div>
@@ -1150,16 +1153,11 @@ export function AdminPage() {
           ))}
         </nav>
 
-        <div className="admin-sidebar__summary">
-          <span>Current page</span>
+        <div className="admin-sidebar__summary" aria-label="Current section summary">
+          <span>{currentTab.label}</span>
           <strong>{visibleStats.total}</strong>
-          <p>{needsWork ? `${needsWork} need work` : 'Nothing blocking'}</p>
+          <p>{needsWork ? `${needsWork} need work` : sidebarSummary}</p>
         </div>
-
-        <figure className="admin-sidebar__art">
-          <img src={heroImage} alt="" />
-          <figcaption>Published landing hero</figcaption>
-        </figure>
       </aside>
 
       <section className="admin-main">
@@ -1194,11 +1192,11 @@ export function AdminPage() {
                 <option value="stale">Stale</option>
               </select>
             </label>
+            <span className="admin-result">{filtered.length} of {assets.length}</span>
             <div className="admin-toolbar__actions">
               <button className="admin-export" type="button" onClick={() => void refreshManifest()}>Refresh files</button>
               <button className="admin-export" type="button" onClick={() => setToast(`Export prepared for ${filtered.length} ${tab} assets.`)}>Export JSON</button>
             </div>
-            <span className="admin-result">{filtered.length} of {assets.length} {tab} assets</span>
           </div>
         </section>
       ) : null}
